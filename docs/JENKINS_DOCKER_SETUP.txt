@@ -1,0 +1,119 @@
+JENKINS IN DOCKER - MAKAN SOCIETY SETUP
+=======================================
+
+This guide is for running Jenkins inside Docker, not as a Windows service.
+
+The updated Jenkinsfile now expects:
+
+- Jenkins workspace inside Linux container
+- Docker CLI available inside Jenkins container
+- Docker socket mounted into Jenkins container
+- production env file stored at:
+  /var/jenkins_home/deploy-config/makan-society.env
+
+
+1. REQUIRED JENKINS CONTAINER SHAPE
+===================================
+
+Jenkins container must have:
+
+- docker CLI installed
+- docker socket mounted:
+  /var/run/docker.sock:/var/run/docker.sock
+- persistent Jenkins home mounted:
+  /var/jenkins_home
+
+If Docker socket is not mounted, Jenkins cannot run docker compose.
+
+
+2. ENV FILE LOCATION FOR DEPLOYMENT
+===================================
+
+The pipeline copies the real env file from:
+
+/var/jenkins_home/deploy-config/makan-society.env
+
+to:
+
+/var/jenkins_home/deploy/makan-society/.env
+
+So you must create this file once inside Jenkins persistent storage.
+
+
+3. CREATE THE DEPLOY ENV FILE
+=============================
+
+If your Jenkins container name is, for example, jenkins, run:
+
+docker exec -it jenkins sh
+
+Then inside the container:
+
+mkdir -p /var/jenkins_home/deploy-config
+cat > /var/jenkins_home/deploy-config/makan-society.env
+
+Paste env values, then save.
+
+Example:
+
+MSSQL_SA_PASSWORD=YourStrongPasswordHere
+MSSQL_DB=SocietyApp
+MSSQL_HOST=mssql
+MSSQL_PORT=1433
+MSSQL_USER=sa
+REDIS_URL=redis://redis:6379/0
+API_HOST=0.0.0.0
+API_PORT=8000
+JWT_SECRET_KEY=replace-this-with-a-long-random-secret
+VITE_API_BASE_URL=http://localhost:8000
+SMS_PROVIDER_MODE=simulated
+BULKSMSBD_API_KEY=
+BULKSMSBD_SENDER_ID=
+BULKSMSBD_BASE_URL=https://bulksmsbd.net/api/
+BULKSMSBD_TIMEOUT_SECONDS=15
+BULKSMSBD_ENABLED=false
+BULKSMSBD_DRY_RUN=true
+
+
+4. HOW THE PIPELINE WORKS NOW
+=============================
+
+On each build, Jenkins will:
+
+1. checkout the repo
+2. copy repo files to:
+   /var/jenkins_home/deploy/makan-society
+3. copy:
+   /var/jenkins_home/deploy-config/makan-society.env
+   to:
+   /var/jenkins_home/deploy/makan-society/.env
+4. run:
+   docker compose -f docker-compose.deploy.yml up -d --build
+5. run health checks against the api and frontend containers
+
+
+5. JENKINS JOB SETTINGS
+=======================
+
+In Jenkins job:
+
+- Pipeline from SCM
+- Git repo:
+  https://github.com/pulok529/Makan_Society_ReactPython.git
+- Branch:
+  */main
+- Script path:
+  Jenkinsfile
+
+If you do not have public IP:
+
+- enable Poll SCM
+- schedule:
+  H/2 * * * *
+
+
+6. IMPORTANT
+============
+
+This Jenkinsfile is now for Docker-based Jenkins on Linux container paths.
+It is no longer the Windows-host PowerShell version.

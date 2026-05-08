@@ -7,7 +7,8 @@ pipeline {
   }
 
   environment {
-    DEPLOY_DIR = 'C:\\deploy\\makan-society'
+    DEPLOY_ROOT = '/var/jenkins_home/deploy/makan-society'
+    ENV_SOURCE = '/var/jenkins_home/deploy-config/makan-society.env'
     COMPOSE_FILE = 'docker-compose.deploy.yml'
   }
 
@@ -20,40 +21,45 @@ pipeline {
 
     stage('Prepare Deploy Folder') {
       steps {
-        powershell '''
-          $ErrorActionPreference = "Stop"
-          if (!(Test-Path "$env:DEPLOY_DIR")) {
-            New-Item -ItemType Directory -Force -Path "$env:DEPLOY_DIR" | Out-Null
-          }
-          robocopy "$env:WORKSPACE" "$env:DEPLOY_DIR" /MIR /XD ".git" "node_modules" "client-deployment-output" | Out-Null
-          if (!(Test-Path "$env:DEPLOY_DIR\\.env")) {
-            throw "Deployment .env file is missing at $env:DEPLOY_DIR\\.env"
-          }
+        sh '''
+          set -eu
+          mkdir -p "$(dirname "$DEPLOY_ROOT")"
+          rm -rf "$DEPLOY_ROOT"
+          mkdir -p "$DEPLOY_ROOT"
+          cp -a "$WORKSPACE"/. "$DEPLOY_ROOT"/
+
+          if [ ! -f "$ENV_SOURCE" ]; then
+            echo "Deployment env file is missing at $ENV_SOURCE"
+            exit 1
+          fi
+
+          cp "$ENV_SOURCE" "$DEPLOY_ROOT/.env"
         '''
       }
     }
 
     stage('Build And Deploy') {
       steps {
-        powershell '''
-          $ErrorActionPreference = "Stop"
-          Set-Location "$env:DEPLOY_DIR"
-          docker compose -f "$env:COMPOSE_FILE" up -d --build
+        sh '''
+          set -eu
+          cd "$DEPLOY_ROOT"
+          docker compose -f "$COMPOSE_FILE" up -d --build
         '''
       }
     }
 
     stage('Health Check') {
       steps {
-        powershell '''
-          $ErrorActionPreference = "Stop"
-          Start-Sleep -Seconds 10
-          $api = Invoke-WebRequest -Uri "http://localhost:8000/docs" -UseBasicParsing -TimeoutSec 20
-          $web = Invoke-WebRequest -Uri "http://localhost:5173" -UseBasicParsing -TimeoutSec 20
-          if ($api.StatusCode -ne 200) { throw "API health check failed" }
-          if ($web.StatusCode -ne 200) { throw "Frontend health check failed" }
-          Set-Location "$env:DEPLOY_DIR"
-          docker compose -f "$env:COMPOSE_FILE" ps
+        sh '''
+          set -eu
+          sleep 10
+          cd "$DEPLOY_ROOT"
+          docker compose -f "$COMPOSE_FILE" ps
+          docker exec society-modern-api python - <<'PY'
+import urllib.request
+urllib.request.urlopen("http://localhost:8000/docs", timeout=20).read()
+PY
+          docker exec society-modern-frontend node -e "fetch('http://localhost:5173').then(r=>{if(!r.ok) process.exit(1)}).catch(()=>process.exit(1))"
         '''
       }
     }
