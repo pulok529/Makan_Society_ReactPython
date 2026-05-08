@@ -9,7 +9,7 @@ class MemberRepository:
         self.db = db
 
     def list_members(self, search: str | None = None) -> list[Member]:
-        statement = select(Member).order_by(Member.full_name.asc())
+        statement = select(Member).order_by(Member.member_code.asc(), Member.full_name.asc())
         if search:
             pattern = f"%{search.strip()}%"
             statement = statement.where(

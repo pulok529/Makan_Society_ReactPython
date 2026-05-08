@@ -57,7 +57,7 @@ class MessagingRepository:
         return self.db.get(Member, member_id)
 
     def list_members(self) -> list[Member]:
-        return list(self.db.scalars(select(Member).order_by(Member.full_name.asc())))
+        return list(self.db.scalars(select(Member).order_by(Member.member_code.asc(), Member.full_name.asc())))
 
     def count_templates(self) -> int:
         return int(self.db.scalar(select(func.count()).select_from(SmsTemplate)) or 0)

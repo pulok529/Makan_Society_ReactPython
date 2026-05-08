@@ -9,6 +9,7 @@ class ReportFilter(BaseModel):
     member_id: int | None = None
     category_id: int | None = None
     billing_period_id: int | None = None
+    plot_no: str | None = None
 
 
 class DueMemberRow(BaseModel):
@@ -57,6 +58,51 @@ class MemberRegisterRow(BaseModel):
     joined_on: date | None
     is_active: bool
     active_package_name: str | None
+
+
+class TotalCollectionRow(BaseModel):
+    member_id: int
+    member_code: str
+    member_name: str
+    plot_no: str | None
+    total_collection_amount: float
+
+
+class TotalDueRow(BaseModel):
+    member_id: int
+    member_code: str
+    member_name: str
+    plot_no: str | None
+    total_due_amount: float
+
+
+class SingleMemberBillingHistoryRow(BaseModel):
+    invoice_no: str
+    invoice_date: date
+    total_bill: float
+    paid_amount: float
+    due_amount: float
+    status: str
+
+
+class SingleMemberPaymentHistoryRow(BaseModel):
+    receipt_no: str
+    payment_date: date
+    amount: float
+    discount_amount: float
+    notes: str | None
+
+
+class SingleMemberStatementReport(BaseModel):
+    member_id: int
+    member_code: str
+    member_name: str
+    plot_no: str | None
+    total_bill: float
+    paid_amount: float
+    due_amount: float
+    billing_history: list[SingleMemberBillingHistoryRow]
+    payment_history: list[SingleMemberPaymentHistoryRow]
 
 
 class ReceiptDetailLine(BaseModel):

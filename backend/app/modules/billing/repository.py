@@ -136,15 +136,29 @@ class BillingRepository:
             .join(Charge, Charge.member_id == Member.id)
             .group_by(Member.id, Member.member_code, Member.full_name)
             .having(func.coalesce(func.sum(Charge.due_amount), 0) > 0)
-            .order_by(func.coalesce(func.sum(Charge.due_amount), 0).desc(), Member.full_name.asc())
+            .order_by(Member.member_code.asc(), Member.full_name.asc())
         )
         return [tuple(row) for row in self.db.execute(statement).all()]
 
     def list_billing_heads(self, active_only: bool = False) -> list[BillingHead]:
-        statement = select(BillingHead).order_by(BillingHead.head_name.asc())
+        sequence = {
+            "Monthly Subscription": 1,
+            "Registration Fee": 2,
+            "Other Charges": 3,
+            "Electric Service": 4,
+            "Development Charge": 5,
+        }
+        heads = list(self.db.scalars(select(BillingHead)))
         if active_only:
-            statement = statement.where(BillingHead.is_active == True)  # noqa: E712
-        return list(self.db.scalars(statement))
+            heads = [head for head in heads if head.is_active]
+        return sorted(
+            heads,
+            key=lambda head: (
+                sequence.get(head.head_name, 99),
+                head.head_name.lower(),
+                head.id,
+            ),
+        )
 
     def get_billing_head(self, head_id: int) -> BillingHead | None:
         return self.db.get(BillingHead, head_id)

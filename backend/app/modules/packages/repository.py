@@ -9,7 +9,7 @@ class PackageRepository:
         self.db = db
 
     def list_packages(self) -> list[Package]:
-        statement = select(Package).order_by(Package.name.asc())
+        statement = select(Package).order_by(Package.id.asc(), Package.name.asc())
         return list(self.db.scalars(statement))
 
     def get_by_name(self, name: str) -> Package | None:

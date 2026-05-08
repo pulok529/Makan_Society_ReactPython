@@ -23,6 +23,7 @@ class PackageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    package_code: str
     category_id: int
     category_name: str
     name: str

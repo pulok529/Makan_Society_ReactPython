@@ -52,6 +52,7 @@ class MemberUpdate(BaseModel):
     joined_on: date | None = None
     is_active: bool = True
     nominee: MemberNomineePayload | None = None
+    package_id: int | None = None
 
 
 class MemberPackageAssignmentRead(BaseModel):
@@ -86,6 +87,7 @@ class MemberDetailRead(BaseModel):
     created_at: datetime
     nominee_name: str | None
     nominee_cell: str | None
+    active_package_id: int | None
     packages: list[MemberPackageAssignmentRead]
 
 

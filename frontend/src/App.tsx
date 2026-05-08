@@ -30,6 +30,7 @@ type Category = {
 
 type Package = {
   id: number;
+  package_code: string;
   category_id: number;
   category_name: string;
   name: string;
@@ -81,6 +82,7 @@ type MemberDetail = {
   created_at: string;
   nominee_name: string | null;
   nominee_cell: string | null;
+  active_package_id: number | null;
   packages: MemberPackageAssignment[];
 };
 
@@ -281,6 +283,31 @@ type ReportEnvelope = {
   row_count: number;
   totals: Record<string, number | string>;
   rows: Record<string, unknown>[];
+};
+
+type SingleMemberStatementReport = {
+  member_id: number;
+  member_code: string;
+  member_name: string;
+  plot_no: string | null;
+  total_bill: number;
+  paid_amount: number;
+  due_amount: number;
+  billing_history: {
+    invoice_no: string;
+    invoice_date: string;
+    total_bill: number;
+    paid_amount: number;
+    due_amount: number;
+    status: string;
+  }[];
+  payment_history: {
+    receipt_no: string;
+    payment_date: string;
+    amount: number;
+    discount_amount: number;
+    notes: string | null;
+  }[];
 };
 
 type ReceiptDetailReport = {
@@ -709,6 +736,7 @@ export function App() {
   const [incomeExpenseReport, setIncomeExpenseReport] = useState<IncomeExpenseComparisonReport | null>(null);
   const [currentReport, setCurrentReport] = useState<ReportEnvelope | null>(null);
   const [receiptReport, setReceiptReport] = useState<ReceiptDetailReport | null>(null);
+  const [memberStatementReport, setMemberStatementReport] = useState<SingleMemberStatementReport | null>(null);
   const [smsTemplates, setSmsTemplates] = useState<SmsTemplate[]>([]);
   const [smsMessages, setSmsMessages] = useState<SmsMessage[]>([]);
   const [smsAttempts, setSmsAttempts] = useState<SmsAttempt[]>([]);
@@ -729,12 +757,18 @@ export function App() {
   const [packagePageMode, setPackagePageMode] = useState<"view" | "entry">("view");
   const [editingPackageId, setEditingPackageId] = useState<number | null>(null);
   const [memberCode, setMemberCode] = useState("");
-  const [memberIdText, setMemberIdText] = useState("");
   const [memberName, setMemberName] = useState("");
+  const [memberFatherName, setMemberFatherName] = useState("");
+  const [memberMotherName, setMemberMotherName] = useState("");
   const [memberCell, setMemberCell] = useState("");
   const [memberEmail, setMemberEmail] = useState("");
+  const [memberPresentAddress, setMemberPresentAddress] = useState("");
+  const [memberPermanentAddress, setMemberPermanentAddress] = useState("");
+  const [memberNationalId, setMemberNationalId] = useState("");
+  const [memberPlotNo, setMemberPlotNo] = useState("");
   const [memberCategoryId, setMemberCategoryId] = useState("");
   const [memberClass, setMemberClass] = useState("");
+  const [memberPackageId, setMemberPackageId] = useState("");
   const [memberJoinDate, setMemberJoinDate] = useState("");
   const [memberIsActive, setMemberIsActive] = useState(true);
   const [memberPageMode, setMemberPageMode] = useState<"view" | "entry">("view");
@@ -773,6 +807,7 @@ export function App() {
   const [lastGeneratedInvoice, setLastGeneratedInvoice] = useState<BillingInvoice | null>(null);
   const [invoiceReport, setInvoiceReport] = useState<BillingInvoice | null>(null);
   const [showInvoiceReport, setShowInvoiceReport] = useState(false);
+  const [showReportViewer, setShowReportViewer] = useState(false);
   const [showPreviousBills, setShowPreviousBills] = useState(false);
   const [manualBillingHeadId, setManualBillingHeadId] = useState("");
   const [manualBillingPeriod, setManualBillingPeriod] = useState(new Date().toISOString().slice(0, 7));
@@ -801,6 +836,7 @@ export function App() {
   const [reportFromDate, setReportFromDate] = useState("");
   const [reportToDate, setReportToDate] = useState("");
   const [reportReceiptId, setReportReceiptId] = useState("");
+  const [reportPlotNo, setReportPlotNo] = useState("");
   const [smsTemplateName, setSmsTemplateName] = useState("");
   const [smsTemplateType, setSmsTemplateType] = useState("");
   const [smsTemplateBody, setSmsTemplateBody] = useState("");
@@ -946,6 +982,11 @@ export function App() {
       })),
     [members],
   );
+  const memberClassOptions = useMemo(() => {
+    const values = new Set<string>(["General", "Owner", "Tenant"]);
+    if (memberClass.trim()) values.add(memberClass.trim());
+    return [...values].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [memberClass]);
   const billingLineKey = (line: BillingDueLine, index: number) => `${line.billing_head_id}-${line.period_date ?? "one"}-${index}`;
   const billingSelectedLines = useMemo(
     () =>
@@ -1049,8 +1090,9 @@ export function App() {
     if (reportMemberId) params.set("member_id", reportMemberId);
     if (reportCategoryId) params.set("category_id", reportCategoryId);
     if (reportPeriodId) params.set("billing_period_id", reportPeriodId);
+    if (reportPlotNo.trim()) params.set("plot_no", reportPlotNo.trim());
     return params.toString();
-  }, [reportCategoryId, reportFromDate, reportMemberId, reportPeriodId, reportToDate]);
+  }, [reportCategoryId, reportFromDate, reportMemberId, reportPeriodId, reportPlotNo, reportToDate]);
 
   const monthlyCollection = useMemo(() => {
     const totals = new Array(12).fill(0) as number[];
@@ -1473,12 +1515,18 @@ export function App() {
   function resetMemberForm() {
     setEditingMemberId(null);
     setMemberCode("");
-    setMemberIdText("");
     setMemberName("");
+    setMemberFatherName("");
+    setMemberMotherName("");
     setMemberCell("");
     setMemberEmail("");
+    setMemberPresentAddress("");
+    setMemberPermanentAddress("");
+    setMemberNationalId("");
+    setMemberPlotNo("");
     setMemberCategoryId("");
-    setMemberClass("");
+    setMemberClass("General");
+    setMemberPackageId("");
     setMemberJoinDate("");
     setMemberIsActive(true);
     setNomineeName("");
@@ -1497,12 +1545,18 @@ export function App() {
     const detail = await apiRequest<MemberDetail>(`/api/members/${member.id}`, accessToken);
     setEditingMemberId(detail.id);
     setMemberCode(detail.member_code);
-    setMemberIdText(detail.member_id_text ?? "");
     setMemberName(detail.full_name);
+    setMemberFatherName(detail.father_name ?? "");
+    setMemberMotherName(detail.mother_name ?? "");
     setMemberCell(detail.cell_no ?? "");
     setMemberEmail(detail.email ?? "");
+    setMemberPresentAddress(detail.present_address ?? "");
+    setMemberPermanentAddress(detail.permanent_address ?? "");
+    setMemberNationalId(detail.national_id ?? "");
+    setMemberPlotNo((detail.member_id_text ?? "").replace(/^Reg-/i, ""));
     setMemberCategoryId(detail.category_id ? String(detail.category_id) : "");
-    setMemberClass(detail.member_class ?? "");
+    setMemberClass(detail.member_class ?? "General");
+    setMemberPackageId(detail.active_package_id ? String(detail.active_package_id) : "");
     setMemberJoinDate(detail.joined_on ?? "");
     setMemberIsActive(detail.is_active);
     setNomineeName(detail.nominee_name ?? "");
@@ -1565,20 +1619,46 @@ export function App() {
     event.preventDefault();
     const accessToken = token();
     if (!accessToken) return;
+    const normalizedPlotNo = memberPlotNo.trim().replace(/^Reg-/i, "");
+    const normalizedPhone = memberCell.trim();
+    const normalizedNomineePhone = nomineeCell.trim();
+    if (normalizedPhone && !/^\d+$/.test(normalizedPhone)) {
+      setMessage("Phone number must contain digits only.");
+      return;
+    }
+    if (normalizedNomineePhone && !/^\d+$/.test(normalizedNomineePhone)) {
+      setMessage("Nominee phone number must contain digits only.");
+      return;
+    }
     setIsSubmitting(true);
     try {
       const wasEditing = editingMemberId !== null;
       const payload = {
         member_code: memberCode,
-        member_id_text: memberIdText || null,
+        member_id_text: `Reg-${normalizedPlotNo}`,
         full_name: memberName,
-        cell_no: memberCell || null,
+        father_name: memberFatherName || null,
+        mother_name: memberMotherName || null,
+        present_address: memberPresentAddress || null,
+        permanent_address: memberPermanentAddress || null,
+        cell_no: normalizedPhone || null,
         email: memberEmail || null,
+        national_id: memberNationalId || null,
         category_id: memberCategoryId ? Number(memberCategoryId) : null,
         member_class: memberClass || null,
         joined_on: memberJoinDate || null,
         is_active: memberIsActive,
-        nominee: nomineeName || nomineeCell ? { nominee_name: nomineeName || null, nominee_cell: nomineeCell || null } : null,
+        nominee: nomineeName || normalizedNomineePhone ? { nominee_name: nomineeName || null, nominee_cell: normalizedNomineePhone || null } : null,
+        ...(editingMemberId
+          ? { package_id: memberPackageId ? Number(memberPackageId) : null }
+          : {
+              initial_package: {
+                package_id: Number(memberPackageId),
+                assigned_on: memberJoinDate,
+                ended_on: null,
+                is_active: true,
+              },
+            }),
       };
       const saved = await apiRequest<MemberDetail>(editingMemberId ? `/api/members/${editingMemberId}` : "/api/members", accessToken, {
         method: editingMemberId ? "PUT" : "POST",
@@ -1928,6 +2008,422 @@ export function App() {
     }
   }
 
+  function formatReportCell(key: string, value: unknown) {
+    if (value === null || value === undefined || value === "") return "";
+    const lowerKey = key.toLowerCase();
+    if (
+      typeof value === "number" &&
+      ["amount", "bill", "paid", "due", "collection", "discount", "subtotal", "total", "net"].some((token) => lowerKey.includes(token))
+    ) {
+      return money(value);
+    }
+    if (typeof value === "number") {
+      return Number.isInteger(value) ? String(value) : value.toFixed(2);
+    }
+    if (typeof value === "string" && lowerKey.includes("date") && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+      return shortDate(value);
+    }
+    return String(value);
+  }
+
+  function reportViewerTitle() {
+    if (memberStatementReport) return `Member Statement - ${memberStatementReport.member_code}`;
+    if (receiptReport) return `Receipt Detail - ${receiptReport.receipt_no}`;
+    if (incomeExpenseReport) return "Income And Expense Report";
+    if (currentReport) return currentReport.title;
+    return "Report Viewer";
+  }
+
+  function reportViewerSubtitle() {
+    if (memberStatementReport) {
+      return `${memberStatementReport.member_name}${memberStatementReport.plot_no ? ` | Plot ${memberStatementReport.plot_no}` : ""}`;
+    }
+    if (receiptReport) return shortDate(receiptReport.payment_date);
+    if (incomeExpenseReport) return `${incomeExpenseReport.from_date ?? "Start"} to ${incomeExpenseReport.to_date ?? "Today"}`;
+    if (currentReport) return `${currentReport.row_count} row${currentReport.row_count === 1 ? "" : "s"} generated`;
+    return "";
+  }
+
+  function printReportViewer() {
+    const printArea = document.getElementById("report-viewer-print-area");
+    if (!printArea) {
+      setMessage("Load a report first.");
+      return;
+    }
+    const printWindow = window.open("about:blank", "_blank", "width=980,height=720");
+    if (!printWindow) {
+      setMessage("Allow browser popups to print the report.");
+      return;
+    }
+    const title = reportViewerTitle();
+    printWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>${title}</title>
+          <base href="${window.location.origin}" />
+          <style>
+            * { box-sizing: border-box; }
+            body { margin: 0; background: #fff; color: #111827; font-family: Arial, Helvetica, sans-serif; font-size: 13px; }
+            .sheet { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 16mm 14mm; }
+            .report-logo { display: block; width: 100%; max-height: 118px; object-fit: contain; margin-bottom: 14px; }
+            .invoice-report-sheet, .report-sheet { width: 100%; }
+            .invoice-report-header, .report-sheet-header { border-bottom: 2px solid #111827; padding-bottom: 18px; margin-bottom: 18px; }
+            .invoice-report-meta, .report-meta, .report-summary-grid, .invoice-report-summary, .invoice-report-signatures, .report-filter-grid { display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+            .report-filter-grid { margin: 14px 0 18px; }
+            .report-meta-card, .statement-summary-card, .invoice-report-note { flex: 1 1 180px; border: 1px solid #e5e7eb; background: #f8fafc; padding: 12px 14px; border-radius: 8px; }
+            .statement-summary-card strong, .report-meta-card strong { display: block; font-size: 18px; margin-top: 6px; }
+            .invoice-report-totals, .statement-summary-card.highlight { border: 1px solid #dbeafe; background: #eff6ff; }
+            table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+            th, td { border: 1px solid #d1d5db; padding: 8px; vertical-align: top; text-align: left; }
+            th { background: #eef2f7; }
+            .text-end, .right { text-align: right; }
+            .text-muted, .muted { color: #6b7280; }
+            .badge { display: inline-block; padding: 5px 10px; border-radius: 4px; font-weight: 700; }
+            .bg-success-subtle { background: #dcfce7; }
+            .text-success { color: #166534; }
+            .bg-warning-subtle { background: #fef3c7; }
+            .text-warning { color: #92400e; }
+            .bg-info-subtle { background: #dbeafe; }
+            .text-info { color: #1d4ed8; }
+            .report-panel { border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; margin-top: 16px; }
+            .report-panel.income { background: #f0fdf4; }
+            .report-panel.expense { background: #fef2f2; }
+            .net-banner { margin-top: 16px; padding: 12px 16px; border-radius: 10px; font-weight: 700; display: flex; justify-content: space-between; }
+            .net-banner.positive { background: #dcfce7; color: #166534; }
+            .net-banner.negative { background: #fee2e2; color: #991b1b; }
+            @page { size: A4; margin: 0; }
+          </style>
+        </head>
+        <body>
+          <main class="sheet">${printArea.innerHTML}</main>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    window.setTimeout(() => printWindow.print(), 180);
+  }
+
+  function renderReportEnvelopeContent(report: ReportEnvelope) {
+    const columns = report.rows.length > 0 ? Object.keys(report.rows[0]) : [];
+    return (
+      <div className="report-sheet">
+        <div className="report-sheet-header">
+          <img src="/makan-logo-3.png" alt="Darul Mohan Plot Owners Society" className="report-header-logo" />
+          <div className="d-flex justify-content-between gap-3">
+            <div>
+              <div className="fw-semibold">Report Viewer</div>
+              <div className="text-muted">Makan Society</div>
+            </div>
+            <div className="text-end">
+              <h3 className="invoice-report-title mb-1">{report.title}</h3>
+              <div className="text-muted">Generated {shortDate(report.generated_at)}</div>
+            </div>
+          </div>
+        </div>
+        <div className="report-filter-grid">
+          <div className="report-meta-card">
+            <span className="text-muted d-block">Report Type</span>
+            <strong>{report.report_type}</strong>
+          </div>
+          <div className="report-meta-card">
+            <span className="text-muted d-block">Rows</span>
+            <strong>{report.row_count}</strong>
+          </div>
+          {Object.entries(report.totals).map(([key, value]) => (
+            <div className="report-meta-card" key={key}>
+              <span className="text-muted d-block text-capitalize">{key.replace(/_/g, " ")}</span>
+              <strong>{formatReportCell(key, value)}</strong>
+            </div>
+          ))}
+        </div>
+        <div className="table-responsive">
+          {report.rows.length > 0 ? (
+            <table className="table table-bordered invoice-report-table mb-0">
+              <thead>
+                <tr>
+                  {columns.map((column) => (
+                    <th key={column}>{column.replace(/_/g, " ")}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {report.rows.map((row, index) => (
+                  <tr key={`${report.report_type}-${index}`}>
+                    {columns.map((column) => (
+                      <td
+                        className={["amount", "bill", "paid", "due", "collection", "discount", "subtotal", "total", "net"].some((token) => column.toLowerCase().includes(token)) ? "text-end" : ""}
+                        key={`${report.report_type}-${index}-${column}`}
+                      >
+                        {formatReportCell(column, row[column])}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <EmptyState label="No rows returned for this filter." />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function renderReceiptReportContent(report: ReceiptDetailReport) {
+    return (
+      <div className="report-sheet">
+        <div className="report-sheet-header">
+          <img src="/makan-logo-3.png" alt="Darul Mohan Plot Owners Society" className="report-header-logo" />
+          <div className="d-flex justify-content-between gap-3">
+            <div>
+              <div className="fw-semibold">Money Receipt Detail</div>
+              <div className="text-muted">Makan Society</div>
+            </div>
+            <div className="text-end">
+              <h3 className="invoice-report-title mb-1">Receipt</h3>
+              <div className="fw-semibold">{report.receipt_no}</div>
+            </div>
+          </div>
+        </div>
+        <div className="report-summary-grid">
+          {[
+            ["Member Name", report.member_name ?? "Unknown"],
+            ["Member Code", report.member_code ?? "Unknown"],
+            ["Payment Date", shortDate(report.payment_date)],
+            ["Subtotal", money(report.subtotal_amount)],
+            ["Discount", money(report.discount_amount)],
+            ["Collected", money(report.total_amount)],
+          ].map(([label, value]) => (
+            <div className="statement-summary-card" key={label}>
+              <span className="text-muted d-block">{label}</span>
+              <strong>{value}</strong>
+            </div>
+          ))}
+        </div>
+        <div className="table-responsive">
+          <table className="table table-bordered invoice-report-table mb-0">
+            <thead>
+              <tr>
+                <th>Line Type</th>
+                <th>Charge ID</th>
+                <th className="text-end">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.lines.map((line, index) => (
+                <tr key={`${line.charge_id ?? "line"}-${index}`}>
+                  <td>{line.line_type}</td>
+                  <td>{line.charge_id ?? "N/A"}</td>
+                  <td className="text-end">{money(line.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  function renderIncomeExpenseReportContent(report: IncomeExpenseComparisonReport) {
+    return (
+      <div className="report-sheet">
+        <div className="report-sheet-header">
+          <img src="/makan-logo-3.png" alt="Darul Mohan Plot Owners Society" className="report-header-logo" />
+          <div className="d-flex justify-content-between gap-3">
+            <div>
+              <div className="fw-semibold">Income And Expense Statement</div>
+              <div className="text-muted">Makan Society</div>
+            </div>
+            <div className="text-end">
+              <h3 className="invoice-report-title mb-1">Summary</h3>
+              <div className="text-muted">{report.from_date ?? "Start"} to {report.to_date ?? "Today"}</div>
+            </div>
+          </div>
+        </div>
+        <div className="row g-3">
+          {(["income", "expense"] as const).map((section) => {
+            const data = report[section];
+            return (
+              <div className="col-xl-6" key={section}>
+                <div className={section === "income" ? "report-panel income" : "report-panel expense"}>
+                  <h5 className="text-capitalize">{section}</h5>
+                  <table className="table table-bordered table-sm mb-0">
+                    <thead>
+                      <tr>
+                        <th>COA</th>
+                        <th className="text-end">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.rows.map((row, index) => (
+                        <tr key={`${section}-${index}`}>
+                          <td>{String(row.coa_name ?? "")}</td>
+                          <td className="text-end">{money(Number(row.amount ?? 0))}</td>
+                        </tr>
+                      ))}
+                      <tr className="fw-bold">
+                        <td>Subtotal</td>
+                        <td className="text-end">{money(data.subtotal)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className={report.net_amount >= 0 ? "net-banner positive" : "net-banner negative"}>
+          <span>Net Income - Expense</span>
+          <strong>{money(report.net_amount)}</strong>
+        </div>
+      </div>
+    );
+  }
+
+  function renderMemberStatementReportContent(report: SingleMemberStatementReport) {
+    return (
+      <div className="report-sheet">
+        <div className="report-sheet-header">
+          <img src="/makan-logo-3.png" alt="Darul Mohan Plot Owners Society" className="report-header-logo" />
+          <div className="d-flex justify-content-between gap-3">
+            <div>
+              <div className="fw-semibold">Single Member Due And Paid Statement</div>
+              <div className="text-muted">Makan Society</div>
+            </div>
+            <div className="text-end">
+              <h3 className="invoice-report-title mb-1">{report.member_code}</h3>
+              <div>{report.member_name}</div>
+              {report.plot_no ? <div className="text-muted">Plot No: {report.plot_no}</div> : null}
+            </div>
+          </div>
+        </div>
+        <div className="report-summary-grid">
+          <div className="statement-summary-card">
+            <span className="text-muted d-block">Total Bill</span>
+            <strong>{money(report.total_bill)}</strong>
+          </div>
+          <div className="statement-summary-card">
+            <span className="text-muted d-block">Paid Amount</span>
+            <strong>{money(report.paid_amount)}</strong>
+          </div>
+          <div className="statement-summary-card highlight">
+            <span className="text-muted d-block">Due Amount</span>
+            <strong>{money(report.due_amount)}</strong>
+          </div>
+        </div>
+        <div className="row g-3 mt-1">
+          <div className="col-xl-6">
+            <div className="card mb-0">
+              <div className="card-header"><h5 className="mb-0">Billing History</h5></div>
+              <div className="card-body p-0">
+                <div className="table-responsive">
+                  <table className="table table-bordered table-sm mb-0">
+                    <thead>
+                      <tr>
+                        <th>Invoice No</th>
+                        <th>Date</th>
+                        <th className="text-end">Bill</th>
+                        <th className="text-end">Paid</th>
+                        <th className="text-end">Due</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.billing_history.map((item) => (
+                        <tr key={item.invoice_no}>
+                          <td>{item.invoice_no}</td>
+                          <td>{shortDate(item.invoice_date)}</td>
+                          <td className="text-end">{money(item.total_bill)}</td>
+                          <td className="text-end">{money(item.paid_amount)}</td>
+                          <td className="text-end">{money(item.due_amount)}</td>
+                          <td>{item.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {report.billing_history.length === 0 ? <EmptyState label="No billing history found." /> : null}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="col-xl-6">
+            <div className="card mb-0">
+              <div className="card-header"><h5 className="mb-0">Payment History</h5></div>
+              <div className="card-body p-0">
+                <div className="table-responsive">
+                  <table className="table table-bordered table-sm mb-0">
+                    <thead>
+                      <tr>
+                        <th>Receipt No</th>
+                        <th>Date</th>
+                        <th className="text-end">Paid</th>
+                        <th className="text-end">Discount</th>
+                        <th>Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.payment_history.map((item) => (
+                        <tr key={item.receipt_no}>
+                          <td>{item.receipt_no}</td>
+                          <td>{shortDate(item.payment_date)}</td>
+                          <td className="text-end">{money(item.amount)}</td>
+                          <td className="text-end">{money(item.discount_amount)}</td>
+                          <td>{item.notes ?? "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {report.payment_history.length === 0 ? <EmptyState label="No payment history found." /> : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderReportViewerContent() {
+    if (memberStatementReport) return renderMemberStatementReportContent(memberStatementReport);
+    if (receiptReport) return renderReceiptReportContent(receiptReport);
+    if (incomeExpenseReport) return renderIncomeExpenseReportContent(incomeExpenseReport);
+    if (currentReport) return renderReportEnvelopeContent(currentReport);
+    return <EmptyState label="Load a report to preview it here." />;
+  }
+
+  function renderReportViewerModal() {
+    if (!showReportViewer) return null;
+    return (
+      <>
+        <div className="modal fade show d-block invoice-report-modal" tabIndex={-1}>
+          <div className="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div className="modal-content">
+              <div className="modal-header invoice-report-actions">
+                <div>
+                  <h5 className="modal-title">{reportViewerTitle()}</h5>
+                  <span className="text-muted">{reportViewerSubtitle()}</span>
+                </div>
+                <div className="d-flex gap-2">
+                  <button className="btn btn-primary" onClick={printReportViewer} type="button">
+                    <i className="ri-printer-line me-1" />
+                    Print
+                  </button>
+                  <button className="btn-close" onClick={() => setShowReportViewer(false)} type="button" />
+                </div>
+              </div>
+              <div className="modal-body invoice-report-print-area">
+                <div id="report-viewer-print-area">{renderReportViewerContent()}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="modal-backdrop fade show invoice-report-actions" />
+      </>
+    );
+  }
+
   function handleAddManualBillingLine() {
     const head = billingHeads.find((item) => item.id === Number(manualBillingHeadId));
     if (!head) {
@@ -2164,8 +2660,17 @@ export function App() {
     event.preventDefault();
     const accessToken = token();
     if (!accessToken) return;
+    if (reportType === "receipt-detail" && !reportReceiptId) {
+      setMessage("Select a receipt first.");
+      return;
+    }
+    if (reportType === "member-statement" && !reportMemberId) {
+      setMessage("Select a member for the single member statement.");
+      return;
+    }
     setIsSubmitting(true);
     try {
+      setShowReportViewer(false);
       if (reportType === "income-expense") {
         const params = new URLSearchParams();
         if (reportFromDate) params.set("from_date", reportFromDate);
@@ -2174,6 +2679,8 @@ export function App() {
         setIncomeExpenseReport(payload);
         setCurrentReport(null);
         setReceiptReport(null);
+        setMemberStatementReport(null);
+        setShowReportViewer(true);
         setMessage("Income expense report loaded.");
         return;
       }
@@ -2181,18 +2688,33 @@ export function App() {
         const payload = await apiRequest<ReceiptDetailReport>(`/api/reports/receipt/${reportReceiptId}`, accessToken);
         setReceiptReport(payload);
         setCurrentReport(null);
+        setIncomeExpenseReport(null);
+        setMemberStatementReport(null);
+        setShowReportViewer(true);
+      } else if (reportType === "member-statement") {
+        const query = reportQueryString ? `?${reportQueryString}` : "";
+        const payload = await apiRequest<SingleMemberStatementReport>(`/api/reports/member-statement${query}`, accessToken);
+        setMemberStatementReport(payload);
+        setCurrentReport(null);
+        setReceiptReport(null);
+        setIncomeExpenseReport(null);
+        setShowReportViewer(true);
       } else {
         const pathMap: Record<string, string> = {
           "due-members": "/api/reports/due-members",
           collections: "/api/reports/collections",
           charges: "/api/reports/charges",
           members: "/api/reports/members",
+          "total-collection": "/api/reports/total-collection",
+          "total-due": "/api/reports/total-due",
         };
         const query = reportQueryString ? `?${reportQueryString}` : "";
         const payload = await apiRequest<ReportEnvelope>(`${pathMap[reportType]}${query}`, accessToken);
         setCurrentReport(payload);
         setReceiptReport(null);
         setIncomeExpenseReport(null);
+        setMemberStatementReport(null);
+        setShowReportViewer(true);
       }
       setMessage("Report loaded.");
     } catch (error) {
@@ -2203,12 +2725,13 @@ export function App() {
   }
 
   function openReportExport(kind: "html" | "xlsx") {
-    if (reportType !== "due-members") {
-      setMessage("HTML and XLSX export are available for due members.");
+    const exportableReports = new Set(["due-members", "collections", "charges", "members", "total-collection", "total-due"]);
+    if (!exportableReports.has(reportType)) {
+      setMessage("This report can be printed from the preview. HTML and XLSX export are available for tabular reports.");
       return;
     }
     const query = reportQueryString ? `?${reportQueryString}` : "";
-    window.open(`${apiBaseUrl}/api/reports/due-members/${kind}${query}`, "_blank", "noopener,noreferrer");
+    window.open(`${apiBaseUrl}/api/reports/${reportType}/${kind}${query}`, "_blank", "noopener,noreferrer");
   }
 
   async function handleSmsTemplateSubmit(event: FormEvent<HTMLFormElement>) {
@@ -2796,7 +3319,7 @@ export function App() {
                       <option value="">Select category</option>
                       {categories.map((category) => (
                         <option key={category.id} value={category.id}>
-                          {category.name}
+                          {category.code ?? "-"} - {category.name}
                         </option>
                       ))}
                     </select>
@@ -2859,6 +3382,7 @@ export function App() {
                 <table className="table table-custom table-centered table-nowrap table-hover mb-0">
                   <thead>
                     <tr>
+                      <th>Code</th>
                       <th>Name</th>
                       <th>Category</th>
                       <th>Type</th>
@@ -2870,6 +3394,7 @@ export function App() {
                   <tbody>
                     {packages.map((item) => (
                       <tr key={item.id}>
+                        <td>{item.package_code}</td>
                         <td>{item.name}</td>
                         <td>{item.category_name}</td>
                         <td>{item.package_type ?? "General"}</td>
@@ -2910,73 +3435,129 @@ export function App() {
               <div className="card-body">
                 <form onSubmit={handleMemberSubmit}>
                   <div className="row">
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">Member Code</label>
-                      <input className="form-control" value={memberCode} onChange={(event) => setMemberCode(event.target.value)} required />
+                    <div className="col-lg-6">
+                      <div className="mb-3">
+                        <label className="form-label">Entry Date</label>
+                        <input className="form-control" type="date" value={memberJoinDate} onChange={(event) => setMemberJoinDate(event.target.value)} required />
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Member Name</label>
+                        <input className="form-control" value={memberName} onChange={(event) => setMemberName(event.target.value)} required />
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Father Name</label>
+                        <input className="form-control" value={memberFatherName} onChange={(event) => setMemberFatherName(event.target.value)} />
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Phone Number</label>
+                        <input
+                          className="form-control"
+                          inputMode="numeric"
+                          pattern="^[0-9]+$"
+                          title="Use digits only."
+                          value={memberCell}
+                          onChange={(event) => setMemberCell(event.target.value.replace(/[^\d]/g, ""))}
+                        />
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Present Address</label>
+                        <textarea className="form-control" rows={3} value={memberPresentAddress} onChange={(event) => setMemberPresentAddress(event.target.value)} required />
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Nominee Name</label>
+                        <input className="form-control" value={nomineeName} onChange={(event) => setNomineeName(event.target.value)} />
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Category</label>
+                        <select className="form-select" value={memberCategoryId} onChange={(event) => setMemberCategoryId(event.target.value)} required>
+                          <option value="">Select category</option>
+                          {categories.map((category) => (
+                            <option key={category.id} value={category.id}>
+                              {category.code ?? "-"} - {category.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Member Category</label>
+                        <select className="form-select" value={memberClass} onChange={(event) => setMemberClass(event.target.value)} required>
+                          <option value="">Select member category</option>
+                          {memberClassOptions.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">ID Text</label>
-                      <input className="form-control" value={memberIdText} onChange={(event) => setMemberIdText(event.target.value)} />
-                    </div>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">Full Name</label>
-                    <input className="form-control" value={memberName} onChange={(event) => setMemberName(event.target.value)} required />
-                  </div>
-                  <div className="row">
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">Cell No</label>
-                      <input className="form-control" value={memberCell} onChange={(event) => setMemberCell(event.target.value)} />
-                    </div>
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">Email</label>
-                      <input className="form-control" type="email" value={memberEmail} onChange={(event) => setMemberEmail(event.target.value)} />
-                    </div>
-                  </div>
-                  <div className="row">
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">Category</label>
-                      <select className="form-select" value={memberCategoryId} onChange={(event) => setMemberCategoryId(event.target.value)}>
-                        <option value="">Select category</option>
-                        {categories.map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">Class</label>
-                      <input className="form-control" value={memberClass} onChange={(event) => setMemberClass(event.target.value)} />
-                    </div>
-                  </div>
-                  <div className="row">
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">Joined On</label>
-                      <input className="form-control" type="date" value={memberJoinDate} onChange={(event) => setMemberJoinDate(event.target.value)} />
-                    </div>
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label d-block">Status</label>
-                      <div className="d-flex gap-3 pt-1">
-                        <div className="form-check">
-                          <input className="form-check-input" checked={memberIsActive} onChange={() => setMemberIsActive(true)} type="radio" id="member-active" />
-                          <label className="form-check-label" htmlFor="member-active">Active</label>
-                        </div>
-                        <div className="form-check">
-                          <input className="form-check-input" checked={!memberIsActive} onChange={() => setMemberIsActive(false)} type="radio" id="member-inactive" />
-                          <label className="form-check-label" htmlFor="member-inactive">Inactive</label>
+                    <div className="col-lg-6">
+                      <div className="mb-3">
+                        <label className="form-label">National ID</label>
+                        <input className="form-control" value={memberNationalId} onChange={(event) => setMemberNationalId(event.target.value)} required />
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Member ID</label>
+                        <input className="form-control" value={memberCode} onChange={(event) => setMemberCode(event.target.value)} required />
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Mother Name</label>
+                        <input className="form-control" value={memberMotherName} onChange={(event) => setMemberMotherName(event.target.value)} />
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">E-mail</label>
+                        <input className="form-control" type="email" value={memberEmail} onChange={(event) => setMemberEmail(event.target.value)} />
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Permanent Address</label>
+                        <textarea className="form-control" rows={3} value={memberPermanentAddress} onChange={(event) => setMemberPermanentAddress(event.target.value)} required />
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Nominee Phone No</label>
+                        <input
+                          className="form-control"
+                          inputMode="numeric"
+                          pattern="^[0-9]+$"
+                          title="Use digits only."
+                          value={nomineeCell}
+                          onChange={(event) => setNomineeCell(event.target.value.replace(/[^\d]/g, ""))}
+                        />
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Package</label>
+                        <select className="form-select" value={memberPackageId} onChange={(event) => setMemberPackageId(event.target.value)} required>
+                          <option value="">Select package</option>
+                          {packages.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.package_code} - {item.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Plot No</label>
+                        <div className="input-group">
+                          <span className="input-group-text">Reg-</span>
+                          <input
+                            className="form-control"
+                            value={memberPlotNo}
+                            onChange={(event) => setMemberPlotNo(event.target.value.replace(/^Reg-/i, ""))}
+                            required
+                          />
                         </div>
                       </div>
                     </div>
                   </div>
-                  <div className="row">
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">Nominee Name</label>
-                      <input className="form-control" value={nomineeName} onChange={(event) => setNomineeName(event.target.value)} />
-                    </div>
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">Nominee Cell</label>
-                      <input className="form-control" value={nomineeCell} onChange={(event) => setNomineeCell(event.target.value)} />
+                  <div className="mb-3">
+                    <label className="form-label d-block">Status</label>
+                    <div className="d-flex gap-3 pt-1">
+                      <div className="form-check">
+                        <input className="form-check-input" checked={memberIsActive} onChange={() => setMemberIsActive(true)} type="radio" id="member-active" />
+                        <label className="form-check-label" htmlFor="member-active">Active</label>
+                      </div>
+                      <div className="form-check">
+                        <input className="form-check-input" checked={!memberIsActive} onChange={() => setMemberIsActive(false)} type="radio" id="member-inactive" />
+                        <label className="form-check-label" htmlFor="member-inactive">Inactive</label>
+                      </div>
                     </div>
                   </div>
                   <div className="d-flex gap-2">
@@ -3069,7 +3650,7 @@ export function App() {
                       <option value="">Select member</option>
                       {members.map((member) => (
                         <option key={member.id} value={member.id}>
-                          {member.full_name}
+                          {member.member_code} - {member.full_name}
                         </option>
                       ))}
                     </select>
@@ -3080,7 +3661,7 @@ export function App() {
                       <option value="">Select package</option>
                       {packages.map((item) => (
                         <option key={item.id} value={item.id}>
-                          {item.name}
+                          {item.package_code} - {item.name}
                         </option>
                       ))}
                     </select>
@@ -4216,6 +4797,9 @@ export function App() {
                   <select className="form-select" value={reportType} onChange={(event) => setReportType(event.target.value)}>
                     <option value="due-members">Due Members</option>
                     <option value="collections">Collections</option>
+                    <option value="total-collection">Total Collection</option>
+                    <option value="total-due">Total Due</option>
+                    <option value="member-statement">Single Member Due & Paid</option>
                     <option value="charges">Charges</option>
                     <option value="members">Members</option>
                     <option value="receipt-detail">Receipt Detail</option>
@@ -4225,10 +4809,10 @@ export function App() {
                 <div className="col-xl-3 col-md-6 mb-3">
                   <label className="form-label">Member</label>
                   <select className="form-select" value={reportMemberId} onChange={(event) => setReportMemberId(event.target.value)}>
-                    <option value="">All members</option>
+                    <option value="">{reportType === "member-statement" ? "Select member" : "All members"}</option>
                     {members.map((member) => (
                       <option key={member.id} value={member.id}>
-                        {member.full_name}
+                        {member.member_code} - {member.full_name}
                       </option>
                     ))}
                   </select>
@@ -4274,6 +4858,16 @@ export function App() {
                     ))}
                   </select>
                 </div>
+                <div className="col-xl-3 col-md-6 mb-3">
+                  <label className="form-label">Plot No</label>
+                  <input
+                    className="form-control"
+                    placeholder="Filter by plot no"
+                    type="text"
+                    value={reportPlotNo}
+                    onChange={(event) => setReportPlotNo(event.target.value)}
+                  />
+                </div>
                 <div className="col-xl-3 col-md-6 mb-3 d-flex align-items-end gap-2">
                   <button className="btn btn-primary" disabled={isSubmitting} type="submit">
                     Load Report
@@ -4289,131 +4883,9 @@ export function App() {
             </form>
           </div>
         </div>
-
-        {currentReport ? (
-          <>
-            <div className="row row-cols-xl-4 row-cols-md-2 row-cols-1">
-              <StatCard title="Report Rows" value={String(currentReport.row_count)} subtitle={currentReport.report_type} icon="ri-file-chart-line" tone="primary" />
-              {Object.entries(currentReport.totals)
-                .slice(0, 3)
-                .map(([key, value]) => (
-                  <StatCard key={key} title={key} value={String(value)} subtitle="Computed total" icon="ri-calculator-line" tone="info" />
-                ))}
-            </div>
-            <div className="card">
-              <div className="card-header">
-                <h4 className="header-title">{currentReport.title}</h4>
-              </div>
-              <div className="card-body p-0">
-                <div className="table-responsive">
-                  {currentReport.rows.length > 0 ? (
-                    <table className="table table-custom table-centered table-sm table-nowrap table-hover mb-0">
-                      <thead>
-                        <tr>
-                          {Object.keys(currentReport.rows[0]).map((key) => (
-                            <th key={key}>{key}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {currentReport.rows.map((row, index) => (
-                          <tr key={index}>
-                            {Object.entries(row).map(([key, value]) => (
-                              <td key={`${index}-${key}`}>{String(value ?? "")}</td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  ) : (
-                    <EmptyState label="No rows returned" />
-                  )}
-                </div>
-              </div>
-            </div>
-          </>
-        ) : null}
-
-        {incomeExpenseReport ? (
-          <div className="card">
-            <div className="card-header d-flex align-items-center justify-content-between">
-              <div>
-                <h4 className="header-title mb-0">Income And Expense Report</h4>
-                <span className="text-muted fs-13">{incomeExpenseReport.from_date ?? "Start"} to {incomeExpenseReport.to_date ?? "Today"}</span>
-              </div>
-              <img src="/makan-logo-3.png" alt="Darul Mohan Plot Owners Society" className="report-header-logo" style={{ maxWidth: 520 }} />
-            </div>
-            <div className="card-body">
-              <div className="row g-3">
-                {(["income", "expense"] as const).map((section) => {
-                  const data = incomeExpenseReport[section];
-                  return (
-                    <div className="col-xl-6" key={section}>
-                      <div className={section === "income" ? "report-panel income" : "report-panel expense"}>
-                        <h5 className="text-capitalize">{section}</h5>
-                        <table className="table table-custom table-sm mb-0">
-                          <thead><tr><th>COA</th><th className="text-end">Amount</th></tr></thead>
-                          <tbody>
-                            {data.rows.map((row, index) => (
-                              <tr key={index}><td>{String(row.coa_name ?? "")}</td><td className="text-end">{money(Number(row.amount ?? 0))}</td></tr>
-                            ))}
-                            <tr className="fw-bold"><td>Subtotal</td><td className="text-end">{money(data.subtotal)}</td></tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className={incomeExpenseReport.net_amount >= 0 ? "alert alert-success mt-3 mb-0" : "alert alert-danger mt-3 mb-0"}>
-                <div className="d-flex justify-content-between"><strong>Net Income - Expense</strong><strong>{money(incomeExpenseReport.net_amount)}</strong></div>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {receiptReport ? (
-          <div className="card">
-            <div className="card-header">
-              <h4 className="header-title">Receipt Detail - {receiptReport.receipt_no}</h4>
-            </div>
-            <div className="card-body">
-              <div className="row">
-                {[
-                  ["Member", receiptReport.member_name ?? "Unknown"],
-                  ["Member Code", receiptReport.member_code ?? "Unknown"],
-                  ["Payment Date", shortDate(receiptReport.payment_date)],
-                  ["Subtotal", money(receiptReport.subtotal_amount)],
-                  ["Discount", money(receiptReport.discount_amount)],
-                  ["Total", money(receiptReport.total_amount)],
-                ].map(([label, value]) => (
-                  <div className="col-md-4 mb-3" key={label}>
-                    <span className="text-muted fs-12">{label}</span>
-                    <h5 className="fs-14 mt-1">{value}</h5>
-                  </div>
-                ))}
-              </div>
-              <div className="table-responsive">
-                <table className="table table-custom table-centered table-sm table-nowrap table-hover mb-0">
-                  <thead>
-                    <tr>
-                      <th>Line Type</th>
-                      <th>Charge ID</th>
-                      <th>Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {receiptReport.lines.map((line, index) => (
-                      <tr key={`${line.charge_id ?? "line"}-${index}`}>
-                        <td>{line.line_type}</td>
-                        <td>{line.charge_id ?? "N/A"}</td>
-                        <td>{money(line.amount)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+        {(currentReport || incomeExpenseReport || receiptReport || memberStatementReport) && !showReportViewer ? (
+          <div className="alert alert-info border-0">
+            Last loaded report is ready. Click <strong>Load Report</strong> again to reopen the preview and print it.
           </div>
         ) : null}
       </>
@@ -5589,6 +6061,7 @@ export function App() {
       {renderSettingsPanel()}
       {renderPreviousBillsModal()}
       {renderInvoiceReportModal()}
+      {renderReportViewerModal()}
     </div>
   );
 }

@@ -20,6 +20,7 @@ def list_packages(
     return [
         PackageRead(
             id=package.id,
+            package_code=str(package.id),
             category_id=package.category_id,
             category_name=categories[package.category_id].name if package.category_id in categories else "Unknown",
             name=package.name,
@@ -48,6 +49,7 @@ def create_package(
     category = category_repository.get_by_id(package.category_id)
     return PackageRead(
         id=package.id,
+        package_code=str(package.id),
         category_id=package.category_id,
         category_name=category.name if category is not None else "Unknown",
         name=package.name,
@@ -74,6 +76,7 @@ def update_package(
     category = category_repository.get_by_id(package.category_id)
     return PackageRead(
         id=package.id,
+        package_code=str(package.id),
         category_id=package.category_id,
         category_name=category.name if category is not None else "Unknown",
         name=package.name,

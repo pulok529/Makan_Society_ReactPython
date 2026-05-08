@@ -28,6 +28,7 @@ def _serialize_member_detail(member_id: int, db: Session) -> MemberDetailRead:
     member = service.get_member(member_id)
     nominee = repository.get_nominee(member_id)
     assignments = repository.list_member_packages(member_id)
+    active_assignment = next((assignment for assignment in assignments if assignment.is_active), None)
 
     return MemberDetailRead(
         id=member.id,
@@ -50,6 +51,7 @@ def _serialize_member_detail(member_id: int, db: Session) -> MemberDetailRead:
         created_at=member.created_at,
         nominee_name=nominee.nominee_name if nominee is not None else None,
         nominee_cell=nominee.nominee_cell if nominee is not None else None,
+        active_package_id=active_assignment.package_id if active_assignment is not None else None,
         packages=[
             MemberPackageAssignmentRead(
                 id=assignment.id,

@@ -9,7 +9,7 @@ class CategoryRepository:
         self.db = db
 
     def list_categories(self) -> list[MemberCategory]:
-        statement = select(MemberCategory).order_by(MemberCategory.name.asc())
+        statement = select(MemberCategory).order_by(MemberCategory.code.asc(), MemberCategory.name.asc())
         return list(self.db.scalars(statement))
 
     def get_by_name(self, name: str) -> MemberCategory | None:
