@@ -1,0 +1,11 @@
+.env
+*.pyc
+__pycache__/
+.pytest_cache/
+backend/*.egg-info/
+frontend/node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+client-deployment-output/
+client-deployment-output.zip
+society-modern-images.tar

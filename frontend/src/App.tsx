@@ -1,0 +1,5594 @@
+import { ChangeEvent, FormEvent, ReactNode, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { getSmsBalance, sendTestSms, SmsBalanceResult } from "./api/sms";
+
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+const accessTokenKey = "society-modern-access-token";
+const refreshTokenKey = "society-modern-refresh-token";
+const assetBase = "/layout-template/assets";
+
+type UserProfile = {
+  id: number;
+  username: string;
+  login_name: string;
+  email: string | null;
+  is_active: boolean;
+  permissions: string[];
+};
+
+type TokenPair = {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+};
+
+type Category = {
+  id: number;
+  name: string;
+  code: string | null;
+  is_active: boolean;
+};
+
+type Package = {
+  id: number;
+  category_id: number;
+  category_name: string;
+  name: string;
+  package_type: string | null;
+  default_price: number;
+  is_active: boolean;
+  created_at: string;
+};
+
+type MemberListItem = {
+  id: number;
+  member_code: string;
+  full_name: string;
+  cell_no: string | null;
+  category_id: number | null;
+  category_name: string | null;
+  joined_on: string | null;
+  is_active: boolean;
+  active_package_name: string | null;
+};
+
+type MemberPackageAssignment = {
+  id: number;
+  package_id: number;
+  package_name: string;
+  assigned_on: string;
+  ended_on: string | null;
+  is_active: boolean;
+};
+
+type MemberDetail = {
+  id: number;
+  member_code: string;
+  member_id_text: string | null;
+  full_name: string;
+  father_name: string | null;
+  mother_name: string | null;
+  present_address: string | null;
+  permanent_address: string | null;
+  cell_no: string | null;
+  email: string | null;
+  reference: string | null;
+  national_id: string | null;
+  category_id: number | null;
+  category_name: string | null;
+  member_class: string | null;
+  joined_on: string | null;
+  is_active: boolean;
+  created_at: string;
+  nominee_name: string | null;
+  nominee_cell: string | null;
+  packages: MemberPackageAssignment[];
+};
+
+type BillingPeriod = {
+  id: number;
+  year: number;
+  month: number;
+  period_name: string;
+  starts_on: string;
+  ends_on: string;
+  is_closed: boolean;
+};
+
+type ChargeItem = {
+  id: number;
+  package_id: number | null;
+  package_name: string | null;
+  item_type: string;
+  description: string | null;
+  quantity: number;
+  unit_amount: number;
+  line_amount: number;
+};
+
+type Charge = {
+  id: number;
+  member_id: number;
+  member_name: string;
+  member_code: string;
+  billing_period_id: number | null;
+  billing_period_name: string | null;
+  charge_type: string;
+  status: string;
+  total_amount: number;
+  discount_amount: number;
+  net_amount: number;
+  due_amount: number;
+  created_at: string;
+  items: ChargeItem[];
+};
+
+type ReceiptLine = {
+  id: number;
+  charge_id: number | null;
+  charge_item_id: number | null;
+  line_type: string;
+  amount: number;
+};
+
+type Receipt = {
+  id: number;
+  receipt_no: string;
+  member_id: number | null;
+  member_name: string | null;
+  collected_by_user_id: number | null;
+  receipt_type: string;
+  payment_date: string;
+  subtotal_amount: number;
+  discount_amount: number;
+  total_amount: number;
+  notes: string | null;
+  created_at: string;
+  lines: ReceiptLine[];
+};
+
+type BillingDashboard = {
+  total_members_with_due: number;
+  total_due_amount: number;
+  total_open_charges: number;
+  total_receipts: number;
+};
+
+type BillingMemberSummary = {
+  member_id: number;
+  member_code: string;
+  member_name: string;
+  total_charged: number;
+  total_due: number;
+  open_charge_count: number;
+};
+
+type BillingHead = {
+  id: number;
+  head_name: string;
+  head_type: "Period" | "OneTime";
+  fee_amount: number;
+  effective_from_month: number | null;
+  effective_from_year: number | null;
+  effective_from_date: string | null;
+  is_active: boolean;
+  created_at: string;
+  created_by: number | null;
+};
+
+type BillingHeadMapping = {
+  id: number;
+  billing_head_id: number;
+  billing_head_name: string;
+  coa_id: number;
+  coa_name: string;
+  is_active: boolean;
+  created_at: string;
+  created_by: number | null;
+};
+
+type BillingDueLine = {
+  member_id: number;
+  billing_head_id: number;
+  head_name: string;
+  head_type: string;
+  period_date: string | null;
+  period_display: string | null;
+  fee_amount: number;
+  paid_amount: number;
+  due_amount: number;
+  coa_id_snapshot: number | null;
+};
+
+type BillingInvoice = {
+  id: number;
+  invoice_no: string;
+  member_id: number;
+  member_name: string;
+  invoice_date: string;
+  subtotal_amount: number;
+  discount_amount: number;
+  net_amount: number;
+  total_receive_amount: number;
+  total_due_amount: number;
+  is_cancelled: boolean;
+  cancel_reason: string | null;
+  created_at: string;
+  details: {
+    id: number;
+    head_name_snapshot: string;
+    period_display: string | null;
+    fee_amount: number;
+    receive_amount: number;
+    due_amount: number;
+    is_income_transferred: boolean;
+  }[];
+};
+
+type Account = {
+  id: number;
+  code: string;
+  name: string;
+  account_type: string;
+  is_active: boolean;
+};
+
+type AccountingEntry = {
+  id: number;
+  account_id: number | null;
+  account_name: string | null;
+  entry_type: string;
+  amount: number;
+  remarks: string | null;
+  created_at: string;
+};
+
+type AccountingSummary = {
+  total_income: number;
+  total_expense: number;
+  net_balance: number;
+};
+
+type AccountingVoucher = {
+  id: number;
+  voucher_no: string;
+  voucher_type: "income" | "expense";
+  voucher_date: string;
+  total_amount: number;
+  remarks: string | null;
+  created_at: string;
+  created_by: number | null;
+  lines: {
+    id: number;
+    coa_id: number;
+    coa_name: string | null;
+    amount: number;
+    remarks: string | null;
+  }[];
+};
+
+type IncomeExpenseComparisonReport = {
+  from_date: string | null;
+  to_date: string | null;
+  income: { rows: Record<string, string | number | null>[]; subtotal: number };
+  expense: { rows: Record<string, string | number | null>[]; subtotal: number };
+  net_amount: number;
+};
+
+type ReportEnvelope = {
+  report_type: string;
+  title: string;
+  generated_at: string;
+  row_count: number;
+  totals: Record<string, number | string>;
+  rows: Record<string, unknown>[];
+};
+
+type ReceiptDetailReport = {
+  receipt_id: number;
+  receipt_no: string;
+  payment_date: string;
+  member_name: string | null;
+  member_code: string | null;
+  subtotal_amount: number;
+  discount_amount: number;
+  total_amount: number;
+  notes: string | null;
+  lines: { line_type: string; amount: number; charge_id: number | null }[];
+};
+
+type SmsTemplate = {
+  id: number;
+  name: string;
+  body: string;
+  template_type: string | null;
+};
+
+type SmsMessage = {
+  id: number;
+  member_id: number | null;
+  member_name: string | null;
+  template_id: number | null;
+  template_name: string | null;
+  recipient: string;
+  message_body: string;
+  status: string;
+  created_at: string;
+  sent_at: string | null;
+};
+
+type SmsAttempt = {
+  id: number;
+  sms_message_id: number;
+  provider_name: string | null;
+  provider_message_id: string | null;
+  provider_status: string | null;
+  error_detail: string | null;
+  attempted_at: string;
+};
+
+type SmsIntegrationStatus = {
+  provider_mode: string;
+  provider_name: string;
+  provider_configured: boolean;
+  external_status_check_supported: boolean;
+  provider_check_ok: boolean | null;
+  provider_check_message: string | null;
+  template_count: number;
+  message_count: number;
+  sent_count: number;
+  attempt_count: number;
+};
+
+type SmsProviderCheck = {
+  provider_name: string;
+  provider_configured: boolean;
+  ok: boolean;
+  status_code: number | null;
+  message: string;
+  response_sample: string | null;
+};
+
+type SmsProviderMode = "simulated" | "bulksmsbd";
+
+type AuthState = "checking" | "guest" | "authenticated";
+type WorkspaceTab =
+  | "dashboard"
+  | "profile"
+  | "categories"
+  | "packages"
+  | "members"
+  | "billing-heads-view"
+  | "billing-heads-entry"
+  | "billing-mappings-view"
+  | "billing-mappings-entry"
+  | "billing"
+  | "billing-registers"
+  | "coa-view"
+  | "coa-entry"
+  | "income-view"
+  | "income-entry"
+  | "expense-view"
+  | "expense-entry"
+  | "reports"
+  | "messaging";
+
+type NavItem = {
+  key: WorkspaceTab;
+  label: string;
+  icon: string;
+  badge?: string;
+  group?: string;
+};
+
+type ThemeMode = "light" | "dark";
+type LayoutMode = "fluid" | "detached";
+type MenuColor = "brand" | "dark" | "light";
+type TopbarColor = "light" | "dark" | "brand";
+type SidenavSize = "default" | "compact" | "condensed" | "sm-hover" | "sm-hover-active" | "full" | "fullscreen";
+type ThemeSettings = {
+  themeMode: ThemeMode;
+  layoutMode: LayoutMode;
+  menuColor: MenuColor;
+  topbarColor: TopbarColor;
+  sidenavSize: SidenavSize;
+};
+
+const navItems: NavItem[] = [
+  { key: "dashboard", label: "Dashboard", icon: "ri-dashboard-3-line", group: "Home" },
+  { key: "categories", label: "Category Setup", icon: "ri-list-check-3", group: "Setup" },
+  { key: "packages", label: "Package Setup", icon: "ri-stack-line", group: "Setup" },
+  { key: "members", label: "Member Registration", icon: "ri-team-line", group: "Operations" },
+  { key: "billing-heads-view", label: "Billing Head", icon: "ri-price-tag-3-line", group: "Setup" },
+  { key: "billing-mappings-view", label: "Billing Mapping", icon: "ri-node-tree", group: "Setup" },
+  { key: "billing", label: "Billing & Receipt", icon: "ri-file-list-3-line", group: "Operations" },
+  { key: "billing-registers", label: "Billing Registers", icon: "ri-table-line", group: "Operations" },
+  { key: "coa-view", label: "Chart Of Accounts", icon: "ri-book-2-line", group: "Accounting" },
+  { key: "coa-entry", label: "Add Chart Account", icon: "ri-add-box-line", group: "Accounting" },
+  { key: "income-view", label: "Income Entry", icon: "ri-money-dollar-circle-line", group: "Accounting" },
+  { key: "income-entry", label: "Add Income Entries", icon: "ri-add-circle-line", group: "Accounting" },
+  { key: "expense-view", label: "Expense Entry", icon: "ri-bank-card-line", group: "Accounting" },
+  { key: "expense-entry", label: "Add Expense Entries", icon: "ri-add-circle-line", group: "Accounting" },
+  { key: "reports", label: "Reports", icon: "ri-bar-chart-box-line", group: "Reporting" },
+  { key: "messaging", label: "SMS", icon: "ri-message-3-line", group: "Reporting" },
+  { key: "profile", label: "User Profile", icon: "ri-account-circle-line", group: "Profile" },
+];
+
+function readThemeSettings(): Partial<ThemeSettings> {
+  try {
+    return JSON.parse(localStorage.getItem("society-modern-theme") ?? "{}") as Partial<ThemeSettings>;
+  } catch {
+    return {};
+  }
+}
+
+function token() {
+  return localStorage.getItem(accessTokenKey);
+}
+
+async function fetchProfile(accessToken: string): Promise<UserProfile> {
+  const response = await fetch(`${apiBaseUrl}/api/auth/me`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!response.ok) {
+    throw new Error("Unable to load user profile");
+  }
+
+  return response.json();
+}
+
+async function apiRequest<T>(path: string, accessToken: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      ...(init?.headers ?? {}),
+    },
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.detail ?? "Request failed");
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return response.json() as Promise<T>;
+}
+
+function money(value: number | null | undefined) {
+  return Number(value ?? 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function shortDate(value: string | null | undefined) {
+  if (!value) return "Not set";
+  return new Date(value).toLocaleDateString();
+}
+
+function pageTitle(tab: WorkspaceTab) {
+  const item = navItems.find((navItem) => navItem.key === tab);
+  return item?.label ?? "Dashboard";
+}
+
+function statusBadge(active: boolean) {
+  return active ? (
+    <span className="badge bg-success-subtle text-success">Active</span>
+  ) : (
+    <span className="badge bg-danger-subtle text-danger">Inactive</span>
+  );
+}
+
+function CardMenu() {
+  return (
+    <div className="dropdown">
+      <a href="#" className="dropdown-toggle drop-arrow-none card-drop" data-bs-toggle="dropdown" aria-expanded="false">
+        <i className="ri-more-2-fill fs-18" />
+      </a>
+      <div className="dropdown-menu dropdown-menu-end">
+        <span className="dropdown-item">Refresh</span>
+        <span className="dropdown-item">Export</span>
+        <span className="dropdown-item">Details</span>
+      </div>
+    </div>
+  );
+}
+
+function StatCard({
+  title,
+  value,
+  subtitle,
+  icon,
+  tone,
+}: {
+  title: string;
+  value: string;
+  subtitle: string;
+  icon: string;
+  tone: "primary" | "success" | "warning" | "info";
+}) {
+  return (
+    <div className="col">
+      <div className="card">
+        <div className="card-body">
+          <div className="d-flex align-items-center gap-2 justify-content-between">
+            <div>
+              <h5 className="text-muted fs-13 fw-bold text-uppercase">{title}</h5>
+              <h3 className="my-2 py-1 fw-bold">{value}</h3>
+              <p className="mb-0 text-muted">
+                <span className="text-success me-1">
+                  <i className="ri-arrow-left-up-box-line" /> Live
+                </span>
+                <span className="text-nowrap">{subtitle}</span>
+              </p>
+            </div>
+            <div className="avatar-xl flex-shrink-0">
+              <span className={`avatar-title bg-${tone}-subtle text-${tone} rounded-circle fs-42`}>
+                <i className={icon} />
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MiniBars({ values, labels }: { values: number[]; labels: string[] }) {
+  const max = Math.max(...values, 1);
+  return (
+    <div className="template-bars">
+      {values.map((value, index) => (
+        <div className="template-bar-column" key={`${labels[index]}-${index}`}>
+          <div className="template-bar-track">
+            <span className="template-bar-fill primary" style={{ height: `${Math.max((value / max) * 100, 6)}%` }} />
+            <span
+              className="template-bar-fill secondary"
+              style={{ height: `${Math.max(((max - value / 2) / max) * 72, 8)}%` }}
+            />
+          </div>
+          <span className="template-bar-label">{labels[index]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MiniArea({ income, expense }: { income: number[]; expense: number[] }) {
+  const values = [...income, ...expense, 1];
+  const max = Math.max(...values);
+  const makePoints = (series: number[]) =>
+    series
+      .map((value, index) => {
+        const x = 20 + index * (460 / Math.max(series.length - 1, 1));
+        const y = 190 - (value / max) * 150;
+        return `${x},${y}`;
+      })
+      .join(" ");
+
+  return (
+    <svg className="template-area" viewBox="0 0 520 220" role="img" aria-label="Collection and expense trend">
+      {[40, 80, 120, 160, 200].map((y) => (
+        <line className="template-grid-line" key={y} x1="15" x2="500" y1={y} y2={y} />
+      ))}
+      <polyline className="template-area-line income" points={makePoints(income)} />
+      <polyline className="template-area-line expense" points={makePoints(expense)} />
+    </svg>
+  );
+}
+
+function EmptyState({ label }: { label: string }) {
+  return (
+    <div className="text-center text-muted py-4">
+      <i className="ri-inbox-2-line fs-28 d-block mb-1" />
+      {label}
+    </div>
+  );
+}
+
+function SearchableDropdown({
+  label,
+  placeholder,
+  options,
+  value,
+  search,
+  isOpen,
+  onSearchChange,
+  onOpenChange,
+  onChange,
+}: {
+  label: string;
+  placeholder: string;
+  options: { value: string; label: string; meta?: string }[];
+  value: string;
+  search: string;
+  isOpen: boolean;
+  onSearchChange: (value: string) => void;
+  onOpenChange: (value: boolean) => void;
+  onChange: (value: string) => void;
+}) {
+  const selected = options.find((option) => option.value === value);
+  const filtered = options.filter((option) => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return true;
+    return `${option.label} ${option.meta ?? ""}`.toLowerCase().includes(needle);
+  });
+
+  return (
+    <div className="position-relative">
+      <label className="form-label">{label}</label>
+      <div className={`dropdown ${isOpen ? "show" : ""}`}>
+        <div className="input-group">
+          <span className="input-group-text">
+            <i className="ri-search-line" />
+          </span>
+          <input
+            className="form-control"
+            onBlur={() => window.setTimeout(() => onOpenChange(false), 150)}
+            onChange={(event) => {
+              onSearchChange(event.target.value);
+              onOpenChange(true);
+            }}
+            onFocus={() => onOpenChange(true)}
+            placeholder={selected ? selected.label : placeholder}
+            value={isOpen ? search : selected?.label ?? search}
+          />
+          {value ? (
+            <button
+              className="btn btn-light"
+              onClick={() => {
+                onChange("");
+                onSearchChange("");
+              }}
+              type="button"
+            >
+              <i className="ri-close-line" />
+            </button>
+          ) : null}
+        </div>
+        <div className={`dropdown-menu w-100 ${isOpen ? "show" : ""}`} style={{ maxHeight: "260px", overflowY: "auto" }}>
+          {filtered.map((option) => (
+            <button
+              className={option.value === value ? "dropdown-item active" : "dropdown-item"}
+              key={option.value}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                onChange(option.value);
+                onSearchChange("");
+                onOpenChange(false);
+              }}
+              type="button"
+            >
+              <span className="d-block fw-semibold">{option.label}</span>
+              {option.meta ? <span className="d-block fs-12 opacity-75">{option.meta}</span> : null}
+            </button>
+          ))}
+          {filtered.length === 0 ? <span className="dropdown-item text-muted">No account found</span> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function App() {
+  const [authState, setAuthState] = useState<AuthState>("checking");
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("dashboard");
+  const [formMode, setFormMode] = useState<"login" | "bootstrap">("login");
+  const [loginName, setLoginName] = useState("");
+  const [password, setPassword] = useState("");
+  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [message, setMessage] = useState("Makan Society workspace is ready.");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(false);
+
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [packages, setPackages] = useState<Package[]>([]);
+  const [members, setMembers] = useState<MemberListItem[]>([]);
+  const [selectedMember, setSelectedMember] = useState<MemberDetail | null>(null);
+  const [billingPeriods, setBillingPeriods] = useState<BillingPeriod[]>([]);
+  const [charges, setCharges] = useState<Charge[]>([]);
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [billingDashboard, setBillingDashboard] = useState<BillingDashboard | null>(null);
+  const [memberDueSummaries, setMemberDueSummaries] = useState<BillingMemberSummary[]>([]);
+  const [billingHeads, setBillingHeads] = useState<BillingHead[]>([]);
+  const [billingHeadMappings, setBillingHeadMappings] = useState<BillingHeadMapping[]>([]);
+  const [billingDueLines, setBillingDueLines] = useState<BillingDueLine[]>([]);
+  const [billingInvoices, setBillingInvoices] = useState<BillingInvoice[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accountingEntries, setAccountingEntries] = useState<AccountingEntry[]>([]);
+  const [incomeVouchers, setIncomeVouchers] = useState<AccountingVoucher[]>([]);
+  const [expenseVouchers, setExpenseVouchers] = useState<AccountingVoucher[]>([]);
+  const [accountingSummary, setAccountingSummary] = useState<AccountingSummary | null>(null);
+  const [incomeExpenseReport, setIncomeExpenseReport] = useState<IncomeExpenseComparisonReport | null>(null);
+  const [currentReport, setCurrentReport] = useState<ReportEnvelope | null>(null);
+  const [receiptReport, setReceiptReport] = useState<ReceiptDetailReport | null>(null);
+  const [smsTemplates, setSmsTemplates] = useState<SmsTemplate[]>([]);
+  const [smsMessages, setSmsMessages] = useState<SmsMessage[]>([]);
+  const [smsAttempts, setSmsAttempts] = useState<SmsAttempt[]>([]);
+  const [smsIntegrationStatus, setSmsIntegrationStatus] = useState<SmsIntegrationStatus | null>(null);
+  const [smsProviderCheck, setSmsProviderCheck] = useState<SmsProviderCheck | null>(null);
+  const [smsBalance, setSmsBalance] = useState<SmsBalanceResult | null>(null);
+
+  const [categoryName, setCategoryName] = useState("");
+  const [categoryCode, setCategoryCode] = useState("");
+  const [categoryIsActive, setCategoryIsActive] = useState(true);
+  const [categoryPageMode, setCategoryPageMode] = useState<"view" | "entry">("view");
+  const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
+  const [packageName, setPackageName] = useState("");
+  const [packageType, setPackageType] = useState("");
+  const [packagePrice, setPackagePrice] = useState("0");
+  const [packageCategoryId, setPackageCategoryId] = useState("");
+  const [packageIsActive, setPackageIsActive] = useState(true);
+  const [packagePageMode, setPackagePageMode] = useState<"view" | "entry">("view");
+  const [editingPackageId, setEditingPackageId] = useState<number | null>(null);
+  const [memberCode, setMemberCode] = useState("");
+  const [memberIdText, setMemberIdText] = useState("");
+  const [memberName, setMemberName] = useState("");
+  const [memberCell, setMemberCell] = useState("");
+  const [memberEmail, setMemberEmail] = useState("");
+  const [memberCategoryId, setMemberCategoryId] = useState("");
+  const [memberClass, setMemberClass] = useState("");
+  const [memberJoinDate, setMemberJoinDate] = useState("");
+  const [memberIsActive, setMemberIsActive] = useState(true);
+  const [memberPageMode, setMemberPageMode] = useState<"view" | "entry">("view");
+  const [editingMemberId, setEditingMemberId] = useState<number | null>(null);
+  const [nomineeName, setNomineeName] = useState("");
+  const [nomineeCell, setNomineeCell] = useState("");
+  const [assignMemberId, setAssignMemberId] = useState("");
+  const [assignPackageId, setAssignPackageId] = useState("");
+  const [assignDate, setAssignDate] = useState("");
+  const [periodYear, setPeriodYear] = useState(String(new Date().getFullYear()));
+  const [periodMonth, setPeriodMonth] = useState(String(new Date().getMonth() + 1));
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
+  const [generationPeriodId, setGenerationPeriodId] = useState("");
+  const [receiptMemberId, setReceiptMemberId] = useState("");
+  const [receiptChargeId, setReceiptChargeId] = useState("");
+  const [receiptAmount, setReceiptAmount] = useState("");
+  const [receiptDate, setReceiptDate] = useState("");
+  const [receiptNotes, setReceiptNotes] = useState("");
+  const [receiptDiscount, setReceiptDiscount] = useState("0");
+  const [billingHeadName, setBillingHeadName] = useState("");
+  const [billingHeadType, setBillingHeadType] = useState<"Period" | "OneTime">("Period");
+  const [billingHeadFee, setBillingHeadFee] = useState("500");
+  const [billingHeadEffectiveDate, setBillingHeadEffectiveDate] = useState("2018-01-01");
+  const [billingHeadPageMode, setBillingHeadPageMode] = useState<"view" | "entry">("view");
+  const [editingBillingHeadId, setEditingBillingHeadId] = useState<number | null>(null);
+  const [mappingHeadId, setMappingHeadId] = useState("");
+  const [mappingCoaId, setMappingCoaId] = useState("");
+  const [billingMappingPageMode, setBillingMappingPageMode] = useState<"view" | "entry">("view");
+  const [invoiceMemberId, setInvoiceMemberId] = useState("");
+  const [invoiceMemberSearch, setInvoiceMemberSearch] = useState("");
+  const [invoiceMemberDropdownOpen, setInvoiceMemberDropdownOpen] = useState(false);
+  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
+  const [invoiceDiscount, setInvoiceDiscount] = useState("0");
+  const [invoiceReceipts, setInvoiceReceipts] = useState<Record<string, string>>({});
+  const [lastGeneratedInvoice, setLastGeneratedInvoice] = useState<BillingInvoice | null>(null);
+  const [invoiceReport, setInvoiceReport] = useState<BillingInvoice | null>(null);
+  const [showInvoiceReport, setShowInvoiceReport] = useState(false);
+  const [showPreviousBills, setShowPreviousBills] = useState(false);
+  const [manualBillingHeadId, setManualBillingHeadId] = useState("");
+  const [manualBillingPeriod, setManualBillingPeriod] = useState(new Date().toISOString().slice(0, 7));
+  const [billingRegisterTab, setBillingRegisterTab] = useState<"charges" | "receipts">("charges");
+  const [billingRegisterSearch, setBillingRegisterSearch] = useState("");
+  const [billingRegisterPageSize, setBillingRegisterPageSize] = useState("25");
+  const [billingRegisterPage, setBillingRegisterPage] = useState(1);
+  const [billingRegisterSort, setBillingRegisterSort] = useState<{ key: string; direction: "asc" | "desc" }>({ key: "date", direction: "desc" });
+  const [accountCode, setAccountCode] = useState("");
+  const [accountName, setAccountName] = useState("");
+  const [accountType, setAccountType] = useState("income");
+  const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
+  const [entryAccountId, setEntryAccountId] = useState("");
+  const [entryAccountSearch, setEntryAccountSearch] = useState("");
+  const [entryAccountDropdownOpen, setEntryAccountDropdownOpen] = useState(false);
+  const [entryDate, setEntryDate] = useState(new Date().toISOString().slice(0, 10));
+  const [entryVoucherRemarks, setEntryVoucherRemarks] = useState("");
+  const [entryAmount, setEntryAmount] = useState("");
+  const [entryRemarks, setEntryRemarks] = useState("");
+  const [entrySearch, setEntrySearch] = useState("");
+  const [pendingEntries, setPendingEntries] = useState<{ account_id: number; account_label: string; amount: number; remarks: string | null }[]>([]);
+  const [reportType, setReportType] = useState("due-members");
+  const [reportMemberId, setReportMemberId] = useState("");
+  const [reportCategoryId, setReportCategoryId] = useState("");
+  const [reportPeriodId, setReportPeriodId] = useState("");
+  const [reportFromDate, setReportFromDate] = useState("");
+  const [reportToDate, setReportToDate] = useState("");
+  const [reportReceiptId, setReportReceiptId] = useState("");
+  const [smsTemplateName, setSmsTemplateName] = useState("");
+  const [smsTemplateType, setSmsTemplateType] = useState("");
+  const [smsTemplateBody, setSmsTemplateBody] = useState("");
+  const [editingSmsTemplateId, setEditingSmsTemplateId] = useState<number | null>(null);
+  const [showSmsTemplateModal, setShowSmsTemplateModal] = useState(false);
+  const [smsActiveTab, setSmsActiveTab] = useState<"send" | "delivery" | "gateway">("send");
+  const [smsMemberId, setSmsMemberId] = useState("");
+  const [smsMemberSearch, setSmsMemberSearch] = useState("");
+  const [smsMemberDropdownOpen, setSmsMemberDropdownOpen] = useState(false);
+  const [smsRecipient, setSmsRecipient] = useState("");
+  const [smsSelectedTemplateId, setSmsSelectedTemplateId] = useState("");
+  const [smsMessageBody, setSmsMessageBody] = useState("");
+  const [smsTestRecipient, setSmsTestRecipient] = useState("");
+  const [smsTestMessage, setSmsTestMessage] = useState("BulkSMSBD test message from Makan Society.");
+  const [smsTargetMode, setSmsTargetMode] = useState<"single" | "all" | "due">("single");
+  const [smsCategoryFilterId, setSmsCategoryFilterId] = useState("");
+  const [smsRecipientSearch, setSmsRecipientSearch] = useState("");
+  const [smsSelectedMemberIds, setSmsSelectedMemberIds] = useState<number[]>([]);
+  const [smsBulkProgress, setSmsBulkProgress] = useState<{
+    running: boolean;
+    total: number;
+    completed: number;
+    success: number;
+    failed: number;
+    currentRecipient: string;
+  }>({
+    running: false,
+    total: 0,
+    completed: 0,
+    success: 0,
+    failed: 0,
+    currentRecipient: "",
+  });
+  const [smsBulkProgressRows, setSmsBulkProgressRows] = useState<
+    { memberId: number; name: string; phone: string; status: "sent" | "failed"; message: string }[]
+  >([]);
+  const [displayName, setDisplayName] = useState("");
+  const [displayEmail, setDisplayEmail] = useState("");
+  const [displayPhone, setDisplayPhone] = useState("+8801700000000");
+  const [displayRole, setDisplayRole] = useState("Admin Head");
+  const [avatarUrl, setAvatarUrl] = useState(`${assetBase}/images/users/avatar-1.jpg`);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [menuSearch, setMenuSearch] = useState("");
+  const [showMenuSearchResults, setShowMenuSearchResults] = useState(false);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(
+    () => readThemeSettings().themeMode ?? (document.documentElement.getAttribute("data-bs-theme") as ThemeMode | null) ?? "dark",
+  );
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(
+    () => readThemeSettings().layoutMode ?? (document.documentElement.getAttribute("data-layout-mode") as LayoutMode | null) ?? "fluid",
+  );
+  const [menuColor, setMenuColor] = useState<MenuColor>(
+    () => readThemeSettings().menuColor ?? (document.documentElement.getAttribute("data-menu-color") as MenuColor | null) ?? "brand",
+  );
+  const [topbarColor, setTopbarColor] = useState<TopbarColor>(
+    () => readThemeSettings().topbarColor ?? (document.documentElement.getAttribute("data-topbar-color") as TopbarColor | null) ?? "dark",
+  );
+  const [sidenavSize, setSidenavSize] = useState<SidenavSize>(
+    () => readThemeSettings().sidenavSize ?? (document.documentElement.getAttribute("data-sidenav-size") as SidenavSize | null) ?? "default",
+  );
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+
+  const activeMembers = useMemo(() => members.filter((member) => member.is_active), [members]);
+  const deferredMenuSearch = useDeferredValue(menuSearch);
+  const filteredMenuItems = useMemo(() => {
+    const needle = deferredMenuSearch.trim().toLowerCase();
+    if (!needle) {
+      return navItems.slice(0, 8);
+    }
+    return navItems.filter((item) => `${item.label} ${item.group ?? ""}`.toLowerCase().includes(needle)).slice(0, 10);
+  }, [deferredMenuSearch]);
+  const openCharges = useMemo(() => charges.filter((charge) => charge.due_amount > 0), [charges]);
+  const incomeEntries = useMemo(
+    () => accountingEntries.filter((entry) => entry.entry_type === "income"),
+    [accountingEntries],
+  );
+  const expenseEntries = useMemo(
+    () => accountingEntries.filter((entry) => entry.entry_type === "expense"),
+    [accountingEntries],
+  );
+  const incomeAccounts = useMemo(
+    () => accounts.filter((account) => account.is_active && ["income", "both", "income_expense"].includes(account.account_type)),
+    [accounts],
+  );
+  const expenseAccounts = useMemo(
+    () => accounts.filter((account) => account.is_active && ["expense", "both", "income_expense"].includes(account.account_type)),
+    [accounts],
+  );
+  const selectedReceiptMemberId = receiptMemberId ? Number(receiptMemberId) : null;
+  const availableChargesForReceipt = useMemo(
+    () =>
+      openCharges.filter((charge) =>
+        selectedReceiptMemberId === null ? true : charge.member_id === selectedReceiptMemberId,
+      ),
+    [openCharges, selectedReceiptMemberId],
+  );
+  const totalCollection = useMemo(
+    () => receipts.reduce((total, receipt) => total + Number(receipt.total_amount), 0),
+    [receipts],
+  );
+  const dueByMemberId = useMemo(() => {
+    const map = new Map<number, BillingMemberSummary>();
+    memberDueSummaries.forEach((item) => map.set(item.member_id, item));
+    return map;
+  }, [memberDueSummaries]);
+  const selectedSmsTemplate = useMemo(
+    () => smsTemplates.find((template) => template.id === Number(smsSelectedTemplateId)) ?? null,
+    [smsSelectedTemplateId, smsTemplates],
+  );
+  const smsEligibleMembers = useMemo(() => {
+    const base = members.filter((member) => (member.cell_no ?? "").replace(/\D/g, "").length >= 11);
+    return base.filter((member) => {
+      if (smsCategoryFilterId && String(member.category_id ?? "") !== smsCategoryFilterId) {
+        return false;
+      }
+      if (smsTargetMode === "due") {
+        return (dueByMemberId.get(member.id)?.total_due ?? 0) > 0;
+      }
+      if (smsTargetMode === "single") {
+        return smsMemberId ? member.id === Number(smsMemberId) : false;
+      }
+      return true;
+    });
+  }, [dueByMemberId, members, smsCategoryFilterId, smsMemberId, smsTargetMode]);
+  const smsFilteredMembers = useMemo(() => {
+    const search = smsRecipientSearch.trim().toLowerCase();
+    if (!search) return smsEligibleMembers;
+    return smsEligibleMembers.filter((member) => {
+      const haystack = `${member.full_name} ${member.member_code} ${member.cell_no ?? ""}`.toLowerCase();
+      return haystack.includes(search);
+    });
+  }, [smsEligibleMembers, smsRecipientSearch]);
+  const smsSelectedMembers = useMemo(
+    () => members.filter((member) => smsSelectedMemberIds.includes(member.id)),
+    [members, smsSelectedMemberIds],
+  );
+  const memberDropdownOptions = useMemo(
+    () =>
+      members.map((member) => ({
+        value: String(member.id),
+        label: `${member.member_code} - ${member.full_name}`,
+        meta: [member.cell_no, member.category_name, member.active_package_name].filter(Boolean).join(" | "),
+      })),
+    [members],
+  );
+  const billingLineKey = (line: BillingDueLine, index: number) => `${line.billing_head_id}-${line.period_date ?? "one"}-${index}`;
+  const billingSelectedLines = useMemo(
+    () =>
+      billingDueLines
+        .map((line, index) => ({
+          line,
+          index,
+          receive: Number(invoiceReceipts[billingLineKey(line, index)] ?? 0),
+        }))
+        .filter((item) => item.receive > 0),
+    [billingDueLines, invoiceReceipts],
+  );
+  const billingGridFeeTotal = useMemo(() => billingDueLines.reduce((sum, line) => sum + Number(line.due_amount || 0), 0), [billingDueLines]);
+  const billingGridReceiveTotal = useMemo(
+    () => billingDueLines.reduce((sum, line, index) => sum + Number(invoiceReceipts[billingLineKey(line, index)] ?? 0), 0),
+    [billingDueLines, invoiceReceipts],
+  );
+  const billingGridDueTotal = useMemo(
+    () => billingDueLines.reduce((sum, line, index) => sum + Math.max(Number(line.due_amount) - Number(invoiceReceipts[billingLineKey(line, index)] ?? 0), 0), 0),
+    [billingDueLines, invoiceReceipts],
+  );
+  const billingAllRowsChecked = billingDueLines.length > 0 && billingDueLines.every((line, index) => Number(invoiceReceipts[billingLineKey(line, index)] ?? 0) > 0);
+  const billingSubtotal = useMemo(() => billingSelectedLines.reduce((sum, item) => sum + item.receive, 0), [billingSelectedLines]);
+  const billingReceiveTotal = useMemo(
+    () => billingSelectedLines.reduce((sum, item) => sum + item.receive, 0),
+    [billingSelectedLines],
+  );
+  const billingDiscount = Number(invoiceDiscount || 0);
+  const billingNetAmount = Math.max(billingSubtotal - billingDiscount, 0);
+  const billingDueTotal = useMemo(
+    () => billingSelectedLines.reduce((sum, item) => sum + Math.max(Number(item.line.due_amount) - item.receive, 0), 0),
+    [billingSelectedLines],
+  );
+  const lastGeneratedMember = useMemo(
+    () => members.find((member) => member.id === lastGeneratedInvoice?.member_id),
+    [lastGeneratedInvoice, members],
+  );
+  const selectedInvoiceMember = useMemo(
+    () => members.find((member) => member.id === Number(invoiceMemberId)),
+    [invoiceMemberId, members],
+  );
+  const selectedMemberInvoices = useMemo(
+    () =>
+      billingInvoices
+        .filter((invoice) => invoice.member_id === Number(invoiceMemberId))
+        .sort((a, b) => `${b.invoice_date}-${b.id}`.localeCompare(`${a.invoice_date}-${a.id}`)),
+    [billingInvoices, invoiceMemberId],
+  );
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const todayInvoices = useMemo(() => billingInvoices.filter((invoice) => invoice.invoice_date === todayKey && !invoice.is_cancelled), [billingInvoices, todayKey]);
+  const todayCollectionAmount = useMemo(() => todayInvoices.reduce((sum, invoice) => sum + Number(invoice.total_receive_amount || 0), 0), [todayInvoices]);
+  const todayDueAmount = useMemo(() => todayInvoices.reduce((sum, invoice) => sum + Number(invoice.total_due_amount || 0), 0), [todayInvoices]);
+  const todayCollectedMembers = useMemo(() => new Set(todayInvoices.filter((invoice) => invoice.total_receive_amount > 0).map((invoice) => invoice.member_id)).size, [todayInvoices]);
+  const todayDiscountAmount = useMemo(() => todayInvoices.reduce((sum, invoice) => sum + Number(invoice.discount_amount || 0), 0), [todayInvoices]);
+  const filteredRegisterCharges = useMemo(() => {
+    const search = billingRegisterSearch.trim().toLowerCase();
+    const rows = charges.filter((charge) =>
+      !search || `${charge.member_name} ${charge.member_code} ${charge.billing_period_name ?? ""} ${charge.status}`.toLowerCase().includes(search),
+    );
+    return [...rows].sort((a, b) => {
+      const direction = billingRegisterSort.direction === "asc" ? 1 : -1;
+      const valueA =
+        billingRegisterSort.key === "member" ? a.member_name :
+        billingRegisterSort.key === "period" ? a.billing_period_name ?? "" :
+        billingRegisterSort.key === "net" ? a.net_amount :
+        billingRegisterSort.key === "due" ? a.due_amount :
+        a.id;
+      const valueB =
+        billingRegisterSort.key === "member" ? b.member_name :
+        billingRegisterSort.key === "period" ? b.billing_period_name ?? "" :
+        billingRegisterSort.key === "net" ? b.net_amount :
+        billingRegisterSort.key === "due" ? b.due_amount :
+        b.id;
+      return String(valueA).localeCompare(String(valueB), undefined, { numeric: true }) * direction;
+    });
+  }, [billingRegisterSearch, billingRegisterSort, charges]);
+  const filteredRegisterReceipts = useMemo(() => {
+    const search = billingRegisterSearch.trim().toLowerCase();
+    const rows = receipts.filter((receipt) =>
+      !search || `${receipt.receipt_no} ${receipt.member_name ?? ""} ${receipt.payment_date} ${receipt.total_amount}`.toLowerCase().includes(search),
+    );
+    return [...rows].sort((a, b) => {
+      const direction = billingRegisterSort.direction === "asc" ? 1 : -1;
+      const valueA =
+        billingRegisterSort.key === "receipt" ? a.receipt_no :
+        billingRegisterSort.key === "member" ? a.member_name ?? "" :
+        billingRegisterSort.key === "total" ? a.total_amount :
+        a.payment_date;
+      const valueB =
+        billingRegisterSort.key === "receipt" ? b.receipt_no :
+        billingRegisterSort.key === "member" ? b.member_name ?? "" :
+        billingRegisterSort.key === "total" ? b.total_amount :
+        b.payment_date;
+      return String(valueA).localeCompare(String(valueB), undefined, { numeric: true }) * direction;
+    });
+  }, [billingRegisterSearch, billingRegisterSort, receipts]);
+  const reportQueryString = useMemo(() => {
+    const params = new URLSearchParams();
+    if (reportFromDate) params.set("from_date", reportFromDate);
+    if (reportToDate) params.set("to_date", reportToDate);
+    if (reportMemberId) params.set("member_id", reportMemberId);
+    if (reportCategoryId) params.set("category_id", reportCategoryId);
+    if (reportPeriodId) params.set("billing_period_id", reportPeriodId);
+    return params.toString();
+  }, [reportCategoryId, reportFromDate, reportMemberId, reportPeriodId, reportToDate]);
+
+  const monthlyCollection = useMemo(() => {
+    const totals = new Array(12).fill(0) as number[];
+    receipts.forEach((receipt) => {
+      const month = new Date(receipt.payment_date).getMonth();
+      if (!Number.isNaN(month)) totals[month] += Number(receipt.total_amount);
+    });
+    return totals;
+  }, [receipts]);
+  const monthlyExpense = useMemo(() => {
+    const totals = new Array(12).fill(0) as number[];
+    expenseEntries.forEach((entry) => {
+      const month = new Date(entry.created_at).getMonth();
+      if (!Number.isNaN(month)) totals[month] += Number(entry.amount);
+    });
+    return totals;
+  }, [expenseEntries]);
+
+  useEffect(() => {
+    const accessToken = token();
+    if (!accessToken) {
+      setAuthState("guest");
+      return;
+    }
+
+    fetchProfile(accessToken)
+      .then((data) => {
+        setProfile(data);
+        setAuthState("authenticated");
+      })
+      .catch(() => {
+        localStorage.removeItem(accessTokenKey);
+        localStorage.removeItem(refreshTokenKey);
+        setAuthState("guest");
+      });
+  }, []);
+
+  useEffect(() => {
+    if (authState === "authenticated") {
+      void loadWorkspace();
+    }
+  }, [authState]);
+
+  useEffect(() => {
+    if (!profile) return;
+    setDisplayName(profile.username || "Admin");
+    setDisplayEmail(profile.email ?? "admin@society.local");
+  }, [profile]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.setAttribute("data-bs-theme", themeMode);
+    root.setAttribute("data-layout-mode", layoutMode);
+    root.setAttribute("data-menu-color", menuColor);
+    root.setAttribute("data-topbar-color", topbarColor);
+    root.setAttribute("data-sidenav-size", sidenavSize);
+    document.body.setAttribute("data-bs-theme", themeMode);
+    localStorage.setItem("society-modern-theme", JSON.stringify({ themeMode, layoutMode, menuColor, topbarColor, sidenavSize }));
+  }, [layoutMode, menuColor, sidenavSize, themeMode, topbarColor]);
+
+  useEffect(() => {
+    if (smsTargetMode === "single" && smsMemberId) {
+      setSmsSelectedMemberIds([Number(smsMemberId)]);
+      return;
+    }
+    setSmsSelectedMemberIds((current) => current.filter((id) => smsEligibleMembers.some((member) => member.id === id)));
+  }, [smsEligibleMembers, smsMemberId, smsTargetMode]);
+
+  useEffect(() => {
+    setSmsMessageBody(selectedSmsTemplate?.body ?? "");
+  }, [selectedSmsTemplate]);
+
+  async function loadWorkspace(selectedMemberId?: number) {
+    const accessToken = token();
+    if (!accessToken) return;
+
+    setIsWorkspaceLoading(true);
+    try {
+      const [
+        nextCategories,
+        nextPackages,
+        nextMembers,
+        nextPeriods,
+        nextCharges,
+        nextReceipts,
+        nextDashboard,
+        nextDueSummaries,
+        nextAccounts,
+        nextEntries,
+        nextIncomeVouchers,
+        nextExpenseVouchers,
+        nextSummary,
+        nextTemplates,
+        nextMessages,
+        nextAttempts,
+        nextSmsStatus,
+        nextBillingHeads,
+        nextBillingMappings,
+        nextInvoices,
+      ] = await Promise.all([
+        apiRequest<Category[]>("/api/categories", accessToken),
+        apiRequest<Package[]>("/api/packages", accessToken),
+        apiRequest<MemberListItem[]>("/api/members", accessToken),
+        apiRequest<BillingPeriod[]>("/api/billing/periods", accessToken),
+        apiRequest<Charge[]>("/api/billing/charges", accessToken),
+        apiRequest<Receipt[]>("/api/billing/receipts", accessToken),
+        apiRequest<BillingDashboard>("/api/billing/dashboard", accessToken),
+        apiRequest<BillingMemberSummary[]>("/api/billing/member-due-summary", accessToken),
+        apiRequest<Account[]>("/api/accounting/accounts", accessToken),
+        apiRequest<AccountingEntry[]>("/api/accounting/entries", accessToken),
+        apiRequest<AccountingVoucher[]>("/api/accounting/vouchers/income", accessToken),
+        apiRequest<AccountingVoucher[]>("/api/accounting/vouchers/expense", accessToken),
+        apiRequest<AccountingSummary>("/api/accounting/summary", accessToken),
+        apiRequest<SmsTemplate[]>("/api/messaging/templates", accessToken),
+        apiRequest<SmsMessage[]>("/api/messaging/messages", accessToken),
+        apiRequest<SmsAttempt[]>("/api/messaging/attempts", accessToken),
+        apiRequest<SmsIntegrationStatus>("/api/messaging/status", accessToken),
+        apiRequest<BillingHead[]>("/api/billing/heads", accessToken),
+        apiRequest<BillingHeadMapping[]>("/api/billing/head-mappings", accessToken),
+        apiRequest<BillingInvoice[]>("/api/billing/invoices", accessToken),
+      ]);
+
+      setCategories(nextCategories);
+      setPackages(nextPackages);
+      setMembers(nextMembers);
+      setBillingPeriods(nextPeriods);
+      setCharges(nextCharges);
+      setReceipts(nextReceipts);
+      setBillingDashboard(nextDashboard);
+      setMemberDueSummaries(nextDueSummaries);
+      setAccounts(nextAccounts);
+      setAccountingEntries(nextEntries);
+      setIncomeVouchers(nextIncomeVouchers);
+      setExpenseVouchers(nextExpenseVouchers);
+      setAccountingSummary(nextSummary);
+      setSmsTemplates(nextTemplates);
+      setSmsMessages(nextMessages);
+      setSmsAttempts(nextAttempts);
+      setSmsIntegrationStatus(nextSmsStatus);
+      setBillingHeads(nextBillingHeads);
+      setBillingHeadMappings(nextBillingMappings);
+      setBillingInvoices(nextInvoices);
+      setSmsProviderCheck(
+        nextSmsStatus.provider_check_message
+          ? {
+              provider_name: nextSmsStatus.provider_name,
+              provider_configured: nextSmsStatus.provider_configured,
+              ok: Boolean(nextSmsStatus.provider_check_ok),
+              status_code: null,
+              message: nextSmsStatus.provider_check_message,
+              response_sample: null,
+            }
+          : null,
+      );
+
+      const memberIdToLoad = selectedMemberId ?? selectedMember?.id ?? nextMembers[0]?.id;
+      if (memberIdToLoad) {
+        const detail = await apiRequest<MemberDetail>(`/api/members/${memberIdToLoad}`, accessToken);
+        setSelectedMember(detail);
+      } else {
+        setSelectedMember(null);
+      }
+
+      setMessage("Makan Society workspace loaded with live society data.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to load workspace");
+    } finally {
+      setIsWorkspaceLoading(false);
+    }
+  }
+
+  async function refreshBillingWorkspace() {
+    const accessToken = token();
+    if (!accessToken) return;
+
+    const [nextPeriods, nextCharges, nextReceipts, nextDashboard, nextDueSummary] = await Promise.all([
+      apiRequest<BillingPeriod[]>("/api/billing/periods", accessToken),
+      apiRequest<Charge[]>("/api/billing/charges", accessToken),
+      apiRequest<Receipt[]>("/api/billing/receipts", accessToken),
+      apiRequest<BillingDashboard>("/api/billing/dashboard", accessToken),
+      apiRequest<BillingMemberSummary[]>("/api/billing/member-due-summary", accessToken),
+    ]);
+    setBillingPeriods(nextPeriods);
+    setCharges(nextCharges);
+    setReceipts(nextReceipts);
+    setBillingDashboard(nextDashboard);
+    setMemberDueSummaries(nextDueSummary);
+    const [nextHeads, nextMappings, nextInvoices] = await Promise.all([
+      apiRequest<BillingHead[]>("/api/billing/heads", accessToken),
+      apiRequest<BillingHeadMapping[]>("/api/billing/head-mappings", accessToken),
+      apiRequest<BillingInvoice[]>("/api/billing/invoices", accessToken),
+    ]);
+    setBillingHeads(nextHeads);
+    setBillingHeadMappings(nextMappings);
+    setBillingInvoices(nextInvoices);
+  }
+
+  async function refreshAccountingWorkspace() {
+    const accessToken = token();
+    if (!accessToken) return;
+    const [nextAccounts, nextEntries, nextIncomeVouchers, nextExpenseVouchers, nextSummary] = await Promise.all([
+      apiRequest<Account[]>("/api/accounting/accounts", accessToken),
+      apiRequest<AccountingEntry[]>("/api/accounting/entries", accessToken),
+      apiRequest<AccountingVoucher[]>("/api/accounting/vouchers/income", accessToken),
+      apiRequest<AccountingVoucher[]>("/api/accounting/vouchers/expense", accessToken),
+      apiRequest<AccountingSummary>("/api/accounting/summary", accessToken),
+    ]);
+    setAccounts(nextAccounts);
+    setAccountingEntries(nextEntries);
+    setIncomeVouchers(nextIncomeVouchers);
+    setExpenseVouchers(nextExpenseVouchers);
+    setAccountingSummary(nextSummary);
+  }
+
+  async function refreshMessagingWorkspace() {
+    const accessToken = token();
+    if (!accessToken) return;
+    const [nextTemplates, nextMessages, nextAttempts, nextSmsStatus] = await Promise.all([
+      apiRequest<SmsTemplate[]>("/api/messaging/templates", accessToken),
+      apiRequest<SmsMessage[]>("/api/messaging/messages", accessToken),
+      apiRequest<SmsAttempt[]>("/api/messaging/attempts", accessToken),
+      apiRequest<SmsIntegrationStatus>("/api/messaging/status", accessToken),
+    ]);
+    setSmsTemplates(nextTemplates);
+    setSmsMessages(nextMessages);
+    setSmsAttempts(nextAttempts);
+    setSmsIntegrationStatus(nextSmsStatus);
+    setSmsProviderCheck(
+      nextSmsStatus.provider_check_message
+        ? {
+            provider_name: nextSmsStatus.provider_name,
+            provider_configured: nextSmsStatus.provider_configured,
+            ok: Boolean(nextSmsStatus.provider_check_ok),
+            status_code: null,
+            message: nextSmsStatus.provider_check_message,
+            response_sample: null,
+          }
+        : null,
+    );
+  }
+
+  async function handleSmsProviderMode(providerMode: SmsProviderMode) {
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      const nextStatus = await apiRequest<SmsIntegrationStatus>("/api/messaging/provider-mode", accessToken, {
+        method: "POST",
+        body: JSON.stringify({ provider_mode: providerMode }),
+      });
+      setSmsIntegrationStatus(nextStatus);
+      setMessage(providerMode === "bulksmsbd" ? "BulkSMSBD real API is active." : "SMS simulation mode is active.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to change SMS provider mode");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleSmsProviderCheck() {
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      const providerCheck = await apiRequest<SmsProviderCheck>("/api/messaging/provider-check", accessToken);
+      const nextStatus = await apiRequest<SmsIntegrationStatus>("/api/messaging/status", accessToken);
+      setSmsProviderCheck(providerCheck);
+      setSmsIntegrationStatus(nextStatus);
+      setMessage(providerCheck.ok ? "SMS API responded. No SMS was sent." : providerCheck.message);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to check SMS API");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleSmsBalanceCheck() {
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      const balance = await getSmsBalance(accessToken);
+      setSmsBalance(balance);
+      setMessage(balance.success ? balance.provider_message : friendlySmsError(balance.provider_code, balance.provider_message));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to check SMS balance");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleTestSmsSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      const result = await sendTestSms(accessToken, smsTestRecipient, smsTestMessage);
+      await refreshMessagingWorkspace();
+      setMessage(result.success ? "SMS submitted successfully" : friendlySmsError(result.provider_code, result.provider_message));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to send test SMS");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function friendlySmsError(code: string | null, fallback: string) {
+    if (code === "1007") return "Insufficient SMS balance";
+    if (code === "1002") return "Sender ID is invalid or disabled";
+    if (code === "1003") return "Required SMS fields are missing";
+    if (!code && fallback.toLowerCase().includes("invalid bangladeshi")) return "Invalid phone number";
+    if (!code && fallback.toLowerCase().includes("timeout")) return "SMS provider unavailable";
+    return fallback || "SMS provider unavailable";
+  }
+
+  async function handleLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setMessage("Signing in...");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ login_name: loginName, password }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail ?? "Login failed");
+      }
+      const payload = (await response.json()) as TokenPair;
+      localStorage.setItem(accessTokenKey, payload.access_token);
+      localStorage.setItem(refreshTokenKey, payload.refresh_token);
+      const user = await fetchProfile(payload.access_token);
+      setProfile(user);
+      setAuthState("authenticated");
+      setMessage("Signed in.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Login failed");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleBootstrap(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setMessage("Creating first admin...");
+    try {
+      await fetch(`${apiBaseUrl}/api/auth/bootstrap-admin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, login_name: loginName, email: email || null, password }),
+      }).then(async (response) => {
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(payload?.detail ?? "Unable to create admin");
+        }
+      });
+      setFormMode("login");
+      setMessage("Admin created. Log in with the same credentials.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to create admin");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function handleLogout() {
+    localStorage.removeItem(accessTokenKey);
+    localStorage.removeItem(refreshTokenKey);
+    setShowUserMenu(false);
+    setProfile(null);
+    setAuthState("guest");
+    setMessage("Signed out.");
+  }
+
+  function resetCategoryForm() {
+    setEditingCategoryId(null);
+    setCategoryName("");
+    setCategoryCode("");
+    setCategoryIsActive(true);
+  }
+
+  function startCategoryEntry(category?: Category) {
+    if (category) {
+      setEditingCategoryId(category.id);
+      setCategoryName(category.name);
+      setCategoryCode(category.code ?? "");
+      setCategoryIsActive(category.is_active);
+    } else {
+      resetCategoryForm();
+    }
+    setCategoryPageMode("entry");
+  }
+
+  function resetPackageForm() {
+    setEditingPackageId(null);
+    setPackageName("");
+    setPackageType("");
+    setPackagePrice("0");
+    setPackageCategoryId("");
+    setPackageIsActive(true);
+  }
+
+  function startPackageEntry(item?: Package) {
+    if (item) {
+      setEditingPackageId(item.id);
+      setPackageName(item.name);
+      setPackageType(item.package_type ?? "");
+      setPackagePrice(String(item.default_price));
+      setPackageCategoryId(String(item.category_id));
+      setPackageIsActive(item.is_active);
+    } else {
+      resetPackageForm();
+    }
+    setPackagePageMode("entry");
+  }
+
+  function resetMemberForm() {
+    setEditingMemberId(null);
+    setMemberCode("");
+    setMemberIdText("");
+    setMemberName("");
+    setMemberCell("");
+    setMemberEmail("");
+    setMemberCategoryId("");
+    setMemberClass("");
+    setMemberJoinDate("");
+    setMemberIsActive(true);
+    setNomineeName("");
+    setNomineeCell("");
+  }
+
+  async function startMemberEntry(member?: MemberListItem) {
+    if (!member) {
+      resetMemberForm();
+      setMemberPageMode("entry");
+      return;
+    }
+
+    const accessToken = token();
+    if (!accessToken) return;
+    const detail = await apiRequest<MemberDetail>(`/api/members/${member.id}`, accessToken);
+    setEditingMemberId(detail.id);
+    setMemberCode(detail.member_code);
+    setMemberIdText(detail.member_id_text ?? "");
+    setMemberName(detail.full_name);
+    setMemberCell(detail.cell_no ?? "");
+    setMemberEmail(detail.email ?? "");
+    setMemberCategoryId(detail.category_id ? String(detail.category_id) : "");
+    setMemberClass(detail.member_class ?? "");
+    setMemberJoinDate(detail.joined_on ?? "");
+    setMemberIsActive(detail.is_active);
+    setNomineeName(detail.nominee_name ?? "");
+    setNomineeCell(detail.nominee_cell ?? "");
+    setSelectedMember(detail);
+    setMemberPageMode("entry");
+  }
+
+  async function handleCategorySubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      const wasEditing = editingCategoryId !== null;
+      await apiRequest<Category>(editingCategoryId ? `/api/categories/${editingCategoryId}` : "/api/categories", accessToken, {
+        method: editingCategoryId ? "PUT" : "POST",
+        body: JSON.stringify({ name: categoryName, code: categoryCode || null, is_active: categoryIsActive }),
+      });
+      resetCategoryForm();
+      setCategoryPageMode("view");
+      await loadWorkspace();
+      setMessage(wasEditing ? "Category updated." : "Category saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save category");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handlePackageSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      const wasEditing = editingPackageId !== null;
+      await apiRequest<Package>(editingPackageId ? `/api/packages/${editingPackageId}` : "/api/packages", accessToken, {
+        method: editingPackageId ? "PUT" : "POST",
+        body: JSON.stringify({
+          category_id: Number(packageCategoryId),
+          name: packageName,
+          package_type: packageType || null,
+          default_price: Number(packagePrice),
+          is_active: packageIsActive,
+        }),
+      });
+      resetPackageForm();
+      setPackagePageMode("view");
+      await loadWorkspace();
+      setMessage(wasEditing ? "Package updated." : "Package saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save package");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleMemberSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      const wasEditing = editingMemberId !== null;
+      const payload = {
+        member_code: memberCode,
+        member_id_text: memberIdText || null,
+        full_name: memberName,
+        cell_no: memberCell || null,
+        email: memberEmail || null,
+        category_id: memberCategoryId ? Number(memberCategoryId) : null,
+        member_class: memberClass || null,
+        joined_on: memberJoinDate || null,
+        is_active: memberIsActive,
+        nominee: nomineeName || nomineeCell ? { nominee_name: nomineeName || null, nominee_cell: nomineeCell || null } : null,
+      };
+      const saved = await apiRequest<MemberDetail>(editingMemberId ? `/api/members/${editingMemberId}` : "/api/members", accessToken, {
+        method: editingMemberId ? "PUT" : "POST",
+        body: JSON.stringify(payload),
+      });
+      resetMemberForm();
+      setMemberPageMode("view");
+      await loadWorkspace(saved.id);
+      setMessage(wasEditing ? "Member updated." : "Member saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save member");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleMemberSelect(memberId: number) {
+    const accessToken = token();
+    if (!accessToken) return;
+    const detail = await apiRequest<MemberDetail>(`/api/members/${memberId}`, accessToken);
+    setSelectedMember(detail);
+  }
+
+  async function handlePackageAssignmentSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      await apiRequest<MemberPackageAssignment>(`/api/members/${assignMemberId}/packages`, accessToken, {
+        method: "POST",
+        body: JSON.stringify({
+          package_id: Number(assignPackageId),
+          assigned_on: assignDate,
+          ended_on: null,
+          is_active: true,
+        }),
+      });
+      setAssignMemberId("");
+      setAssignPackageId("");
+      setAssignDate("");
+      await loadWorkspace(Number(assignMemberId));
+      setMessage("Package assigned.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to assign package");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handlePeriodSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      await apiRequest<BillingPeriod>("/api/billing/periods", accessToken, {
+        method: "POST",
+        body: JSON.stringify({
+          year: Number(periodYear),
+          month: Number(periodMonth),
+          starts_on: periodStart,
+          ends_on: periodEnd,
+        }),
+      });
+      setPeriodStart("");
+      setPeriodEnd("");
+      setWorkspaceTab("billing");
+      await refreshBillingWorkspace();
+      setMessage("Billing period saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save billing period");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleBillingGeneration(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      await apiRequest<Charge[]>("/api/billing/generate", accessToken, {
+        method: "POST",
+        body: JSON.stringify({ billing_period_id: Number(generationPeriodId), charge_type: "monthly" }),
+      });
+      setGenerationPeriodId("");
+      await refreshBillingWorkspace();
+      setMessage("Billing generated.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to generate billing");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleReceiptSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      await apiRequest<Receipt>("/api/billing/receipts", accessToken, {
+        method: "POST",
+        body: JSON.stringify({
+          member_id: Number(receiptMemberId),
+          payment_date: receiptDate,
+          notes: receiptNotes || null,
+          discount_amount: Number(receiptDiscount || 0),
+          lines: [{ charge_id: Number(receiptChargeId), amount: Number(receiptAmount) }],
+        }),
+      });
+      setReceiptMemberId("");
+      setReceiptChargeId("");
+      setReceiptAmount("");
+      setReceiptDate("");
+      setReceiptNotes("");
+      setReceiptDiscount("0");
+      await refreshBillingWorkspace();
+      await refreshAccountingWorkspace();
+      setMessage("Receipt posted and accounting income updated.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to post receipt");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleBillingHeadSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      const wasEditing = editingBillingHeadId !== null;
+      await apiRequest<BillingHead>(editingBillingHeadId ? `/api/billing/heads/${editingBillingHeadId}` : "/api/billing/heads", accessToken, {
+        method: editingBillingHeadId ? "PUT" : "POST",
+        body: JSON.stringify({
+          head_name: billingHeadName,
+          head_type: billingHeadType,
+          fee_amount: Number(billingHeadFee),
+          effective_from_month: billingHeadType === "Period" ? Number(billingHeadEffectiveDate.slice(5, 7)) : null,
+          effective_from_year: billingHeadType === "Period" ? Number(billingHeadEffectiveDate.slice(0, 4)) : null,
+          effective_from_date: billingHeadType === "Period" ? billingHeadEffectiveDate : null,
+          is_active: true,
+        }),
+      });
+      setBillingHeadName("");
+      setBillingHeadFee("500");
+      setBillingHeadType("Period");
+      setBillingHeadEffectiveDate("2018-01-01");
+      setEditingBillingHeadId(null);
+      setWorkspaceTab("billing-heads-view");
+      await refreshBillingWorkspace();
+      setMessage(wasEditing ? "Billing head version updated. Previous head was made inactive." : "Billing head saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save billing head");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleBillingMappingSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      await apiRequest<BillingHeadMapping>("/api/billing/head-mappings", accessToken, {
+        method: "POST",
+        body: JSON.stringify({ billing_head_id: Number(mappingHeadId), coa_id: Number(mappingCoaId), is_active: true }),
+      });
+      setMappingHeadId("");
+      setMappingCoaId("");
+      setWorkspaceTab("billing-mappings-view");
+      await refreshBillingWorkspace();
+      setMessage("Billing head mapped to COA.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save mapping");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleLoadMemberDues() {
+    const accessToken = token();
+    if (!accessToken || !invoiceMemberId) return;
+    setIsSubmitting(true);
+    try {
+      const dues = await apiRequest<BillingDueLine[]>(`/api/billing/members/${invoiceMemberId}/dues`, accessToken);
+      setBillingDueLines(dues);
+      setInvoiceReceipts(Object.fromEntries(dues.map((line, index) => [`${line.billing_head_id}-${line.period_date ?? "one"}-${index}`, "0"])));
+      setMessage(`${dues.length} dues loaded month-wise.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to load dues");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function openInvoiceReport(invoice: BillingInvoice) {
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      const freshInvoice = await apiRequest<BillingInvoice>(`/api/billing/invoices/${invoice.id}`, accessToken);
+      setInvoiceReport(freshInvoice);
+      setShowInvoiceReport(true);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to open invoice report");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function printInvoiceReport(invoice: BillingInvoice | null = invoiceReport) {
+    if (!invoice) return;
+    const member = members.find((item) => item.id === invoice.member_id);
+    const reportLogoUrl = `${window.location.origin}/makan-logo-3.png`;
+    const escapeHtml = (value: string | number | null | undefined) =>
+      String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    const rows = invoice.details
+      .map(
+        (detail, index) => `
+          <tr>
+            <td>${index + 1}</td>
+            <td>${escapeHtml(detail.head_name_snapshot)}</td>
+            <td>${escapeHtml(detail.period_display ?? "-")}</td>
+            <td class="right">${money(detail.fee_amount)}</td>
+            <td class="right">${money(detail.receive_amount)}</td>
+            <td class="right">${money(detail.due_amount)}</td>
+          </tr>`,
+      )
+      .join("");
+    const printWindow = window.open("about:blank", "_blank", "width=980,height=720");
+    if (!printWindow) {
+      setMessage("Allow browser popups to print the invoice.");
+      return;
+    }
+    printWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>${escapeHtml(invoice.invoice_no)}</title>
+          <style>
+            * { box-sizing: border-box; }
+            body { margin: 0; background: #fff; color: #111827; font-family: Arial, Helvetica, sans-serif; font-size: 13px; }
+            .sheet { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 16mm 14mm; }
+            .header { border-bottom: 2px solid #111827; padding-bottom: 18px; }
+            .report-logo { display: block; width: 100%; max-height: 118px; object-fit: contain; margin-bottom: 14px; }
+            .title-row, .meta, .summary, .signatures { display: flex; justify-content: space-between; gap: 24px; }
+            .brand { font-size: 24px; font-weight: 800; }
+            .muted { color: #6b7280; }
+            .title { margin: 10px 0 4px; font-size: 30px; font-weight: 800; text-align: right; }
+            .badge { display: inline-block; padding: 5px 10px; border-radius: 4px; background: ${invoice.total_due_amount <= 0 ? "#dcfce7" : "#fef3c7"}; color: ${invoice.total_due_amount <= 0 ? "#166534" : "#92400e"}; font-weight: 700; }
+            .meta { margin: 22px 0; padding: 14px; border: 1px solid #e5e7eb; background: #f8fafc; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #d1d5db; padding: 8px; vertical-align: top; }
+            th { background: #eef2f7; text-align: left; }
+            .right { text-align: right; }
+            .summary { align-items: flex-start; margin-top: 22px; }
+            .note { max-width: 420px; color: #4b5563; }
+            .totals { width: 340px; border: 1px solid #e5e7eb; }
+            .totals div { display: flex; justify-content: space-between; padding: 9px 12px; border-bottom: 1px solid #e5e7eb; }
+            .totals div:last-child { border-bottom: 0; }
+            .grand { background: #111827; color: #fff; font-weight: 800; }
+            .signatures { margin-top: 54px; }
+            .signatures div { width: 30%; text-align: center; color: #374151; }
+            .signatures span { display: block; border-top: 1px solid #111827; margin-bottom: 8px; }
+            @page { size: A4; margin: 0; }
+            @media print { .sheet { margin: 0; } }
+          </style>
+        </head>
+        <body>
+          <main class="sheet">
+            <section class="header">
+              <img class="report-logo" src="${reportLogoUrl}" alt="Darul Mohan Plot Owners Society" />
+              <div class="title-row">
+                <div>
+                  <div class="brand">Billing invoice and money receipt</div>
+                  <div class="muted">Makan Society</div>
+                </div>
+                <div>
+                  <span class="badge">${invoice.total_due_amount <= 0 ? "Paid" : invoice.total_receive_amount > 0 ? "Partial" : "Due"}</span>
+                  <div class="title">Invoice</div>
+                  <strong>${escapeHtml(invoice.invoice_no)}</strong>
+                </div>
+              </div>
+            </section>
+            <section class="meta">
+              <div>
+                <span class="muted">Bill To</span><br />
+                <strong>${escapeHtml(invoice.member_name)}</strong><br />
+                ${member?.member_code ? `Member Code: ${escapeHtml(member.member_code)}<br />` : ""}
+                ${member?.cell_no ? `Phone: ${escapeHtml(member.cell_no)}<br />` : ""}
+                ${member?.category_name ? `Category: ${escapeHtml(member.category_name)}` : ""}
+              </div>
+              <div class="right">
+                <span class="muted">Invoice Date</span><br />
+                <strong>${shortDate(invoice.invoice_date)}</strong><br />
+                Generated: ${shortDate(invoice.created_at)}
+              </div>
+            </section>
+            <table>
+              <thead>
+                <tr><th style="width:44px">SL</th><th>Billing Head</th><th>Period</th><th class="right">Fee</th><th class="right">Received</th><th class="right">Due</th></tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+            <section class="summary">
+              <div class="note">
+                <strong>Note</strong>
+                <p>This invoice is generated from saved billing data. Old invoice values remain unchanged after setup edits.</p>
+              </div>
+              <div class="totals">
+                <div><span>Subtotal</span><strong>${money(invoice.subtotal_amount)}</strong></div>
+                <div><span>Discount</span><strong>${money(invoice.discount_amount)}</strong></div>
+                <div><span>Net Amount</span><strong>${money(invoice.net_amount)}</strong></div>
+                <div><span>Received</span><strong>${money(invoice.total_receive_amount)}</strong></div>
+                <div class="grand"><span>Due</span><strong>${money(invoice.total_due_amount)}</strong></div>
+              </div>
+            </section>
+            <section class="signatures">
+              <div><span></span>Prepared By</div>
+              <div><span></span>Received By</div>
+              <div><span></span>Authorized Signature</div>
+            </section>
+          </main>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    const printAfterLogo = () => window.setTimeout(() => printWindow.print(), 150);
+    const logo = printWindow.document.querySelector(".report-logo") as HTMLImageElement | null;
+    if (!logo || logo.complete) {
+      printAfterLogo();
+    } else {
+      logo.onload = printAfterLogo;
+      logo.onerror = printAfterLogo;
+    }
+  }
+
+  function handleAddManualBillingLine() {
+    const head = billingHeads.find((item) => item.id === Number(manualBillingHeadId));
+    if (!head) {
+      setMessage("Select a billing head first.");
+      return;
+    }
+    const periodDate = head.head_type === "Period" ? `${manualBillingPeriod}-01` : null;
+    const periodDisplay = head.head_type === "Period" ? `${manualBillingPeriod.slice(5, 7)}-${manualBillingPeriod.slice(0, 4)}` : null;
+    setBillingDueLines((current) => [
+      ...current,
+      {
+        member_id: Number(invoiceMemberId || 0),
+        billing_head_id: head.id,
+        head_name: head.head_name,
+        head_type: head.head_type,
+        period_date: periodDate,
+        period_display: periodDisplay,
+        fee_amount: head.fee_amount,
+        paid_amount: 0,
+        due_amount: head.fee_amount,
+        coa_id_snapshot: null,
+      },
+    ]);
+    setManualBillingHeadId("");
+    setMessage(`${head.head_name} added to billing grid.`);
+  }
+
+  async function handleInvoiceSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const accessToken = token();
+    if (!accessToken || !invoiceMemberId) return;
+    if (billingDueLines.length === 0) {
+      setMessage("Load dues or add at least one billing head.");
+      return;
+    }
+    if (billingSelectedLines.length === 0) {
+      setMessage("Enter receive amount for at least one row.");
+      return;
+    }
+    if (billingDiscount > billingSubtotal) {
+      setMessage("Discount cannot exceed received subtotal.");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const invoice = await apiRequest<BillingInvoice>("/api/billing/invoices", accessToken, {
+        method: "POST",
+        body: JSON.stringify({
+          member_id: Number(invoiceMemberId),
+          invoice_date: invoiceDate,
+          discount_amount: Number(invoiceDiscount || 0),
+          lines: billingSelectedLines.map((item) => ({
+            billing_head_id: item.line.billing_head_id,
+            period_date: item.line.period_date,
+            fee_amount: item.line.due_amount,
+            receive_amount: item.receive,
+            discount_amount: 0,
+          })),
+        }),
+      });
+      setLastGeneratedInvoice(invoice);
+      setInvoiceReport(invoice);
+      setShowInvoiceReport(true);
+      setBillingDueLines([]);
+      setInvoiceReceipts({});
+      setInvoiceDiscount("0");
+      await refreshBillingWorkspace();
+      setMessage(`Invoice ${invoice.invoice_no} generated.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to generate invoice");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleAccountSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      const existingAccount = editingAccountId ? accounts.find((account) => account.id === editingAccountId) : null;
+      await apiRequest<Account>(editingAccountId ? `/api/accounting/accounts/${editingAccountId}` : "/api/accounting/accounts", accessToken, {
+        method: editingAccountId ? "PUT" : "POST",
+        body: JSON.stringify({ code: accountCode, name: accountName, account_type: accountType, is_active: existingAccount?.is_active ?? true }),
+      });
+      setAccountCode("");
+      setAccountName("");
+      setAccountType("income");
+      setEditingAccountId(null);
+      await refreshAccountingWorkspace();
+      setWorkspaceTab("coa-view");
+      setMessage(editingAccountId ? "Account updated." : "Account saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save account");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function handleAccountEdit(account: Account) {
+    setEditingAccountId(account.id);
+    setAccountCode(account.code);
+    setAccountName(account.name);
+    setAccountType(account.account_type);
+    setWorkspaceTab("coa-entry");
+  }
+
+  async function handleAccountActiveChange(account: Account, isActive: boolean) {
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      await apiRequest<Account>(`/api/accounting/accounts/${account.id}`, accessToken, {
+        method: "PUT",
+        body: JSON.stringify({ code: account.code, name: account.name, account_type: account.account_type, is_active: isActive }),
+      });
+      await refreshAccountingWorkspace();
+      setMessage(isActive ? "Account activated." : "Account inactivated.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to update account");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleAccountDelete(accountId: number) {
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      await apiRequest<void>(`/api/accounting/accounts/${accountId}`, accessToken, { method: "DELETE" });
+      await refreshAccountingWorkspace();
+      setMessage("Account deleted.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to delete account");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function handleAddEntryToList(entryType: "income" | "expense", event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!entryAccountId) {
+      setMessage("Select an account from chart of accounts first.");
+      return;
+    }
+    const selectedAccount = accounts.find((account) => account.id === Number(entryAccountId));
+    const amount = Number(entryAmount);
+    if (!selectedAccount || !amount || amount <= 0) {
+      setMessage("Select account and enter a valid amount.");
+      return;
+    }
+    setPendingEntries((current) => [
+      ...current,
+      {
+        account_id: selectedAccount.id,
+        account_label: `${selectedAccount.code} - ${selectedAccount.name}`,
+        amount,
+        remarks: entryRemarks || null,
+      },
+    ]);
+    setEntryAccountId("");
+    setEntryAccountSearch("");
+    setEntryAmount("");
+    setEntryRemarks("");
+    setMessage(`${entryType === "income" ? "Income" : "Expense"} line added to list.`);
+  }
+
+  async function handleSavePendingEntries(entryType: "income" | "expense") {
+    const accessToken = token();
+    if (!accessToken) return;
+    if (pendingEntries.length === 0) {
+      setMessage("Add at least one line before saving.");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const voucher = await apiRequest<AccountingVoucher>(`/api/accounting/vouchers/${entryType}`, accessToken, {
+        method: "POST",
+        body: JSON.stringify({
+          voucher_date: entryDate,
+          remarks: entryVoucherRemarks || null,
+          lines: pendingEntries.map((item) => ({ coa_id: item.account_id, amount: item.amount, remarks: item.remarks })),
+        }),
+      });
+      setPendingEntries([]);
+      setEntryVoucherRemarks("");
+      await refreshAccountingWorkspace();
+      setWorkspaceTab(entryType === "income" ? "income-view" : "expense-view");
+      setMessage(`${entryType === "income" ? "Receive" : "Payment"} voucher ${voucher.voucher_no} saved.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save accounting entry");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function printAccountingVoucher(voucher: AccountingVoucher) {
+    const title = voucher.voucher_type === "income" ? "Receive Voucher" : "Payment Voucher";
+    const rows = voucher.lines.map((line, index) => `<tr><td>${index + 1}</td><td>${line.coa_name ?? ""}</td><td>${line.remarks ?? ""}</td><td class="right">${money(line.amount)}</td></tr>`).join("");
+    const reportLogoUrl = `${window.location.origin}/makan-logo-3.png`;
+    const printWindow = window.open("about:blank", "_blank", "width=980,height=720");
+    if (!printWindow) return;
+    printWindow.document.write(`<!doctype html><html><head><title>${voucher.voucher_no}</title><style>body{font-family:Arial;margin:0;color:#111827}.sheet{width:210mm;min-height:297mm;margin:auto;padding:16mm 14mm}.head{border-bottom:2px solid #111827;padding-bottom:14px}.report-logo{display:block;width:100%;max-height:118px;object-fit:contain;margin-bottom:14px}.voucher-head{display:flex;justify-content:space-between;gap:20px}.title{text-align:right;font-size:28px;font-weight:800}table{width:100%;border-collapse:collapse;margin-top:22px}th,td{border:1px solid #d1d5db;padding:8px}th{background:#eef2f7}.right{text-align:right}.total{background:#111827;color:#fff;font-weight:800}.muted{color:#6b7280}.sign{display:flex;justify-content:space-between;margin-top:60px}.sign div{width:30%;text-align:center}.sign span{display:block;border-top:1px solid #111827;margin-bottom:8px}@page{size:A4;margin:0}</style></head><body><main class="sheet"><section class="head"><img class="report-logo" src="${reportLogoUrl}"/><div class="voucher-head"><div><strong>Accounting voucher report</strong><div class="muted">Makan Society</div></div><div><div class="title">${title}</div><strong>${voucher.voucher_no}</strong><br/>Date: ${shortDate(voucher.voucher_date)}</div></div></section><table><thead><tr><th>SL</th><th>COA</th><th>Remarks</th><th class="right">Amount</th></tr></thead><tbody>${rows}<tr class="total"><td colspan="3" class="right">Total</td><td class="right">${money(voucher.total_amount)}</td></tr></tbody></table><p>Remarks: ${voucher.remarks ?? ""}</p><section class="sign"><div><span></span>Prepared By</div><div><span></span>Checked By</div><div><span></span>Authorized Signature</div></section></main></body></html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    const printAfterLogo = () => window.setTimeout(() => printWindow.print(), 150);
+    const logo = printWindow.document.querySelector(".report-logo") as HTMLImageElement | null;
+    if (!logo || logo.complete) {
+      printAfterLogo();
+    } else {
+      logo.onload = printAfterLogo;
+      logo.onerror = printAfterLogo;
+    }
+  }
+
+  async function handleEntryDelete(entryId: number) {
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      await apiRequest<void>(`/api/accounting/entries/${entryId}`, accessToken, { method: "DELETE" });
+      await refreshAccountingWorkspace();
+      setMessage("Entry deleted.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to delete entry");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleReportLoad(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      if (reportType === "income-expense") {
+        const params = new URLSearchParams();
+        if (reportFromDate) params.set("from_date", reportFromDate);
+        if (reportToDate) params.set("to_date", reportToDate);
+        const payload = await apiRequest<IncomeExpenseComparisonReport>(`/api/accounting/income-expense-report${params.toString() ? `?${params}` : ""}`, accessToken);
+        setIncomeExpenseReport(payload);
+        setCurrentReport(null);
+        setReceiptReport(null);
+        setMessage("Income expense report loaded.");
+        return;
+      }
+      if (reportType === "receipt-detail") {
+        const payload = await apiRequest<ReceiptDetailReport>(`/api/reports/receipt/${reportReceiptId}`, accessToken);
+        setReceiptReport(payload);
+        setCurrentReport(null);
+      } else {
+        const pathMap: Record<string, string> = {
+          "due-members": "/api/reports/due-members",
+          collections: "/api/reports/collections",
+          charges: "/api/reports/charges",
+          members: "/api/reports/members",
+        };
+        const query = reportQueryString ? `?${reportQueryString}` : "";
+        const payload = await apiRequest<ReportEnvelope>(`${pathMap[reportType]}${query}`, accessToken);
+        setCurrentReport(payload);
+        setReceiptReport(null);
+        setIncomeExpenseReport(null);
+      }
+      setMessage("Report loaded.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to load report");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function openReportExport(kind: "html" | "xlsx") {
+    if (reportType !== "due-members") {
+      setMessage("HTML and XLSX export are available for due members.");
+      return;
+    }
+    const query = reportQueryString ? `?${reportQueryString}` : "";
+    window.open(`${apiBaseUrl}/api/reports/due-members/${kind}${query}`, "_blank", "noopener,noreferrer");
+  }
+
+  async function handleSmsTemplateSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      await apiRequest<SmsTemplate>(editingSmsTemplateId ? `/api/messaging/templates/${editingSmsTemplateId}` : "/api/messaging/templates", accessToken, {
+        method: editingSmsTemplateId ? "PUT" : "POST",
+        body: JSON.stringify({ name: smsTemplateName, body: smsTemplateBody, template_type: smsTemplateType || null }),
+      });
+      const wasEditingSelected = editingSmsTemplateId !== null && smsSelectedTemplateId === String(editingSmsTemplateId);
+      setSmsTemplateName("");
+      setSmsTemplateType("");
+      setSmsTemplateBody("");
+      setEditingSmsTemplateId(null);
+      setShowSmsTemplateModal(false);
+      await refreshMessagingWorkspace();
+      if (wasEditingSelected) {
+        setSmsMessageBody(smsTemplateBody);
+      }
+      setMessage(editingSmsTemplateId ? "SMS template updated." : "SMS template saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save SMS template");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function openSmsTemplateModal(template?: SmsTemplate) {
+    setEditingSmsTemplateId(template?.id ?? null);
+    setSmsTemplateName(template?.name ?? "");
+    setSmsTemplateType(template?.template_type ?? "");
+    setSmsTemplateBody(template?.body ?? "");
+    setShowSmsTemplateModal(true);
+  }
+
+  function buildSmsVariables(member: MemberListItem | null) {
+    if (!member) {
+      return {};
+    }
+    const dueAmount = dueByMemberId.get(member.id)?.total_due ?? 0;
+    return {
+      name: member.full_name,
+      bill: dueAmount.toFixed(2),
+      due: dueAmount.toFixed(2),
+      member_code: member.member_code,
+      phone: member.cell_no ?? "",
+    };
+  }
+
+  function renderSmsPreview(member: MemberListItem | null) {
+    const variables = buildSmsVariables(member);
+    const source = selectedSmsTemplate?.body || smsMessageBody || "";
+    return Object.entries(variables).reduce((rendered, [key, value]) => {
+      return rendered.split(`{{${key}}}`).join(value).split(`(${key})`).join(value);
+    }, source);
+  }
+
+  function toggleSmsMemberSelection(memberId: number) {
+    setSmsSelectedMemberIds((current) =>
+      current.includes(memberId) ? current.filter((item) => item !== memberId) : [...current, memberId],
+    );
+  }
+
+  function toggleAllSmsMembers(checked: boolean) {
+    const filteredIds = smsFilteredMembers.map((member) => member.id);
+    setSmsSelectedMemberIds((current) => {
+      if (checked) {
+        return Array.from(new Set([...current, ...filteredIds]));
+      }
+      return current.filter((memberId) => !filteredIds.includes(memberId));
+    });
+  }
+
+  async function handleSmsQueueSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      const selectedMember = smsMemberId ? members.find((member) => member.id === Number(smsMemberId)) ?? null : null;
+      await apiRequest<SmsMessage>("/api/messaging/queue", accessToken, {
+        method: "POST",
+        body: JSON.stringify({
+          member_id: smsMemberId ? Number(smsMemberId) : null,
+          template_id: smsSelectedTemplateId ? Number(smsSelectedTemplateId) : null,
+          recipient: smsRecipient || null,
+          message_body: smsMessageBody || null,
+          variables: buildSmsVariables(selectedMember),
+          send_now: true,
+        }),
+      });
+      setSmsMemberId("");
+      setSmsRecipient("");
+      setSmsSelectedTemplateId("");
+      setSmsMessageBody("");
+      await refreshMessagingWorkspace();
+      setMessage("SMS queued.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to queue SMS");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleBulkSmsSend() {
+    const accessToken = token();
+    if (!accessToken) return;
+    const selectedMembers = smsSelectedMembers.filter((member) => (member.cell_no ?? "").replace(/\D/g, "").length >= 11);
+    if (selectedMembers.length === 0) {
+      setMessage("Select at least one customer before sending SMS.");
+      return;
+    }
+    if (!smsSelectedTemplateId && !smsMessageBody.trim()) {
+      setMessage("Select a template or write a custom message first.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setSmsBulkProgress({
+      running: true,
+      total: selectedMembers.length,
+      completed: 0,
+      success: 0,
+      failed: 0,
+      currentRecipient: "",
+    });
+    setSmsBulkProgressRows([]);
+
+    let success = 0;
+    let failed = 0;
+    try {
+      for (let index = 0; index < selectedMembers.length; index += 1) {
+        const member = selectedMembers[index];
+        setSmsBulkProgress((current) => ({
+          ...current,
+            currentRecipient: `${member.full_name} (${member.cell_no ?? "no number"})`,
+          }));
+        try {
+          const sentMessage = await apiRequest<SmsMessage>("/api/messaging/queue", accessToken, {
+            method: "POST",
+            body: JSON.stringify({
+              member_id: member.id,
+              template_id: smsSelectedTemplateId ? Number(smsSelectedTemplateId) : null,
+              recipient: member.cell_no,
+              message_body: smsMessageBody || null,
+              variables: buildSmsVariables(member),
+              send_now: true,
+            }),
+          });
+          if (sentMessage.status === "sent") {
+            success += 1;
+            setSmsBulkProgressRows((current) => [
+              ...current,
+              { memberId: member.id, name: member.full_name, phone: member.cell_no ?? "N/A", status: "sent", message: "Sent successfully" },
+            ]);
+          } else {
+            failed += 1;
+            setSmsBulkProgressRows((current) => [
+              ...current,
+              { memberId: member.id, name: member.full_name, phone: member.cell_no ?? "N/A", status: "failed", message: sentMessage.status },
+            ]);
+          }
+        } catch (error) {
+          failed += 1;
+          setSmsBulkProgressRows((current) => [
+            ...current,
+            {
+              memberId: member.id,
+              name: member.full_name,
+              phone: member.cell_no ?? "N/A",
+              status: "failed",
+              message: error instanceof Error ? error.message : "Send failed",
+            },
+          ]);
+        }
+        setSmsBulkProgress({
+          running: true,
+          total: selectedMembers.length,
+          completed: index + 1,
+          success,
+          failed,
+          currentRecipient: `${member.full_name} (${member.cell_no ?? "no number"})`,
+        });
+      }
+      await refreshMessagingWorkspace();
+      setMessage(`Bulk SMS completed. Sent: ${success}, Failed: ${failed}.`);
+    } finally {
+      setSmsBulkProgress((current) => ({ ...current, running: false }));
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleSmsSendNow(messageId: number) {
+    const accessToken = token();
+    if (!accessToken) return;
+    setIsSubmitting(true);
+    try {
+      await apiRequest<SmsMessage>(`/api/messaging/messages/${messageId}/send`, accessToken, { method: "POST" });
+      await refreshMessagingWorkspace();
+      setMessage("SMS send attempt recorded.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to send SMS");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function handleAvatarChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setAvatarUrl(URL.createObjectURL(file));
+  }
+
+  function renderDashboard() {
+    const operationValues = [
+      categories.length,
+      packages.length,
+      members.length,
+      billingDashboard?.total_open_charges ?? 0,
+      receipts.length,
+      smsMessages.length,
+    ];
+    const operationLabels = ["Cat", "Pkg", "Mem", "Due", "Rec", "SMS"];
+
+    return (
+      <>
+        <div className="row row-cols-xxl-4 row-cols-md-2 row-cols-1">
+          <StatCard title="Total Members" value={String(members.length)} subtitle={`${activeMembers.length} active`} icon="ri-team-line" tone="primary" />
+          <StatCard title="Total Collection" value={money(totalCollection)} subtitle={`${receipts.length} receipts`} icon="ri-wallet-3-line" tone="success" />
+          <StatCard
+            title="Open Due"
+            value={money(billingDashboard?.total_due_amount)}
+            subtitle={`${billingDashboard?.total_members_with_due ?? 0} members`}
+            icon="ri-file-warning-line"
+            tone="warning"
+          />
+          <StatCard title="SMS Messages" value={String(smsMessages.length)} subtitle={`${smsAttempts.length} attempts`} icon="ri-message-3-line" tone="info" />
+        </div>
+
+        <div className="row">
+          <div className="col-xl-6">
+            <div className="card">
+              <div className="d-flex card-header justify-content-between align-items-center">
+                <h4 className="header-title">Statistics</h4>
+                <CardMenu />
+              </div>
+              <div className="card-body px-0 pt-0">
+                <div className="bg-light bg-opacity-50">
+                  <div className="row text-center">
+                    <div className="col-md-3 col-6">
+                      <p className="text-muted mt-3 mb-1">Total Income</p>
+                      <h4 className="mb-3">
+                        <span className="ri-arrow-left-down-box-line text-success me-1" />
+                        <span>{money(accountingSummary?.total_income)}</span>
+                      </h4>
+                    </div>
+                    <div className="col-md-3 col-6">
+                      <p className="text-muted mt-3 mb-1">Total Expenditure</p>
+                      <h4 className="mb-3">
+                        <span className="ri-arrow-left-up-box-line text-danger me-1" />
+                        <span>{money(accountingSummary?.total_expense)}</span>
+                      </h4>
+                    </div>
+                    <div className="col-md-3 col-6">
+                      <p className="text-muted mt-3 mb-1">Open Charges</p>
+                      <h4 className="mb-3">
+                        <span className="ri-bar-chart-line me-1" />
+                        <span>{billingDashboard?.total_open_charges ?? 0}</span>
+                      </h4>
+                    </div>
+                    <div className="col-md-3 col-6">
+                      <p className="text-muted mt-3 mb-1">Net Savings</p>
+                      <h4 className="mb-3">
+                        <span className="ri-bank-line me-1" />
+                        <span>{money(accountingSummary?.net_balance)}</span>
+                      </h4>
+                    </div>
+                  </div>
+                </div>
+                <div className="px-3">
+                  <MiniBars values={operationValues} labels={operationLabels} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="col-xl-6">
+            <div className="card">
+              <div className="d-flex card-header justify-content-between align-items-center">
+                <h4 className="header-title">Total Revenue</h4>
+                <CardMenu />
+              </div>
+              <div className="card-body px-0 pt-0">
+                <div className="border-top border-bottom border-light border-dashed">
+                  <div className="row text-center align-items-center">
+                    <div className="col-md-3 col-6">
+                      <p className="text-muted mt-3 mb-1">Revenue</p>
+                      <h4 className="mb-3 text-success">{money(accountingSummary?.total_income)}</h4>
+                    </div>
+                    <div className="col-md-3 col-6 bg-light bg-opacity-50 border-start border-light border-dashed">
+                      <p className="text-muted mt-3 mb-1">Expenses</p>
+                      <h4 className="mb-3 text-danger">{money(accountingSummary?.total_expense)}</h4>
+                    </div>
+                    <div className="col-md-3 col-6 border-start border-end border-light border-dashed">
+                      <p className="text-muted mt-3 mb-1">Due</p>
+                      <h4 className="mb-3">{money(billingDashboard?.total_due_amount)}</h4>
+                    </div>
+                    <div className="col-md-3 col-6">
+                      <img src={`${assetBase}/images/cards/american-express.svg`} alt="card" height="30" />
+                      <img src={`${assetBase}/images/cards/discover-card.svg`} alt="card" height="30" />
+                      <img src={`${assetBase}/images/cards/mastercard.svg`} alt="card" height="30" />
+                    </div>
+                  </div>
+                </div>
+                <div className="px-3">
+                  <MiniArea income={monthlyCollection} expense={monthlyExpense} />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="row">
+          <div className="col-xxl-4">
+            <div className="card">
+              <div className="d-flex card-header justify-content-between align-items-center">
+                <h4 className="header-title">Transactions</h4>
+                <button className="btn btn-sm btn-light" onClick={() => setWorkspaceTab("billing")} type="button">
+                  Add New <i className="ri-add-line ms-1" />
+                </button>
+              </div>
+              <div className="card-body p-0">
+                <div className="bg-light bg-opacity-50 py-1 text-center">
+                  <p className="m-0">
+                    <b>{receipts.length}</b> receipts against <span className="fw-medium">{charges.length}</span> charges
+                  </p>
+                </div>
+                <div className="table-responsive">
+                  <table className="table table-custom table-centered table-sm table-nowrap table-hover mb-0">
+                    <tbody>
+                      {receipts.slice(0, 6).map((receipt) => (
+                        <tr key={receipt.id}>
+                          <td>
+                            <span className="text-muted fs-12">Receipt No</span>
+                            <h5 className="fs-14 mt-1">{receipt.receipt_no}</h5>
+                          </td>
+                          <td>
+                            <span className="text-muted fs-12">Date</span>
+                            <h5 className="fs-14 mt-1 fw-normal">{shortDate(receipt.payment_date)}</h5>
+                          </td>
+                          <td>
+                            <span className="text-muted fs-12">Amount</span>
+                            <h5 className="fs-14 mt-1 fw-normal">{money(receipt.total_amount)}</h5>
+                          </td>
+                          <td>
+                            <span className="text-muted fs-12">Status</span>
+                            <h5 className="fs-14 mt-1 fw-normal">
+                              <i className="ri-circle-fill fs-12 text-success" /> Completed
+                            </h5>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {receipts.length === 0 ? <EmptyState label="No receipts yet" /> : null}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="col-xxl-4">
+            <div className="card card-h-100">
+              <div className="card-header d-flex flex-wrap align-items-center gap-2">
+                <h4 className="header-title me-auto">Recent New Members</h4>
+                <button className="btn btn-sm btn-primary" onClick={() => setWorkspaceTab("members")} type="button">
+                  Export <i className="ri-export-line ms-1" />
+                </button>
+              </div>
+              <div className="card-body p-0">
+                <div className="bg-light bg-opacity-50 py-1 text-center">
+                  <p className="m-0">
+                    <b>{activeMembers.length}</b> active members out of <span className="fw-medium">{members.length}</span>
+                  </p>
+                </div>
+                <div className="table-responsive">
+                  <table className="table table-custom table-centered table-sm table-nowrap table-hover mb-0">
+                    <tbody>
+                      {members.slice(0, 6).map((member, index) => (
+                        <tr key={member.id}>
+                          <td>
+                            <div className="d-flex align-items-center">
+                              <div className="avatar-md flex-shrink-0 me-2">
+                                <span className="avatar-title bg-primary-subtle rounded-circle">
+                                  <img src={`${assetBase}/images/users/avatar-${(index % 6) + 1}.jpg`} alt="" height="26" className="rounded-circle" />
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-muted fs-12">Name</span>
+                                <h5 className="fs-14 mt-1">{member.full_name}</h5>
+                              </div>
+                            </div>
+                          </td>
+                          <td>
+                            <span className="text-muted fs-12">Category</span>
+                            <h5 className="fs-14 mt-1 fw-normal">{member.category_name ?? "None"}</h5>
+                          </td>
+                          <td>
+                            <span className="text-muted fs-12">Status</span>
+                            <h5 className="fs-14 mt-1 fw-normal">
+                              <i className={`ri-circle-fill fs-12 ${member.is_active ? "text-success" : "text-danger"}`} />{" "}
+                              {member.is_active ? "Active" : "Inactive"}
+                            </h5>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {members.length === 0 ? <EmptyState label="No members yet" /> : null}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="col-xxl-4">
+            <div className="card">
+              <div className="d-flex card-header justify-content-between align-items-center">
+                <h4 className="header-title">Due Members</h4>
+                <button className="btn btn-sm btn-primary" onClick={() => setWorkspaceTab("reports")} type="button">
+                  Refresh <i className="ri-refresh-line ms-1" />
+                </button>
+              </div>
+              <div className="card-body p-0">
+                <div className="table-responsive">
+                  <table className="table table-custom table-centered table-sm table-nowrap table-hover mb-0">
+                    <tbody>
+                      {memberDueSummaries.slice(0, 6).map((summary) => (
+                        <tr key={summary.member_id}>
+                          <td>
+                            <span className="text-muted fs-12">Member</span>
+                            <h5 className="fs-14 mt-1">{summary.member_name}</h5>
+                          </td>
+                          <td>
+                            <span className="text-muted fs-12">Open</span>
+                            <h5 className="fs-14 mt-1 fw-normal">{summary.open_charge_count}</h5>
+                          </td>
+                          <td>
+                            <span className="text-muted fs-12">Due</span>
+                            <h5 className="fs-14 mt-1 fw-normal text-danger">{money(summary.total_due)}</h5>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {memberDueSummaries.length === 0 ? <EmptyState label="No open due" /> : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  function renderCategories() {
+    if (categoryPageMode === "entry") {
+      return (
+        <div className="row justify-content-center">
+          <div className="col-xl-7">
+            <div className="card">
+              <div className="card-header d-flex justify-content-between align-items-center">
+                <h4 className="header-title">{editingCategoryId ? "Edit Category" : "Add Category"}</h4>
+                <button className="btn btn-sm btn-light" onClick={() => setCategoryPageMode("view")} type="button">
+                  <i className="ri-arrow-left-line me-1" />
+                  View Categories
+                </button>
+              </div>
+              <div className="card-body">
+                <form onSubmit={handleCategorySubmit}>
+                  <div className="mb-3">
+                    <label className="form-label">Category Name</label>
+                    <input className="form-control" value={categoryName} onChange={(event) => setCategoryName(event.target.value)} required />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label">Code</label>
+                    <input className="form-control" value={categoryCode} onChange={(event) => setCategoryCode(event.target.value)} />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label d-block">Status</label>
+                    <div className="d-flex gap-3">
+                      <div className="form-check">
+                        <input className="form-check-input" checked={categoryIsActive} onChange={() => setCategoryIsActive(true)} type="radio" id="category-active" />
+                        <label className="form-check-label" htmlFor="category-active">Active</label>
+                      </div>
+                      <div className="form-check">
+                        <input className="form-check-input" checked={!categoryIsActive} onChange={() => setCategoryIsActive(false)} type="radio" id="category-inactive" />
+                        <label className="form-check-label" htmlFor="category-inactive">Inactive</label>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="d-flex gap-2">
+                    <button className="btn btn-primary" disabled={isSubmitting} type="submit">
+                      {editingCategoryId ? "Update Category" : "Save Category"}
+                    </button>
+                    <button className="btn btn-light" onClick={resetCategoryForm} type="button">Clear</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="row">
+        <div className="col-12">
+          <div className="card">
+            <div className="card-header d-flex justify-content-between align-items-center">
+              <h4 className="header-title">Category List</h4>
+              <div className="d-flex align-items-center gap-2">
+                <span className="badge bg-primary-subtle text-primary">{categories.length} records</span>
+                <button className="btn btn-primary btn-sm" onClick={() => startCategoryEntry()} type="button">
+                  <i className="ri-add-line me-1" />
+                  Add Category
+                </button>
+              </div>
+            </div>
+            <div className="card-body p-0">
+              <div className="table-responsive">
+                <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Code</th>
+                      <th>Status</th>
+                      <th className="text-end">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {categories.map((category) => (
+                      <tr key={category.id}>
+                        <td>{category.name}</td>
+                        <td>{category.code ?? "N/A"}</td>
+                        <td>{statusBadge(category.is_active)}</td>
+                        <td className="text-end">
+                          <button className="btn btn-sm btn-soft-info" onClick={() => startCategoryEntry(category)} type="button">
+                            <i className="ri-edit-2-line me-1" />
+                            Edit
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {categories.length === 0 ? <EmptyState label="No categories found" /> : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderPackages() {
+    if (packagePageMode === "entry") {
+      return (
+        <div className="row justify-content-center">
+          <div className="col-xl-7">
+            <div className="card">
+              <div className="card-header d-flex justify-content-between align-items-center">
+                <h4 className="header-title">{editingPackageId ? "Edit Package" : "Add Package"}</h4>
+                <button className="btn btn-sm btn-light" onClick={() => setPackagePageMode("view")} type="button">
+                  <i className="ri-arrow-left-line me-1" />
+                  View Packages
+                </button>
+              </div>
+              <div className="card-body">
+                <form onSubmit={handlePackageSubmit}>
+                  <div className="mb-3">
+                    <label className="form-label">Category</label>
+                    <select className="form-select" value={packageCategoryId} onChange={(event) => setPackageCategoryId(event.target.value)} required>
+                      <option value="">Select category</option>
+                      {categories.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label">Package Name</label>
+                    <input className="form-control" value={packageName} onChange={(event) => setPackageName(event.target.value)} required />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label">Package Type</label>
+                    <input className="form-control" value={packageType} onChange={(event) => setPackageType(event.target.value)} />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label">Default Price</label>
+                    <input className="form-control" type="number" value={packagePrice} onChange={(event) => setPackagePrice(event.target.value)} required />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label d-block">Status</label>
+                    <div className="d-flex gap-3">
+                      <div className="form-check">
+                        <input className="form-check-input" checked={packageIsActive} onChange={() => setPackageIsActive(true)} type="radio" id="package-active" />
+                        <label className="form-check-label" htmlFor="package-active">Active</label>
+                      </div>
+                      <div className="form-check">
+                        <input className="form-check-input" checked={!packageIsActive} onChange={() => setPackageIsActive(false)} type="radio" id="package-inactive" />
+                        <label className="form-check-label" htmlFor="package-inactive">Inactive</label>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="d-flex gap-2">
+                    <button className="btn btn-primary" disabled={isSubmitting} type="submit">
+                      {editingPackageId ? "Update Package" : "Save Package"}
+                    </button>
+                    <button className="btn btn-light" onClick={resetPackageForm} type="button">Clear</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="row">
+        <div className="col-12">
+          <div className="card">
+            <div className="card-header d-flex justify-content-between align-items-center">
+              <h4 className="header-title">Package List</h4>
+              <div className="d-flex align-items-center gap-2">
+                <span className="badge bg-primary-subtle text-primary">{packages.length} records</span>
+                <button className="btn btn-primary btn-sm" onClick={() => startPackageEntry()} type="button">
+                  <i className="ri-add-line me-1" />
+                  Add Package
+                </button>
+              </div>
+            </div>
+            <div className="card-body p-0">
+              <div className="table-responsive">
+                <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Category</th>
+                      <th>Type</th>
+                      <th>Price</th>
+                      <th>Status</th>
+                      <th className="text-end">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {packages.map((item) => (
+                      <tr key={item.id}>
+                        <td>{item.name}</td>
+                        <td>{item.category_name}</td>
+                        <td>{item.package_type ?? "General"}</td>
+                        <td>{money(item.default_price)}</td>
+                        <td>{statusBadge(item.is_active)}</td>
+                        <td className="text-end">
+                          <button className="btn btn-sm btn-soft-info" onClick={() => startPackageEntry(item)} type="button">
+                            <i className="ri-edit-2-line me-1" />
+                            Edit
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {packages.length === 0 ? <EmptyState label="No packages found" /> : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderMembers() {
+    if (memberPageMode === "entry") {
+      return (
+        <div className="row justify-content-center">
+          <div className="col-xl-9">
+            <div className="card">
+              <div className="card-header d-flex justify-content-between align-items-center">
+                <h4 className="header-title">{editingMemberId ? "Edit Member" : "Register Member"}</h4>
+                <button className="btn btn-sm btn-light" onClick={() => setMemberPageMode("view")} type="button">
+                  <i className="ri-arrow-left-line me-1" />
+                  View Members
+                </button>
+              </div>
+              <div className="card-body">
+                <form onSubmit={handleMemberSubmit}>
+                  <div className="row">
+                    <div className="col-md-6 mb-3">
+                      <label className="form-label">Member Code</label>
+                      <input className="form-control" value={memberCode} onChange={(event) => setMemberCode(event.target.value)} required />
+                    </div>
+                    <div className="col-md-6 mb-3">
+                      <label className="form-label">ID Text</label>
+                      <input className="form-control" value={memberIdText} onChange={(event) => setMemberIdText(event.target.value)} />
+                    </div>
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label">Full Name</label>
+                    <input className="form-control" value={memberName} onChange={(event) => setMemberName(event.target.value)} required />
+                  </div>
+                  <div className="row">
+                    <div className="col-md-6 mb-3">
+                      <label className="form-label">Cell No</label>
+                      <input className="form-control" value={memberCell} onChange={(event) => setMemberCell(event.target.value)} />
+                    </div>
+                    <div className="col-md-6 mb-3">
+                      <label className="form-label">Email</label>
+                      <input className="form-control" type="email" value={memberEmail} onChange={(event) => setMemberEmail(event.target.value)} />
+                    </div>
+                  </div>
+                  <div className="row">
+                    <div className="col-md-6 mb-3">
+                      <label className="form-label">Category</label>
+                      <select className="form-select" value={memberCategoryId} onChange={(event) => setMemberCategoryId(event.target.value)}>
+                        <option value="">Select category</option>
+                        {categories.map((category) => (
+                          <option key={category.id} value={category.id}>
+                            {category.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="col-md-6 mb-3">
+                      <label className="form-label">Class</label>
+                      <input className="form-control" value={memberClass} onChange={(event) => setMemberClass(event.target.value)} />
+                    </div>
+                  </div>
+                  <div className="row">
+                    <div className="col-md-6 mb-3">
+                      <label className="form-label">Joined On</label>
+                      <input className="form-control" type="date" value={memberJoinDate} onChange={(event) => setMemberJoinDate(event.target.value)} />
+                    </div>
+                    <div className="col-md-6 mb-3">
+                      <label className="form-label d-block">Status</label>
+                      <div className="d-flex gap-3 pt-1">
+                        <div className="form-check">
+                          <input className="form-check-input" checked={memberIsActive} onChange={() => setMemberIsActive(true)} type="radio" id="member-active" />
+                          <label className="form-check-label" htmlFor="member-active">Active</label>
+                        </div>
+                        <div className="form-check">
+                          <input className="form-check-input" checked={!memberIsActive} onChange={() => setMemberIsActive(false)} type="radio" id="member-inactive" />
+                          <label className="form-check-label" htmlFor="member-inactive">Inactive</label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="row">
+                    <div className="col-md-6 mb-3">
+                      <label className="form-label">Nominee Name</label>
+                      <input className="form-control" value={nomineeName} onChange={(event) => setNomineeName(event.target.value)} />
+                    </div>
+                    <div className="col-md-6 mb-3">
+                      <label className="form-label">Nominee Cell</label>
+                      <input className="form-control" value={nomineeCell} onChange={(event) => setNomineeCell(event.target.value)} />
+                    </div>
+                  </div>
+                  <div className="d-flex gap-2">
+                    <button className="btn btn-primary" disabled={isSubmitting} type="submit">
+                      {editingMemberId ? "Update Member" : "Save Member"}
+                    </button>
+                    <button className="btn btn-light" onClick={resetMemberForm} type="button">Clear</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <div className="row">
+          <div className="col-12">
+            <div className="card">
+              <div className="card-header d-flex justify-content-between align-items-center">
+                <h4 className="header-title">Member Register</h4>
+                <div className="d-flex align-items-center gap-2">
+                  <span className="badge bg-primary-subtle text-primary">{members.length} records</span>
+                  <button className="btn btn-primary btn-sm" onClick={() => void startMemberEntry()} type="button">
+                    <i className="ri-add-line me-1" />
+                    Add Member
+                  </button>
+                </div>
+              </div>
+              <div className="card-body p-0">
+                <div className="table-responsive">
+                  <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+                    <thead>
+                      <tr>
+                        <th>Code</th>
+                        <th>Name</th>
+                        <th>Cell</th>
+                        <th>Category</th>
+                        <th>Package</th>
+                        <th>Status</th>
+                        <th className="text-end">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {members.map((member) => (
+                        <tr className="clickable-row" key={member.id} onClick={() => void handleMemberSelect(member.id)}>
+                          <td>{member.member_code}</td>
+                          <td>{member.full_name}</td>
+                          <td>{member.cell_no ?? "N/A"}</td>
+                          <td>{member.category_name ?? "N/A"}</td>
+                          <td>{member.active_package_name ?? "None"}</td>
+                          <td>{statusBadge(member.is_active)}</td>
+                          <td className="text-end">
+                            <button
+                              className="btn btn-sm btn-soft-info"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void startMemberEntry(member);
+                              }}
+                              type="button"
+                            >
+                              <i className="ri-edit-2-line me-1" />
+                              Edit
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {members.length === 0 ? <EmptyState label="No members found" /> : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="row">
+          <div className="col-xl-4">
+            <div className="card">
+              <div className="card-header">
+                <h4 className="header-title">Assign Package</h4>
+              </div>
+              <div className="card-body">
+                <form onSubmit={handlePackageAssignmentSubmit}>
+                  <div className="mb-3">
+                    <label className="form-label">Member</label>
+                    <select className="form-select" value={assignMemberId} onChange={(event) => setAssignMemberId(event.target.value)} required>
+                      <option value="">Select member</option>
+                      {members.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.full_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label">Package</label>
+                    <select className="form-select" value={assignPackageId} onChange={(event) => setAssignPackageId(event.target.value)} required>
+                      <option value="">Select package</option>
+                      {packages.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label">Assigned On</label>
+                    <input className="form-control" type="date" value={assignDate} onChange={(event) => setAssignDate(event.target.value)} required />
+                  </div>
+                  <button className="btn btn-primary" disabled={isSubmitting} type="submit">
+                    Assign Package
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+          <div className="col-xl-8">
+            <div className="card">
+              <div className="card-header">
+                <h4 className="header-title">Member Detail</h4>
+              </div>
+              <div className="card-body">
+                {selectedMember ? (
+                  <>
+                    <div className="d-flex align-items-center gap-3 mb-3">
+                      <img src={avatarUrl} className="rounded-circle avatar-lg" alt="member" />
+                      <div>
+                        <h4 className="mb-1">{selectedMember.full_name}</h4>
+                        <p className="text-muted mb-0">
+                          {selectedMember.member_code} | {selectedMember.category_name ?? "No category"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="row">
+                      {[
+                        ["Cell", selectedMember.cell_no ?? "N/A"],
+                        ["Email", selectedMember.email ?? "N/A"],
+                        ["Class", selectedMember.member_class ?? "N/A"],
+                        ["Joined", shortDate(selectedMember.joined_on)],
+                        ["Nominee", selectedMember.nominee_name ?? "N/A"],
+                        ["Nominee Cell", selectedMember.nominee_cell ?? "N/A"],
+                      ].map(([label, value]) => (
+                        <div className="col-md-4 mb-3" key={label}>
+                          <span className="text-muted fs-12">{label}</span>
+                          <h5 className="fs-14 mt-1">{value}</h5>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="table-responsive">
+                      <table className="table table-custom table-centered table-sm table-nowrap table-hover mb-0">
+                        <thead>
+                          <tr>
+                            <th>Package</th>
+                            <th>Assigned</th>
+                            <th>Ended</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedMember.packages.map((item) => (
+                            <tr key={item.id}>
+                              <td>{item.package_name}</td>
+                              <td>{shortDate(item.assigned_on)}</td>
+                              <td>{shortDate(item.ended_on)}</td>
+                              <td>{statusBadge(item.is_active)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                ) : (
+                  <EmptyState label="Select a member to see details" />
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  function renderBillingHeadsSetup() {
+    if (workspaceTab === "billing-heads-entry") {
+      return (
+        <div className="row justify-content-center">
+          <div className="col-xl-7">
+            <div className="card">
+              <div className="card-header d-flex justify-content-between align-items-center">
+                <h4 className="header-title">{editingBillingHeadId ? "Edit Billing Head" : "Add Billing Head"}</h4>
+                <button className="btn btn-sm btn-light" onClick={() => setWorkspaceTab("billing-heads-view")} type="button">
+                  <i className="ri-arrow-left-line me-1" />
+                  View Heads
+                </button>
+              </div>
+              <div className="card-body">
+                <form onSubmit={handleBillingHeadSubmit}>
+                  <div className="mb-3">
+                    <label className="form-label">Head Name</label>
+                    <input className="form-control" value={billingHeadName} onChange={(event) => setBillingHeadName(event.target.value)} required />
+                  </div>
+                  <div className="row">
+                    <div className="col-md-6 mb-3">
+                      <label className="form-label">Head Type</label>
+                      <select className="form-select" value={billingHeadType} onChange={(event) => setBillingHeadType(event.target.value as "Period" | "OneTime")}>
+                        <option value="Period">Period</option>
+                        <option value="OneTime">OneTime</option>
+                      </select>
+                    </div>
+                    <div className="col-md-6 mb-3">
+                      <label className="form-label">Fee</label>
+                      <input className="form-control" type="number" value={billingHeadFee} onChange={(event) => setBillingHeadFee(event.target.value)} required />
+                    </div>
+                  </div>
+                  {billingHeadType === "Period" ? (
+                    <div className="mb-3">
+                      <label className="form-label">Effective From</label>
+                      <input className="form-control" type="date" value={billingHeadEffectiveDate} onChange={(event) => setBillingHeadEffectiveDate(event.target.value)} required />
+                    </div>
+                  ) : null}
+                  <button className="btn btn-primary" disabled={isSubmitting} type="submit">{editingBillingHeadId ? "Update As New Version" : "Save Head"}</button>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="card">
+        <div className="card-header d-flex justify-content-between align-items-center">
+          <h4 className="header-title">Billing Head Setup</h4>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              setEditingBillingHeadId(null);
+              setBillingHeadName("");
+              setBillingHeadType("Period");
+              setBillingHeadFee("500");
+              setBillingHeadEffectiveDate("2018-01-01");
+              setWorkspaceTab("billing-heads-entry");
+            }}
+            type="button"
+          >
+            <i className="ri-add-line me-1" />
+            Add Head
+          </button>
+        </div>
+        <div className="card-body p-0">
+          <div className="table-responsive">
+            <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+              <thead>
+                <tr>
+                  <th>Head</th>
+                  <th>Type</th>
+                  <th>Fee</th>
+                  <th>Effective From</th>
+                  <th>Status</th>
+                  <th className="text-end">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {billingHeads.map((head) => (
+                  <tr key={head.id}>
+                    <td>{head.head_name}</td>
+                    <td>{head.head_type}</td>
+                    <td>{money(head.fee_amount)}</td>
+                    <td>{shortDate(head.effective_from_date)}</td>
+                    <td>{statusBadge(head.is_active)}</td>
+                    <td className="text-end">
+                      {head.is_active ? (
+                        <button
+                          className="btn btn-sm btn-soft-info"
+                          onClick={() => {
+                            setEditingBillingHeadId(head.id);
+                            setBillingHeadName(head.head_name);
+                            setBillingHeadType(head.head_type);
+                            setBillingHeadFee(String(head.fee_amount));
+                            setBillingHeadEffectiveDate(head.effective_from_date ?? "2018-01-01");
+                            setWorkspaceTab("billing-heads-entry");
+                          }}
+                          type="button"
+                        >
+                          <i className="ri-edit-2-line me-1" />
+                          Edit
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {billingHeads.length === 0 ? <EmptyState label="No billing heads found" /> : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderBillingMappingsSetup() {
+    if (workspaceTab === "billing-mappings-entry") {
+      return (
+        <div className="row justify-content-center">
+          <div className="col-xl-7">
+            <div className="card">
+              <div className="card-header d-flex justify-content-between align-items-center">
+                <h4 className="header-title">Add Head To COA Mapping</h4>
+                <button className="btn btn-sm btn-light" onClick={() => setWorkspaceTab("billing-mappings-view")} type="button">
+                  <i className="ri-arrow-left-line me-1" />
+                  View Mappings
+                </button>
+              </div>
+              <div className="card-body">
+                <form onSubmit={handleBillingMappingSubmit}>
+                  <div className="mb-3">
+                    <label className="form-label">Billing Head</label>
+                    <select className="form-select" value={mappingHeadId} onChange={(event) => setMappingHeadId(event.target.value)} required>
+                      <option value="">Select head</option>
+                      {billingHeads.map((head) => <option key={head.id} value={head.id}>{head.head_name}</option>)}
+                    </select>
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label">Income COA</label>
+                    <select className="form-select" value={mappingCoaId} onChange={(event) => setMappingCoaId(event.target.value)} required>
+                      <option value="">Select COA</option>
+                      {incomeAccounts.map((account) => <option key={account.id} value={account.id}>{account.code} - {account.name}</option>)}
+                    </select>
+                  </div>
+                  <button className="btn btn-primary" disabled={isSubmitting} type="submit">Save Mapping</button>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="card">
+        <div className="card-header d-flex justify-content-between align-items-center">
+          <h4 className="header-title">Billing Head COA Mapping</h4>
+          <button className="btn btn-primary btn-sm" onClick={() => setWorkspaceTab("billing-mappings-entry")} type="button">
+            <i className="ri-add-line me-1" />
+            Add Mapping
+          </button>
+        </div>
+        <div className="card-body p-0">
+          <div className="table-responsive">
+            <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+              <thead><tr><th>Billing Head</th><th>COA</th><th>Status</th><th>Created</th></tr></thead>
+              <tbody>
+                {billingHeadMappings.map((mapping) => (
+                  <tr key={mapping.id}>
+                    <td>{mapping.billing_head_name}</td>
+                    <td>{mapping.coa_name}</td>
+                    <td>{statusBadge(mapping.is_active)}</td>
+                    <td>{shortDate(mapping.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {billingHeadMappings.length === 0 ? <EmptyState label="No billing head mappings found" /> : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderInvoiceReport(invoice: BillingInvoice) {
+    const member = members.find((item) => item.id === invoice.member_id);
+    const paidStatus = invoice.total_due_amount <= 0 ? "Paid" : invoice.total_receive_amount > 0 ? "Partial" : "Due";
+    return (
+      <div className="invoice-report-sheet">
+        <div className="invoice-report-header">
+          <div className="invoice-report-brand">
+            <img src="/makan-logo-3.png" alt="Darul Mohan Plot Owners Society" className="report-header-logo" />
+          </div>
+          <div className="d-flex justify-content-between gap-3">
+            <div>
+              <div className="fw-semibold">Billing invoice and money receipt</div>
+              <div className="text-muted">Makan Society</div>
+            </div>
+            <div className="text-end">
+            <span className={invoice.total_due_amount <= 0 ? "badge bg-success-subtle text-success" : "badge bg-warning-subtle text-warning"}>
+              {paidStatus}
+            </span>
+            <h3 className="invoice-report-title">Invoice</h3>
+            <div className="fw-semibold">{invoice.invoice_no}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="invoice-report-meta">
+          <div>
+            <span className="text-muted d-block">Bill To</span>
+            <strong>{invoice.member_name}</strong>
+            <div>{member?.member_code ? `Member Code: ${member.member_code}` : null}</div>
+            <div>{member?.cell_no ? `Phone: ${member.cell_no}` : null}</div>
+            <div>{member?.category_name ? `Category: ${member.category_name}` : null}</div>
+          </div>
+          <div className="text-md-end">
+            <span className="text-muted d-block">Invoice Date</span>
+            <strong>{shortDate(invoice.invoice_date)}</strong>
+            <div>Generated: {shortDate(invoice.created_at)}</div>
+          </div>
+        </div>
+
+        <div className="table-responsive">
+          <table className="table table-bordered invoice-report-table mb-0">
+            <thead>
+              <tr>
+                <th style={{ width: "44px" }}>SL</th>
+                <th>Billing Head</th>
+                <th>Period</th>
+                <th className="text-end">Fee</th>
+                <th className="text-end">Received</th>
+                <th className="text-end">Due</th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoice.details.map((detail, index) => (
+                <tr key={detail.id}>
+                  <td>{index + 1}</td>
+                  <td>{detail.head_name_snapshot}</td>
+                  <td>{detail.period_display ?? "-"}</td>
+                  <td className="text-end">{money(detail.fee_amount)}</td>
+                  <td className="text-end">{money(detail.receive_amount)}</td>
+                  <td className="text-end">{money(detail.due_amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="invoice-report-summary">
+          <div className="invoice-report-note">
+            <strong>Note</strong>
+            <p className="mb-0">This invoice is generated from saved billing data. Old invoice values remain unchanged after setup edits.</p>
+          </div>
+          <div className="invoice-report-totals">
+            <div><span>Subtotal</span><strong>{money(invoice.subtotal_amount)}</strong></div>
+            <div><span>Discount</span><strong>{money(invoice.discount_amount)}</strong></div>
+            <div><span>Net Amount</span><strong>{money(invoice.net_amount)}</strong></div>
+            <div><span>Received</span><strong>{money(invoice.total_receive_amount)}</strong></div>
+            <div className="grand-total"><span>Due</span><strong>{money(invoice.total_due_amount)}</strong></div>
+          </div>
+        </div>
+
+        <div className="invoice-report-signatures">
+          <div><span />Prepared By</div>
+          <div><span />Received By</div>
+          <div><span />Authorized Signature</div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderInvoiceReportModal() {
+    if (!showInvoiceReport || !invoiceReport) return null;
+    return (
+      <>
+        <div className="modal fade show d-block invoice-report-modal" tabIndex={-1}>
+          <div className="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div className="modal-content">
+              <div className="modal-header invoice-report-actions">
+                <div>
+                  <h5 className="modal-title">Invoice Report</h5>
+                  <span className="text-muted">{invoiceReport.invoice_no}</span>
+                </div>
+                <div className="d-flex gap-2">
+                  <button className="btn btn-primary" onClick={() => printInvoiceReport(invoiceReport)} type="button">
+                    <i className="ri-printer-line me-1" />
+                    Print
+                  </button>
+                  <button className="btn-close" onClick={() => setShowInvoiceReport(false)} type="button" />
+                </div>
+              </div>
+              <div className="modal-body invoice-report-print-area">{renderInvoiceReport(invoiceReport)}</div>
+            </div>
+          </div>
+        </div>
+        <div className="modal-backdrop fade show invoice-report-actions" />
+      </>
+    );
+  }
+
+  function renderPreviousBillsModal() {
+    if (!showPreviousBills) return null;
+    return (
+      <>
+        <div className="modal fade show d-block" tabIndex={-1}>
+          <div className="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div className="modal-content">
+              <div className="modal-header">
+                <div>
+                  <h5 className="modal-title">Previous Bills</h5>
+                  <span className="text-muted">
+                    {selectedInvoiceMember ? `${selectedInvoiceMember.member_code} - ${selectedInvoiceMember.full_name}` : "Select a member"}
+                  </span>
+                </div>
+                <button className="btn-close" onClick={() => setShowPreviousBills(false)} type="button" />
+              </div>
+              <div className="modal-body">
+                <div className="table-responsive billing-register-table">
+                  <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+                    <thead>
+                      <tr>
+                        <th>Invoice No</th>
+                        <th>Date</th>
+                        <th className="text-end">Subtotal</th>
+                        <th className="text-end">Discount</th>
+                        <th className="text-end">Received</th>
+                        <th className="text-end">Due</th>
+                        <th>Status</th>
+                        <th className="text-end">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedMemberInvoices.map((invoice) => (
+                        <tr key={invoice.id}>
+                          <td className="fw-semibold">{invoice.invoice_no}</td>
+                          <td>{shortDate(invoice.invoice_date)}</td>
+                          <td className="text-end">{money(invoice.subtotal_amount)}</td>
+                          <td className="text-end">{money(invoice.discount_amount)}</td>
+                          <td className="text-end">{money(invoice.total_receive_amount)}</td>
+                          <td className="text-end">{money(invoice.total_due_amount)}</td>
+                          <td>
+                            <span className={invoice.total_due_amount <= 0 ? "badge bg-success-subtle text-success" : "badge bg-warning-subtle text-warning"}>
+                              {invoice.total_due_amount <= 0 ? "Paid" : invoice.total_receive_amount > 0 ? "Partial" : "Due"}
+                            </span>
+                          </td>
+                          <td className="text-end">
+                            <div className="d-inline-flex gap-1">
+                              <button className="btn btn-sm btn-soft-info" onClick={() => void openInvoiceReport(invoice)} type="button">
+                                <i className="ri-eye-line me-1" />
+                                View
+                              </button>
+                              <button className="btn btn-sm btn-soft-primary" onClick={() => printInvoiceReport(invoice)} type="button">
+                                <i className="ri-printer-line me-1" />
+                                Print
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {selectedMemberInvoices.length === 0 ? <EmptyState label="No previous invoice found for this member" /> : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="modal-backdrop fade show" />
+      </>
+    );
+  }
+
+  function renderBilling() {
+    return (
+      <>
+        <div className="row row-cols-xl-4 row-cols-md-2 row-cols-1">
+          <StatCard title="Collection Today" value={money(todayCollectionAmount)} subtitle="Received amount" icon="ri-wallet-3-line" tone="success" />
+          <StatCard title="Dues Today" value={money(todayDueAmount)} subtitle="Invoice balance" icon="ri-error-warning-line" tone="warning" />
+          <StatCard title="Members Collected" value={String(todayCollectedMembers)} subtitle="Today" icon="ri-user-received-2-line" tone="primary" />
+          <StatCard title="Discount Today" value={money(todayDiscountAmount)} subtitle="Given on bills" icon="ri-coupon-3-line" tone="info" />
+        </div>
+
+        <div className="card">
+          <div className="card-header"><h4 className="header-title">Invoice Generation</h4></div>
+          <div className="card-body">
+            {lastGeneratedInvoice ? (
+              <div className="alert alert-success border-0 mb-4">
+                <div className="row align-items-end g-2">
+                  <div className="col-lg-5">
+                    <label className="form-label text-success fw-semibold">Generated Invoice No</label>
+                    <input className="form-control bg-white fw-bold" readOnly value={lastGeneratedInvoice.invoice_no} />
+                  </div>
+                  <div className="col-lg-4">
+                    <div className="text-muted fs-13">Member</div>
+                    <div className="fw-semibold">{lastGeneratedMember?.member_code ? `${lastGeneratedMember.member_code} - ` : ""}{lastGeneratedInvoice.member_name}</div>
+                    <div className="fs-13">Net: {money(lastGeneratedInvoice.net_amount)} | Due: {money(lastGeneratedInvoice.total_due_amount)}</div>
+                  </div>
+                  <div className="col-lg-3 d-flex gap-2 justify-content-lg-end">
+                    <button className="btn btn-primary" onClick={() => void openInvoiceReport(lastGeneratedInvoice)} type="button">
+                      <i className="ri-file-text-line me-1" />
+                      View Invoice
+                    </button>
+                    <button className="btn btn-light" onClick={() => printInvoiceReport(lastGeneratedInvoice)} type="button">
+                      <i className="ri-printer-line" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            <form onSubmit={handleInvoiceSubmit}>
+              <div className="row g-3 align-items-end">
+                <div className="col-xl-5 col-lg-5">
+                  <SearchableDropdown
+                    isOpen={invoiceMemberDropdownOpen}
+                    label="Member"
+                    onChange={(value) => {
+                      setInvoiceMemberId(value);
+                      setBillingDueLines([]);
+                      setInvoiceReceipts({});
+                    }}
+                    onOpenChange={setInvoiceMemberDropdownOpen}
+                    onSearchChange={setInvoiceMemberSearch}
+                    options={memberDropdownOptions}
+                    placeholder="Search member by code, name, or number"
+                    search={invoiceMemberSearch}
+                    value={invoiceMemberId}
+                  />
+                </div>
+                <div className="col-xl-3 col-lg-3">
+                  <label className="form-label">Invoice Date</label>
+                  <input className="form-control" type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} required />
+                </div>
+                <div className="col-xl-2 col-lg-2">
+                  <button className="btn btn-outline-info w-100" disabled={!invoiceMemberId || isSubmitting} onClick={() => void handleLoadMemberDues()} type="button">
+                    <i className="ri-search-eye-line me-1" />
+                    View Due
+                  </button>
+                </div>
+                <div className="col-xl-2 col-lg-2">
+                  <button className="btn btn-secondary w-100" disabled={!invoiceMemberId} onClick={() => setShowPreviousBills(true)} type="button">
+                    <i className="ri-file-list-2-line me-1" />
+                    Previous Bill
+                  </button>
+                </div>
+              </div>
+
+              <div className="border-top border-dashed mt-4 pt-3">
+                <h5 className="fs-15 mb-3">Add Manual Head</h5>
+                <div className="row g-3 align-items-end">
+                  <div className="col-xl-7 col-lg-7">
+                    <label className="form-label">Billing Head</label>
+                    <div className="input-group billing-head-select">
+                      <span className="input-group-text">
+                        <i className="ri-price-tag-3-line" />
+                      </span>
+                      <select className="form-select" value={manualBillingHeadId} onChange={(event) => setManualBillingHeadId(event.target.value)}>
+                        <option value="">Select head</option>
+                        {billingHeads.filter((head) => head.is_active).map((head) => <option key={head.id} value={head.id}>{head.head_name} - {head.head_type} - {money(head.fee_amount)}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  {billingHeads.find((head) => head.id === Number(manualBillingHeadId))?.head_type === "Period" ? (
+                    <div className="col-xl-2 col-lg-2">
+                      <label className="form-label">Period</label>
+                      <input className="form-control" type="month" value={manualBillingPeriod} onChange={(event) => setManualBillingPeriod(event.target.value)} />
+                    </div>
+                  ) : null}
+                  <div className={billingHeads.find((head) => head.id === Number(manualBillingHeadId))?.head_type === "Period" ? "col-xl-3 col-lg-3" : "col-xl-5 col-lg-5"}>
+                    <button className="btn btn-info w-100" disabled={!manualBillingHeadId || !invoiceMemberId} onClick={handleAddManualBillingLine} type="button">Add To Grid</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="billing-grid-shell mt-4">
+                <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 billing-grid-title">
+                  <div>
+                    <h5 className="fs-15 mb-1">Billing Grid</h5>
+                    <p className="text-muted mb-0 fs-13">Check rows to fill receive amount and prepare invoice.</p>
+                  </div>
+                  <span className="badge bg-info-subtle text-info">{billingSelectedLines.length} selected</span>
+                </div>
+                <div className="table-responsive">
+                <table className="table table-custom table-centered table-nowrap table-hover mb-0 billing-grid-table">
+                  <thead>
+                    <tr>
+                      <th className="text-center" style={{ width: "48px" }}>
+                        <input
+                          className="form-check-input"
+                          checked={billingAllRowsChecked}
+                          onChange={(event) => {
+                            if (event.target.checked) {
+                              setInvoiceReceipts(Object.fromEntries(billingDueLines.map((line, index) => [billingLineKey(line, index), String(line.due_amount)])));
+                            } else {
+                              setInvoiceReceipts({});
+                            }
+                          }}
+                          type="checkbox"
+                        />
+                      </th>
+                      <th className="text-center">Head Name</th>
+                      <th className="text-center">Period</th>
+                      <th className="text-center">Fee Amount</th>
+                      <th className="text-center">Receive Amount</th>
+                      <th className="text-center">Due Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {billingDueLines.map((line, index) => {
+                      const key = billingLineKey(line, index);
+                      const receive = Number(invoiceReceipts[key] ?? 0);
+                      return (
+                        <tr key={key}>
+                          <td className="text-center">
+                            <input
+                              className="form-check-input"
+                              checked={receive > 0}
+                              onChange={(event) =>
+                                setInvoiceReceipts((current) => {
+                                  const next = { ...current };
+                                  if (event.target.checked) next[key] = String(line.due_amount);
+                                  else delete next[key];
+                                  return next;
+                                })
+                              }
+                              type="checkbox"
+                            />
+                          </td>
+                          <td className="text-center fw-semibold">{line.head_name}</td>
+                          <td className="text-center"><span className="badge bg-secondary-subtle text-secondary">{line.period_display ?? "One Time"}</span></td>
+                          <td className="text-center">{money(line.due_amount)}</td>
+                          <td className="text-center">
+                            <input className="form-control form-control-sm billing-receive-input mx-auto" type="number" max={line.due_amount} value={invoiceReceipts[key] ?? "0"} onChange={(event) => setInvoiceReceipts((current) => ({ ...current, [key]: event.target.value }))} />
+                          </td>
+                          <td className="text-center">{money(Math.max(line.due_amount - receive, 0))}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  {billingDueLines.length > 0 ? (
+                    <tfoot>
+                      <tr>
+                        <th className="text-center" colSpan={3}>Total</th>
+                        <th className="text-center">{money(billingGridFeeTotal)}</th>
+                        <th className="text-center">{money(billingGridReceiveTotal)}</th>
+                        <th className="text-center">{money(billingGridDueTotal)}</th>
+                      </tr>
+                    </tfoot>
+                  ) : null}
+                </table>
+                </div>
+                {billingDueLines.length === 0 ? <EmptyState label="Select a member and load dues, or add a billing head manually" /> : null}
+              </div>
+
+              <div className="border-top border-dashed mt-4 pt-3">
+                <div className="row justify-content-end">
+                  <div className="col-xl-4 col-lg-5">
+                    <div className="d-flex justify-content-between mb-2"><span>Subtotal</span><strong>{money(billingSubtotal)}</strong></div>
+                    <div className="mb-2">
+                      <label className="form-label">Discount</label>
+                      <input className="form-control" type="number" value={invoiceDiscount} onChange={(event) => setInvoiceDiscount(event.target.value)} />
+                    </div>
+                    <div className="d-flex justify-content-between mb-2"><span>Net Amount</span><strong>{money(billingNetAmount)}</strong></div>
+                    <div className="d-flex justify-content-between mb-3"><span>Due Amount</span><strong>{money(billingDueTotal)}</strong></div>
+                    <button className="btn btn-success w-100" disabled={isSubmitting || billingDueLines.length === 0} type="submit">Generate Invoice</button>
+                  </div>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  function renderBillingRegisters() {
+    const pageSize = Number(billingRegisterPageSize);
+    const rows = billingRegisterTab === "charges" ? filteredRegisterCharges : filteredRegisterReceipts;
+    const totalPages = Math.max(Math.ceil(rows.length / pageSize), 1);
+    const page = Math.min(billingRegisterPage, totalPages);
+    const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize);
+    function sortButton(key: string, label: string) {
+      const active = billingRegisterSort.key === key;
+      return (
+        <button
+          className="btn btn-link text-reset p-0 fw-semibold"
+          onClick={() => {
+            setBillingRegisterSort((current) => ({
+              key,
+              direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
+            }));
+            setBillingRegisterPage(1);
+          }}
+          type="button"
+        >
+          {label} {active ? <i className={billingRegisterSort.direction === "asc" ? "ri-arrow-up-s-line" : "ri-arrow-down-s-line"} /> : null}
+        </button>
+      );
+    }
+
+    return (
+      <div className="card">
+        <div className="card-header pb-0">
+          <ul className="nav nav-tabs nav-bordered">
+            <li className="nav-item">
+              <button className={billingRegisterTab === "charges" ? "nav-link active" : "nav-link"} onClick={() => { setBillingRegisterTab("charges"); setBillingRegisterPage(1); }} type="button">
+                Open Charge Register
+              </button>
+            </li>
+            <li className="nav-item">
+              <button className={billingRegisterTab === "receipts" ? "nav-link active" : "nav-link"} onClick={() => { setBillingRegisterTab("receipts"); setBillingRegisterPage(1); }} type="button">
+                Recent Receipts
+              </button>
+            </li>
+          </ul>
+        </div>
+        <div className="card-body">
+          <div className="row align-items-center g-2 mb-3">
+            <div className="col-md-6">
+              <div className="input-group">
+                <span className="input-group-text"><i className="ri-search-line" /></span>
+                <input
+                  className="form-control"
+                  placeholder="Search table..."
+                  value={billingRegisterSearch}
+                  onChange={(event) => {
+                    setBillingRegisterSearch(event.target.value);
+                    setBillingRegisterPage(1);
+                  }}
+                />
+              </div>
+            </div>
+            <div className="col-md-3 ms-auto">
+              <select className="form-select" value={billingRegisterPageSize} onChange={(event) => { setBillingRegisterPageSize(event.target.value); setBillingRegisterPage(1); }}>
+                <option value="10">10 rows</option>
+                <option value="25">25 rows</option>
+                <option value="50">50 rows</option>
+                <option value="100">100 rows</option>
+              </select>
+            </div>
+          </div>
+          {billingRegisterTab === "charges" ? (
+            <div className="table-responsive billing-register-table">
+              <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+                <thead>
+                  <tr>
+                    <th>{sortButton("member", "Member")}</th>
+                    <th>{sortButton("period", "Period")}</th>
+                    <th>{sortButton("net", "Net")}</th>
+                    <th>{sortButton("due", "Due")}</th>
+                    <th>{sortButton("status", "Status")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(pagedRows as Charge[]).map((charge) => (
+                    <tr key={charge.id}>
+                      <td>{charge.member_name}</td>
+                      <td>{charge.billing_period_name ?? "N/A"}</td>
+                      <td>{money(charge.net_amount)}</td>
+                      <td className={charge.due_amount > 0 ? "text-danger" : "text-success"}>{money(charge.due_amount)}</td>
+                      <td>{charge.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {rows.length === 0 ? <EmptyState label="No charges found" /> : null}
+            </div>
+          ) : (
+            <div className="table-responsive billing-register-table">
+              <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+                <thead>
+                  <tr>
+                    <th>{sortButton("receipt", "Receipt")}</th>
+                    <th>{sortButton("member", "Member")}</th>
+                    <th>{sortButton("date", "Date")}</th>
+                    <th>{sortButton("total", "Total")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(pagedRows as Receipt[]).map((receipt) => (
+                    <tr key={receipt.id}>
+                      <td>{receipt.receipt_no}</td>
+                      <td>{receipt.member_name ?? "N/A"}</td>
+                      <td>{shortDate(receipt.payment_date)}</td>
+                      <td>{money(receipt.total_amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {rows.length === 0 ? <EmptyState label="No receipts found" /> : null}
+            </div>
+          )}
+          <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 pt-3">
+            <span className="text-muted fs-13">
+              Showing {rows.length === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, rows.length)} of {rows.length} records
+            </span>
+            <div className="btn-group">
+              <button className="btn btn-light btn-sm" disabled={page <= 1} onClick={() => setBillingRegisterPage((current) => Math.max(current - 1, 1))} type="button">
+                Previous
+              </button>
+              <button className="btn btn-light btn-sm" disabled type="button">
+                {page} / {totalPages}
+              </button>
+              <button className="btn btn-light btn-sm" disabled={page >= totalPages} onClick={() => setBillingRegisterPage((current) => Math.min(current + 1, totalPages))} type="button">
+                Next
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderChartAccountsView() {
+    return (
+      <div className="card">
+        <div className="card-header d-flex align-items-center justify-content-between gap-2">
+          <h4 className="header-title mb-0">Chart Of Accounts</h4>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              setEditingAccountId(null);
+              setAccountCode("");
+              setAccountName("");
+              setAccountType("income");
+              setWorkspaceTab("coa-entry");
+            }}
+            type="button"
+          >
+            <i className="ri-add-line me-1" />
+            Add Account
+          </button>
+        </div>
+        <div className="card-body p-0">
+          <div className="table-responsive">
+            <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Account</th>
+                  <th>Type</th>
+                  <th>Active</th>
+                  <th className="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {accounts.map((account) => (
+                  <tr key={account.id}>
+                    <td>{account.code}</td>
+                    <td>{account.name}</td>
+                    <td>
+                      <span className="badge bg-primary-subtle text-primary text-uppercase">{account.account_type}</span>
+                    </td>
+                    <td>
+                      <div className="form-check form-switch mb-0">
+                        <input
+                          checked={account.is_active}
+                          className="form-check-input"
+                          disabled={isSubmitting}
+                          onChange={(event) => void handleAccountActiveChange(account, event.target.checked)}
+                          type="checkbox"
+                        />
+                      </div>
+                    </td>
+                    <td className="text-end">
+                      <button className="btn btn-sm btn-light me-1" disabled={isSubmitting} onClick={() => handleAccountEdit(account)} type="button">
+                        <i className="ri-pencil-line" />
+                      </button>
+                      <button className="btn btn-sm btn-danger" disabled={isSubmitting} onClick={() => void handleAccountDelete(account.id)} type="button">
+                        <i className="ri-delete-bin-line" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {accounts.length === 0 ? <EmptyState label="No chart accounts found" /> : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderChartAccountEntry() {
+    return (
+      <div className="row justify-content-center">
+        <div className="col-xl-6">
+          <div className="card">
+            <div className="card-header d-flex align-items-center justify-content-between gap-2">
+              <h4 className="header-title mb-0">{editingAccountId ? "Edit Chart Account" : "Add Chart Account"}</h4>
+              <button className="btn btn-light" onClick={() => setWorkspaceTab("coa-view")} type="button">
+                Back To View
+              </button>
+            </div>
+            <div className="card-body">
+              <form onSubmit={handleAccountSubmit}>
+                <div className="mb-3">
+                  <label className="form-label">Code</label>
+                  <input className="form-control" placeholder="Example: INC-001" value={accountCode} onChange={(event) => setAccountCode(event.target.value)} required />
+                </div>
+                <div className="mb-3">
+                  <label className="form-label">Name</label>
+                  <input className="form-control" placeholder="Example: Monthly Subscription" value={accountName} onChange={(event) => setAccountName(event.target.value)} required />
+                </div>
+                <div className="mb-3">
+                  <label className="form-label">Account Type</label>
+                  <select className="form-select" value={accountType} onChange={(event) => setAccountType(event.target.value)}>
+                    <option value="income">Income</option>
+                    <option value="expense">Expense</option>
+                    <option value="both">Both</option>
+                  </select>
+                </div>
+                <button className="btn btn-primary" disabled={isSubmitting} type="submit">
+                  {editingAccountId ? "Update Account" : "Save Account"}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderEntryView(entryType: "income" | "expense") {
+    const vouchers = entryType === "income" ? incomeVouchers : expenseVouchers;
+    const filteredVouchers = vouchers.filter((entry) => {
+      const needle = entrySearch.trim().toLowerCase();
+      if (!needle) return true;
+      return `${entry.voucher_no} ${entry.total_amount} ${entry.remarks ?? ""} ${shortDate(entry.voucher_date)}`.toLowerCase().includes(needle);
+    });
+    const label = entryType === "income" ? "Receive" : "Payment";
+    return (
+      <>
+          <div className="row row-cols-md-3 row-cols-1">
+            <StatCard title="Income" value={money(accountingSummary?.total_income)} subtitle="All income entries" icon="ri-arrow-down-circle-line" tone="success" />
+            <StatCard title="Expense" value={money(accountingSummary?.total_expense)} subtitle="All expense entries" icon="ri-arrow-up-circle-line" tone="warning" />
+            <StatCard title="Net Balance" value={money(accountingSummary?.net_balance)} subtitle="Income less expense" icon="ri-bank-line" tone="info" />
+          </div>
+          <div className="card">
+            <div className="card-header d-flex align-items-center justify-content-between gap-2">
+              <h4 className="header-title mb-0">{label} Voucher Register</h4>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  setPendingEntries([]);
+                  setEntrySearch("");
+                  setWorkspaceTab(entryType === "income" ? "income-entry" : "expense-entry");
+                }}
+                type="button"
+              >
+                <i className="ri-add-line me-1" />
+                Add {label} Voucher
+              </button>
+            </div>
+            <div className="card-body border-bottom">
+              <div className="input-group">
+                <span className="input-group-text">
+                  <i className="ri-search-line" />
+                </span>
+                <input
+                  className="form-control"
+                  placeholder={`Search ${label.toLowerCase()} vouchers`}
+                  value={entrySearch}
+                  onChange={(event) => setEntrySearch(event.target.value)}
+                />
+              </div>
+            </div>
+            <div className="card-body p-0">
+              <div className="table-responsive">
+                <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+                  <thead>
+                    <tr>
+                      <th>{label} Voucher</th>
+                      <th>Date</th>
+                      <th>Amount</th>
+                      <th>Lines</th>
+                      <th className="text-end">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredVouchers.slice(0, entrySearch ? filteredVouchers.length : 20).map((entry) => (
+                      <tr key={entry.id}>
+                        <td className="fw-semibold">{entry.voucher_no}</td>
+                        <td>{shortDate(entry.voucher_date)}</td>
+                        <td>{money(entry.total_amount)}</td>
+                        <td>{entry.lines.length}</td>
+                        <td className="text-end">
+                          <button className="btn btn-sm btn-soft-info me-1" onClick={() => printAccountingVoucher(entry)} type="button">
+                            <i className="ri-file-text-line me-1" />
+                            View Report
+                          </button>
+                          <button className="btn btn-sm btn-soft-primary" onClick={() => printAccountingVoucher(entry)} type="button">
+                            <i className="ri-printer-line me-1" />
+                            Print
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {filteredVouchers.length === 0 ? <EmptyState label={`No ${label.toLowerCase()} voucher found`} /> : null}
+              </div>
+            </div>
+          </div>
+      </>
+    );
+  }
+
+  function renderEntryBatch(entryType: "income" | "expense") {
+    const accountChoices = entryType === "income" ? incomeAccounts : expenseAccounts;
+    const label = entryType === "income" ? "Receive" : "Payment";
+    const accountOptions = accountChoices.map((account) => ({
+      value: String(account.id),
+      label: `${account.code} - ${account.name}`,
+      meta: `${account.account_type.toUpperCase()} account`,
+    }));
+    return (
+      <>
+        <div className="row">
+        <div className="col-xl-4">
+          <div className="card voucher-date-card">
+            <div className="card-header d-flex align-items-center justify-content-between gap-2">
+              <h4 className="header-title mb-0">{label} Voucher Date</h4>
+              <button className="btn btn-light" onClick={() => setWorkspaceTab(entryType === "income" ? "income-view" : "expense-view")} type="button">
+                Back
+              </button>
+            </div>
+            <div className="card-body">
+              <label className="form-label">Date</label>
+              <div className="input-group input-group-lg">
+                <span className="input-group-text"><i className="ri-calendar-event-line" /></span>
+                <input className="form-control" type="date" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} />
+              </div>
+              <label className="form-label mt-3">Voucher Remarks</label>
+              <textarea
+                className="form-control voucher-remarks-textarea"
+                value={entryVoucherRemarks}
+                onChange={(event) => setEntryVoucherRemarks(event.target.value)}
+                placeholder="Write voucher remarks"
+              />
+            </div>
+          </div>
+        </div>
+        <div className="col-xl-8">
+          <div className="card">
+            <div className="card-header">
+              <h4 className="header-title mb-0">Add {label} Item</h4>
+            </div>
+            <div className="card-body">
+              <form onSubmit={(event) => handleAddEntryToList(entryType, event)}>
+                <div className="row g-3 align-items-end">
+                <div className="col-lg-5">
+                  <SearchableDropdown
+                    isOpen={entryAccountDropdownOpen}
+                    label="Account"
+                    onChange={setEntryAccountId}
+                    onOpenChange={setEntryAccountDropdownOpen}
+                    onSearchChange={setEntryAccountSearch}
+                    options={accountOptions}
+                    placeholder={`Search ${entryType} account`}
+                    search={entryAccountSearch}
+                    value={entryAccountId}
+                  />
+                </div>
+                <div className="col-lg-3">
+                  <label className="form-label">Amount</label>
+                  <input className="form-control" type="number" value={entryAmount} onChange={(event) => setEntryAmount(event.target.value)} required />
+                </div>
+                <div className="col-lg-3">
+                  <label className="form-label">Remarks</label>
+                  <textarea
+                    className="form-control entry-remarks-textarea"
+                    value={entryRemarks}
+                    onChange={(event) => setEntryRemarks(event.target.value)}
+                    placeholder="Item remarks"
+                  />
+                </div>
+                <div className="col-lg-1">
+                  <button className="btn btn-primary w-100" type="submit"><i className="ri-add-line" /></button>
+                </div>
+                </div>
+                {accountChoices.length === 0 ? (
+                  <p className="text-warning fs-13 mb-0 mt-2">Add an active {entryType} chart account before posting.</p>
+                ) : null}
+              </form>
+            </div>
+          </div>
+        </div>
+        <div className="col-xl-12">
+          <div className="card">
+            <div className="card-header d-flex align-items-center justify-content-between gap-2">
+              <h4 className="header-title mb-0">{label} Voucher Items</h4>
+              <button className="btn btn-success" disabled={isSubmitting || pendingEntries.length === 0} onClick={() => void handleSavePendingEntries(entryType)} type="button">
+                Save {label} Voucher
+              </button>
+            </div>
+            <div className="card-body p-0">
+              <div className="table-responsive">
+                <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+                  <thead>
+                    <tr>
+                      <th>Account</th>
+                      <th className="text-end">Amount</th>
+                      <th>Remarks</th>
+                      <th className="text-end">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingEntries.map((entry, index) => (
+                      <tr key={`${entry.account_id}-${index}`}>
+                        <td>{entry.account_label}</td>
+                        <td className="text-end">{money(entry.amount)}</td>
+                        <td>{entry.remarks ?? "N/A"}</td>
+                        <td className="text-end">
+                          <button className="btn btn-sm btn-danger" onClick={() => setPendingEntries((current) => current.filter((_, itemIndex) => itemIndex !== index))} type="button">
+                            <i className="ri-delete-bin-line" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {pendingEntries.length > 0 ? (
+                    <tfoot><tr><th>Total</th><th className="text-end">{money(pendingEntries.reduce((sum, item) => sum + item.amount, 0))}</th><th colSpan={2}></th></tr></tfoot>
+                  ) : null}
+                </table>
+                {pendingEntries.length === 0 ? <EmptyState label="No pending entries added" /> : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </>
+    );
+  }
+
+  function renderReports() {
+    return (
+      <>
+        <div className="card">
+          <div className="card-header">
+            <h4 className="header-title">Report Filters</h4>
+          </div>
+          <div className="card-body">
+            <form onSubmit={handleReportLoad}>
+              <div className="row">
+                <div className="col-xl-3 col-md-6 mb-3">
+                  <label className="form-label">Report Type</label>
+                  <select className="form-select" value={reportType} onChange={(event) => setReportType(event.target.value)}>
+                    <option value="due-members">Due Members</option>
+                    <option value="collections">Collections</option>
+                    <option value="charges">Charges</option>
+                    <option value="members">Members</option>
+                    <option value="receipt-detail">Receipt Detail</option>
+                    <option value="income-expense">Income vs Expense</option>
+                  </select>
+                </div>
+                <div className="col-xl-3 col-md-6 mb-3">
+                  <label className="form-label">Member</label>
+                  <select className="form-select" value={reportMemberId} onChange={(event) => setReportMemberId(event.target.value)}>
+                    <option value="">All members</option>
+                    {members.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.full_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-xl-3 col-md-6 mb-3">
+                  <label className="form-label">Category</label>
+                  <select className="form-select" value={reportCategoryId} onChange={(event) => setReportCategoryId(event.target.value)}>
+                    <option value="">All categories</option>
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-xl-3 col-md-6 mb-3">
+                  <label className="form-label">Period</label>
+                  <select className="form-select" value={reportPeriodId} onChange={(event) => setReportPeriodId(event.target.value)}>
+                    <option value="">All periods</option>
+                    {billingPeriods.map((period) => (
+                      <option key={period.id} value={period.id}>
+                        {period.period_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-xl-3 col-md-6 mb-3">
+                  <label className="form-label">From Date</label>
+                  <input className="form-control" type="date" value={reportFromDate} onChange={(event) => setReportFromDate(event.target.value)} />
+                </div>
+                <div className="col-xl-3 col-md-6 mb-3">
+                  <label className="form-label">To Date</label>
+                  <input className="form-control" type="date" value={reportToDate} onChange={(event) => setReportToDate(event.target.value)} />
+                </div>
+                <div className="col-xl-3 col-md-6 mb-3">
+                  <label className="form-label">Receipt</label>
+                  <select className="form-select" value={reportReceiptId} onChange={(event) => setReportReceiptId(event.target.value)}>
+                    <option value="">Select receipt</option>
+                    {receipts.map((receipt) => (
+                      <option key={receipt.id} value={receipt.id}>
+                        {receipt.receipt_no}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-xl-3 col-md-6 mb-3 d-flex align-items-end gap-2">
+                  <button className="btn btn-primary" disabled={isSubmitting} type="submit">
+                    Load Report
+                  </button>
+                  <button className="btn btn-light" onClick={() => openReportExport("html")} type="button">
+                    HTML
+                  </button>
+                  <button className="btn btn-light" onClick={() => openReportExport("xlsx")} type="button">
+                    XLSX
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        {currentReport ? (
+          <>
+            <div className="row row-cols-xl-4 row-cols-md-2 row-cols-1">
+              <StatCard title="Report Rows" value={String(currentReport.row_count)} subtitle={currentReport.report_type} icon="ri-file-chart-line" tone="primary" />
+              {Object.entries(currentReport.totals)
+                .slice(0, 3)
+                .map(([key, value]) => (
+                  <StatCard key={key} title={key} value={String(value)} subtitle="Computed total" icon="ri-calculator-line" tone="info" />
+                ))}
+            </div>
+            <div className="card">
+              <div className="card-header">
+                <h4 className="header-title">{currentReport.title}</h4>
+              </div>
+              <div className="card-body p-0">
+                <div className="table-responsive">
+                  {currentReport.rows.length > 0 ? (
+                    <table className="table table-custom table-centered table-sm table-nowrap table-hover mb-0">
+                      <thead>
+                        <tr>
+                          {Object.keys(currentReport.rows[0]).map((key) => (
+                            <th key={key}>{key}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {currentReport.rows.map((row, index) => (
+                          <tr key={index}>
+                            {Object.entries(row).map(([key, value]) => (
+                              <td key={`${index}-${key}`}>{String(value ?? "")}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <EmptyState label="No rows returned" />
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
+        ) : null}
+
+        {incomeExpenseReport ? (
+          <div className="card">
+            <div className="card-header d-flex align-items-center justify-content-between">
+              <div>
+                <h4 className="header-title mb-0">Income And Expense Report</h4>
+                <span className="text-muted fs-13">{incomeExpenseReport.from_date ?? "Start"} to {incomeExpenseReport.to_date ?? "Today"}</span>
+              </div>
+              <img src="/makan-logo-3.png" alt="Darul Mohan Plot Owners Society" className="report-header-logo" style={{ maxWidth: 520 }} />
+            </div>
+            <div className="card-body">
+              <div className="row g-3">
+                {(["income", "expense"] as const).map((section) => {
+                  const data = incomeExpenseReport[section];
+                  return (
+                    <div className="col-xl-6" key={section}>
+                      <div className={section === "income" ? "report-panel income" : "report-panel expense"}>
+                        <h5 className="text-capitalize">{section}</h5>
+                        <table className="table table-custom table-sm mb-0">
+                          <thead><tr><th>COA</th><th className="text-end">Amount</th></tr></thead>
+                          <tbody>
+                            {data.rows.map((row, index) => (
+                              <tr key={index}><td>{String(row.coa_name ?? "")}</td><td className="text-end">{money(Number(row.amount ?? 0))}</td></tr>
+                            ))}
+                            <tr className="fw-bold"><td>Subtotal</td><td className="text-end">{money(data.subtotal)}</td></tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className={incomeExpenseReport.net_amount >= 0 ? "alert alert-success mt-3 mb-0" : "alert alert-danger mt-3 mb-0"}>
+                <div className="d-flex justify-content-between"><strong>Net Income - Expense</strong><strong>{money(incomeExpenseReport.net_amount)}</strong></div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {receiptReport ? (
+          <div className="card">
+            <div className="card-header">
+              <h4 className="header-title">Receipt Detail - {receiptReport.receipt_no}</h4>
+            </div>
+            <div className="card-body">
+              <div className="row">
+                {[
+                  ["Member", receiptReport.member_name ?? "Unknown"],
+                  ["Member Code", receiptReport.member_code ?? "Unknown"],
+                  ["Payment Date", shortDate(receiptReport.payment_date)],
+                  ["Subtotal", money(receiptReport.subtotal_amount)],
+                  ["Discount", money(receiptReport.discount_amount)],
+                  ["Total", money(receiptReport.total_amount)],
+                ].map(([label, value]) => (
+                  <div className="col-md-4 mb-3" key={label}>
+                    <span className="text-muted fs-12">{label}</span>
+                    <h5 className="fs-14 mt-1">{value}</h5>
+                  </div>
+                ))}
+              </div>
+              <div className="table-responsive">
+                <table className="table table-custom table-centered table-sm table-nowrap table-hover mb-0">
+                  <thead>
+                    <tr>
+                      <th>Line Type</th>
+                      <th>Charge ID</th>
+                      <th>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {receiptReport.lines.map((line, index) => (
+                      <tr key={`${line.charge_id ?? "line"}-${index}`}>
+                        <td>{line.line_type}</td>
+                        <td>{line.charge_id ?? "N/A"}</td>
+                        <td>{money(line.amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </>
+    );
+  }
+
+  function renderMessaging() {
+    const previewMember =
+      smsEligibleMembers.find((member) => member.id === smsSelectedMemberIds[0]) ??
+      (smsMemberId ? members.find((member) => member.id === Number(smsMemberId)) ?? null : smsEligibleMembers[0] ?? null);
+    const allSelected = smsFilteredMembers.length > 0 && smsFilteredMembers.every((member) => smsSelectedMemberIds.includes(member.id));
+    const progressPercent =
+      smsBulkProgress.total > 0 ? Math.round((smsBulkProgress.completed / smsBulkProgress.total) * 100) : 0;
+    const memberOptions = members.map((member) => ({
+      value: String(member.id),
+      label: `${member.member_code} - ${member.full_name}`,
+      meta: `${member.cell_no ?? "No phone"}${member.category_name ? ` | ${member.category_name}` : ""}`,
+    }));
+
+    return (
+      <>
+        <ul className="nav nav-tabs nav-bordered mb-3">
+          <li className="nav-item">
+            <button className={smsActiveTab === "send" ? "nav-link active" : "nav-link"} onClick={() => setSmsActiveTab("send")} type="button">
+              Send SMS
+            </button>
+          </li>
+          <li className="nav-item">
+            <button className={smsActiveTab === "delivery" ? "nav-link active" : "nav-link"} onClick={() => setSmsActiveTab("delivery")} type="button">
+              Delivery & Recent
+            </button>
+          </li>
+          <li className="nav-item">
+            <button className={smsActiveTab === "gateway" ? "nav-link active" : "nav-link"} onClick={() => setSmsActiveTab("gateway")} type="button">
+              Gateway Status
+            </button>
+          </li>
+        </ul>
+
+        {smsActiveTab === "send" ? (
+          <>
+            <div className="card">
+              <div className="card-header d-flex align-items-center justify-content-between gap-2">
+                <h4 className="header-title mb-0">Message Template</h4>
+                <button className="btn btn-primary" onClick={() => openSmsTemplateModal()} type="button">
+                  <i className="ri-add-line me-1" />
+                  New Template
+                </button>
+              </div>
+              <div className="card-body">
+                <div className="row">
+                  <div className="col-xl-8">
+                    <label className="form-label">Template</label>
+                    <select className="form-select" value={smsSelectedTemplateId} onChange={(event) => setSmsSelectedTemplateId(event.target.value)}>
+                      <option value="">No template</option>
+                      {smsTemplates.map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {template.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="col-xl-4 d-flex align-items-end mt-2 mt-xl-0">
+                    <button
+                      className="btn btn-light w-100"
+                      disabled={!selectedSmsTemplate}
+                      onClick={() => selectedSmsTemplate && openSmsTemplateModal(selectedSmsTemplate)}
+                      type="button"
+                    >
+                      <i className="ri-pencil-line me-1" />
+                      Edit Selected
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-3">
+                    <label className="form-label">Message Body</label>
+                  <textarea className="form-control" rows={5} value={smsMessageBody} onChange={(event) => setSmsMessageBody(event.target.value)} />
+                  </div>
+                <div className="alert alert-secondary py-2 mb-0 mt-3">
+                  Placeholders: `(name)`, `(bill)`, `(due)`, `(member_code)`, `(phone)`, `{"{{name}}"}`, `{"{{bill}}"}`, `{"{{due}}"}`, `{"{{member_code}}"}`, `{"{{phone}}"}`
+                  </div>
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="card-header">
+                <h4 className="header-title">Recipient Selection And Progress</h4>
+              </div>
+              <div className="card-body">
+                <div className="row mb-3 align-items-end">
+                  <div className="col-md-4 mb-3 mb-md-0">
+                    <label className="form-label">Send Type</label>
+                    <select
+                      className="form-select"
+                      value={smsTargetMode}
+                      onChange={(event) => {
+                        setSmsTargetMode(event.target.value as "single" | "all" | "due");
+                        setSmsMemberId("");
+                        setSmsMemberSearch("");
+                        setSmsRecipientSearch("");
+                      }}
+                    >
+                      <option value="single">Single Customer</option>
+                      <option value="all">All Customer</option>
+                      <option value="due">Due Customer</option>
+                    </select>
+                  </div>
+                  <div className="col-md-4 mb-3 mb-md-0">
+                    <label className="form-label">Category</label>
+                    <select className="form-select" value={smsCategoryFilterId} onChange={(event) => setSmsCategoryFilterId(event.target.value)}>
+                      <option value="">All categories</option>
+                      {categories.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {smsTargetMode === "single" ? (
+                    <div className="col-md-4">
+                      <SearchableDropdown
+                        isOpen={smsMemberDropdownOpen}
+                        label="Member"
+                        onChange={setSmsMemberId}
+                        onOpenChange={setSmsMemberDropdownOpen}
+                        onSearchChange={setSmsMemberSearch}
+                        options={memberOptions}
+                        placeholder="Search member"
+                        search={smsMemberSearch}
+                        value={smsMemberId}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="row mb-3">
+                  <div className="col-md-4">
+                    <span className="text-muted fs-12">Eligible Customers</span>
+                    <h5 className="fs-14 mt-1 mb-0">{smsEligibleMembers.length}</h5>
+                  </div>
+                  <div className="col-md-4">
+                    <span className="text-muted fs-12">Selected</span>
+                    <h5 className="fs-14 mt-1 mb-0">{smsSelectedMemberIds.length}</h5>
+                  </div>
+                  <div className="col-md-4">
+                    <span className="text-muted fs-12">Preview Customer</span>
+                    <h5 className="fs-14 mt-1 mb-0">{previewMember?.full_name ?? "None"}</h5>
+                  </div>
+                </div>
+
+                {smsBulkProgress.total > 0 ? (
+                  <div className="mb-3">
+                    <div className="d-flex justify-content-between mb-1">
+                      <span className="text-muted fs-12">Sending Progress</span>
+                      <span className="text-muted fs-12">
+                        {smsBulkProgress.completed}/{smsBulkProgress.total} ({progressPercent}%)
+                      </span>
+                    </div>
+                    <div className="progress mb-2" style={{ height: '10px' }}>
+                      <div
+                        className="progress-bar progress-bar-striped progress-bar-animated"
+                        role="progressbar"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+                    <div className="d-flex gap-3 flex-wrap text-muted fs-12">
+                      <span>Current: {smsBulkProgress.currentRecipient || "Waiting"}</span>
+                      <span>Success: {smsBulkProgress.success}</span>
+                      <span>Failed: {smsBulkProgress.failed}</span>
+                    </div>
+                    {smsBulkProgressRows.length > 0 ? (
+                      <div className="table-responsive mt-2" style={{ maxHeight: "180px", overflowY: "auto" }}>
+                        <table className="table table-sm table-custom table-centered mb-0">
+                          <tbody>
+                            {smsBulkProgressRows.map((row) => (
+                              <tr key={`${row.memberId}-${row.status}-${row.phone}`}>
+                                <td>{row.name}</td>
+                                <td>{row.phone}</td>
+                                <td>
+                                  <span className={row.status === "sent" ? "badge bg-success-subtle text-success" : "badge bg-danger-subtle text-danger"}>
+                                    {row.status}
+                                  </span>
+                                </td>
+                                <td className="text-muted">{row.message}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <div className="border rounded p-3 mb-3 bg-body-tertiary">
+                  <span className="text-muted fs-12">Personalized Preview</span>
+                  <p className="mb-0 mt-2">{renderSmsPreview(previewMember) || "Write or select a template to preview the final SMS."}</p>
+                </div>
+
+                <div className="row g-3">
+                  <div className="col-xl-7">
+                    <div className="d-flex align-items-center justify-content-between gap-2 mb-2">
+                      <div>
+                        <h5 className="fs-15 mb-1">Customer Selection</h5>
+                        <span className="text-muted fs-12">
+                          Showing {smsFilteredMembers.length} of {smsEligibleMembers.length} customers
+                        </span>
+                      </div>
+                      <button className="btn btn-sm btn-light" onClick={() => setSmsSelectedMemberIds([])} type="button">
+                        Clear
+                      </button>
+                    </div>
+                    <div className="input-group mb-2">
+                      <span className="input-group-text">
+                        <i className="ri-search-line" />
+                      </span>
+                      <input
+                        className="form-control"
+                        onChange={(event) => setSmsRecipientSearch(event.target.value)}
+                        placeholder="Search by name, code, or number"
+                        value={smsRecipientSearch}
+                      />
+                      {smsRecipientSearch ? (
+                        <button className="btn btn-light" onClick={() => setSmsRecipientSearch("")} type="button">
+                          <i className="ri-close-line" />
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="table-responsive border rounded" style={{ maxHeight: "420px", overflowY: "auto" }}>
+                      <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+                        <thead>
+                          <tr>
+                            <th style={{ width: "48px" }}>
+                              <input checked={allSelected} onChange={(event) => toggleAllSmsMembers(event.target.checked)} type="checkbox" />
+                            </th>
+                            <th>Customer</th>
+                            <th>Phone</th>
+                            <th>Due</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {smsFilteredMembers.map((member) => (
+                            <tr key={member.id}>
+                              <td>
+                                <input checked={smsSelectedMemberIds.includes(member.id)} onChange={() => toggleSmsMemberSelection(member.id)} type="checkbox" />
+                              </td>
+                              <td>
+                                <span className="fw-semibold d-block">{member.full_name}</span>
+                                <span className="text-muted fs-12">
+                                  {member.member_code}
+                                  {member.category_name ? ` | ${member.category_name}` : ""}
+                                </span>
+                              </td>
+                              <td>{member.cell_no ?? "N/A"}</td>
+                              <td>{money(dueByMemberId.get(member.id)?.total_due ?? 0)}</td>
+                              <td>
+                                <button className="btn btn-sm btn-light" onClick={() => setSmsSelectedMemberIds([member.id])} type="button">
+                                  Only
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {smsFilteredMembers.length === 0 ? <EmptyState label="No SMS recipients found for the current search" /> : null}
+                    </div>
+                  </div>
+
+                  <div className="col-xl-5">
+                    <div className="d-flex align-items-center justify-content-between gap-2 mb-2">
+                      <div>
+                        <h5 className="fs-15 mb-1">Ready To Send</h5>
+                        <span className="text-muted fs-12">{smsSelectedMembers.length} customers selected for one-by-one sending</span>
+                      </div>
+                      <span className="badge bg-info-subtle text-info">{smsSelectedMembers.length}</span>
+                    </div>
+                    <div className="table-responsive border rounded" style={{ maxHeight: "420px", overflowY: "auto" }}>
+                      <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+                        <thead>
+                          <tr>
+                            <th>Customer</th>
+                            <th>Phone</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {smsSelectedMembers.map((member) => (
+                            <tr key={member.id}>
+                              <td>
+                                <span className="fw-semibold d-block">{member.full_name}</span>
+                                <span className="text-muted fs-12">{member.member_code}</span>
+                              </td>
+                              <td>{member.cell_no ?? "N/A"}</td>
+                              <td>
+                                <button className="btn btn-sm btn-soft-danger" onClick={() => toggleSmsMemberSelection(member.id)} type="button">
+                                  Remove
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {smsSelectedMembers.length === 0 ? <EmptyState label="Select customers from the left grid" /> : null}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="d-flex justify-content-end mt-3">
+                  <button className="btn btn-success" disabled={isSubmitting || smsBulkProgress.running} onClick={() => void handleBulkSmsSend()} type="button">
+                    Send SMS To Selected
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        ) : null}
+
+        {smsActiveTab === "delivery" ? (
+          <>
+            <div className="row">
+              <div className="col-xl-6">
+                <div className="card">
+                  <div className="card-header">
+                    <h4 className="header-title">Templates</h4>
+                  </div>
+                  <div className="card-body p-0">
+                    <div className="table-responsive">
+                      <table className="table table-custom table-centered table-sm table-nowrap table-hover mb-0">
+                        <tbody>
+                          {smsTemplates.map((template) => (
+                            <tr key={template.id}>
+                              <td>
+                                <h5 className="fs-14 mt-1">{template.name}</h5>
+                                <span className="text-muted fs-12">{template.template_type ?? "General"}</span>
+                              </td>
+                              <td>{template.body}</td>
+                              <td>
+                                <button className="btn btn-sm btn-light" onClick={() => openSmsTemplateModal(template)} type="button">
+                                  Edit
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="col-xl-6">
+                <div className="card">
+                  <div className="card-header">
+                    <h4 className="header-title">Recent Messages</h4>
+                  </div>
+                  <div className="card-body p-0">
+                    <div className="table-responsive">
+                      <table className="table table-custom table-centered table-sm table-nowrap table-hover mb-0">
+                        <thead>
+                          <tr>
+                            <th>Recipient</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {smsMessages.slice(0, 8).map((sms) => (
+                            <tr key={sms.id}>
+                              <td>{sms.recipient}</td>
+                              <td>
+                                <span className="badge bg-info-subtle text-info">{sms.status}</span>
+                              </td>
+                              <td>{shortDate(sms.created_at)}</td>
+                              <td>
+                                <button className="btn btn-sm btn-light" disabled={isSubmitting} onClick={() => void handleSmsSendNow(sms.id)} type="button">
+                                  Send Now
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="card-header">
+                <h4 className="header-title">Delivery Attempts</h4>
+              </div>
+              <div className="card-body p-0">
+                <div className="table-responsive">
+                  <table className="table table-custom table-centered table-sm table-nowrap table-hover mb-0">
+                    <tbody>
+                      {smsAttempts.slice(0, 8).map((attempt) => (
+                        <tr key={attempt.id}>
+                          <td>Message #{attempt.sms_message_id}</td>
+                          <td>{attempt.provider_name ?? "provider"}</td>
+                          <td>{attempt.provider_status ?? "unknown"}</td>
+                          <td>{shortDate(attempt.attempted_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {smsAttempts.length === 0 ? <EmptyState label="No delivery attempts logged yet" /> : null}
+                </div>
+              </div>
+            </div>
+          </>
+        ) : null}
+
+        {smsActiveTab === "gateway" ? (
+          <div className="card">
+            <div className="card-header">
+              <h4 className="header-title">SMS Gateway Status</h4>
+            </div>
+            <div className="card-body">
+              <div className="row g-3">
+                <div className="col-md-3">
+                  <span className="text-muted fs-12">Provider</span>
+                  <h5 className="fs-14 mt-1 mb-0">{smsIntegrationStatus?.provider_name ?? "unknown"}</h5>
+                </div>
+                <div className="col-md-3">
+                  <span className="text-muted fs-12">Mode</span>
+                  <h5 className="fs-14 mt-1 mb-0 text-uppercase">{smsIntegrationStatus?.provider_mode ?? "unknown"}</h5>
+                </div>
+                <div className="col-md-3">
+                  <span className="text-muted fs-12">Configured</span>
+                  <h5 className="fs-14 mt-1 mb-0">
+                    {smsIntegrationStatus?.provider_configured ? (
+                      <span className="badge bg-success-subtle text-success">Yes</span>
+                    ) : (
+                      <span className="badge bg-warning-subtle text-warning">No</span>
+                    )}
+                  </h5>
+                </div>
+                <div className="col-md-3">
+                  <span className="text-muted fs-12">API Response</span>
+                  <h5 className="fs-14 mt-1 mb-0">
+                    {smsProviderCheck?.ok || smsIntegrationStatus?.provider_check_ok ? (
+                      <span className="badge bg-success-subtle text-success">Responding</span>
+                    ) : (
+                      <span className="badge bg-danger-subtle text-danger">Not responding</span>
+                    )}
+                  </h5>
+                </div>
+                <div className="col-md-3">
+                  <span className="text-muted fs-12">SMS Count</span>
+                  <h5 className="fs-14 mt-1 mb-0">{smsIntegrationStatus?.message_count ?? smsMessages.length}</h5>
+                </div>
+                <div className="col-md-3">
+                  <span className="text-muted fs-12">Sent Count</span>
+                  <h5 className="fs-14 mt-1 mb-0">{smsIntegrationStatus?.sent_count ?? 0}</h5>
+                </div>
+                <div className="col-md-3">
+                  <span className="text-muted fs-12">Attempt Count</span>
+                  <h5 className="fs-14 mt-1 mb-0">{smsIntegrationStatus?.attempt_count ?? smsAttempts.length}</h5>
+                </div>
+                <div className="col-md-3">
+                  <span className="text-muted fs-12">Balance</span>
+                  <h5 className="fs-14 mt-1 mb-0">
+                    {smsBalance?.dry_run ? "Dry run" : smsBalance?.balance ?? "Not checked"}
+                  </h5>
+                </div>
+              </div>
+              <div className="alert alert-warning mt-3 mb-0">
+                {smsProviderCheck?.message ?? smsIntegrationStatus?.provider_check_message ?? "Check the provider without sending SMS."}
+              </div>
+              {smsProviderCheck?.response_sample ? (
+                <div className="alert alert-secondary py-2 mt-3 mb-0 text-break">
+                  <span className="fw-semibold">Provider reply:</span> {smsProviderCheck.response_sample}
+                </div>
+              ) : null}
+              <div className="d-flex gap-2 flex-wrap mt-3">
+                <button className="btn btn-info" disabled={isSubmitting} onClick={() => void handleSmsProviderCheck()} type="button">
+                  Check API Response
+                </button>
+                <button className="btn btn-primary" disabled={isSubmitting} onClick={() => void handleSmsBalanceCheck()} type="button">
+                  Check Balance
+                </button>
+                <button
+                  className="btn btn-success"
+                  disabled={isSubmitting || smsIntegrationStatus?.provider_mode === "bulksmsbd"}
+                  onClick={() => void handleSmsProviderMode("bulksmsbd")}
+                  type="button"
+                >
+                  Use BulkSMSBD
+                </button>
+                <button
+                  className="btn btn-light"
+                  disabled={isSubmitting || smsIntegrationStatus?.provider_mode === "simulated"}
+                  onClick={() => void handleSmsProviderMode("simulated")}
+                  type="button"
+                >
+                  Use Simulation
+                </button>
+              </div>
+              <form className="border rounded p-3 mt-4" onSubmit={handleTestSmsSubmit}>
+                <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+                  <div>
+                    <h5 className="fs-15 mb-1">Send Test SMS</h5>
+                    <p className="text-muted mb-0 fs-13">This uses the backend only. Dry-run mode will not spend credits.</p>
+                  </div>
+                  <span className={smsBalance?.dry_run ? "badge bg-warning-subtle text-warning" : "badge bg-info-subtle text-info"}>
+                    {smsBalance?.dry_run ? "Dry run active" : "Server-side secured"}
+                  </span>
+                </div>
+                <div className="row g-3">
+                  <div className="col-md-4">
+                    <label className="form-label">Recipient</label>
+                    <input
+                      className="form-control"
+                      onChange={(event) => setSmsTestRecipient(event.target.value)}
+                      placeholder="017XXXXXXXX"
+                      value={smsTestRecipient}
+                    />
+                  </div>
+                  <div className="col-md-8">
+                    <label className="form-label">Message</label>
+                    <textarea
+                      className="form-control"
+                      maxLength={918}
+                      onChange={(event) => setSmsTestMessage(event.target.value)}
+                      rows={3}
+                      value={smsTestMessage}
+                    />
+                  </div>
+                </div>
+                <div className="d-flex justify-content-end mt-3">
+                  <button className="btn btn-success" disabled={isSubmitting} type="submit">
+                    Send Test SMS
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        ) : null}
+
+        {showSmsTemplateModal ? (
+          <>
+            <div className="modal fade show d-block" tabIndex={-1}>
+              <div className="modal-dialog modal-lg modal-dialog-centered">
+                <div className="modal-content">
+                  <div className="modal-header">
+                    <h5 className="modal-title">{editingSmsTemplateId ? "Edit SMS Template" : "New SMS Template"}</h5>
+                    <button className="btn-close" onClick={() => setShowSmsTemplateModal(false)} type="button" />
+                  </div>
+                  <form onSubmit={handleSmsTemplateSubmit}>
+                    <div className="modal-body">
+                      <div className="mb-3">
+                        <label className="form-label">Template Name</label>
+                        <input className="form-control" value={smsTemplateName} onChange={(event) => setSmsTemplateName(event.target.value)} required />
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Template Type</label>
+                        <input className="form-control" value={smsTemplateType} onChange={(event) => setSmsTemplateType(event.target.value)} />
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Body</label>
+                        <textarea className="form-control" rows={6} value={smsTemplateBody} onChange={(event) => setSmsTemplateBody(event.target.value)} required />
+                      </div>
+                      <div className="alert alert-secondary py-2 mb-0">
+                        Placeholders: `(name)`, `(bill)`, `(due)`, `(member_code)`, `(phone)`, `{"{{name}}"}`, `{"{{due}}"}`, `{"{{phone}}"}`
+                      </div>
+                    </div>
+                    <div className="modal-footer">
+                      <button className="btn btn-light" onClick={() => setShowSmsTemplateModal(false)} type="button">
+                        Cancel
+                      </button>
+                      <button className="btn btn-primary" disabled={isSubmitting} type="submit">
+                        Save Template
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+            <div className="modal-backdrop fade show" />
+          </>
+        ) : null}
+      </>
+    );
+  }
+
+  function renderProfile() {
+    return (
+      <div className="row">
+        <div className="col-xl-4">
+          <div className="card text-center">
+            <div className="card-body">
+              <img src={avatarUrl} className="rounded-circle avatar-xl img-thumbnail" alt="user" />
+              <h4 className="mb-0 mt-2">{displayName}</h4>
+              <p className="text-muted mb-3">{displayRole}</p>
+              <span className="badge bg-success-subtle text-success">{profile?.is_active ? "Active account" : "Inactive account"}</span>
+            </div>
+          </div>
+          <div className="card">
+            <div className="card-header">
+              <h4 className="header-title">Permissions</h4>
+            </div>
+            <div className="card-body">
+              <div className="d-flex flex-wrap gap-2">
+                {profile?.permissions.map((permission) => (
+                  <span className="badge bg-primary-subtle text-primary fs-12" key={permission}>
+                    {permission}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="col-xl-8">
+          <div className="card">
+            <div className="card-header">
+              <h4 className="header-title">Edit User Information</h4>
+            </div>
+            <div className="card-body">
+              <form>
+                <div className="row">
+                  <div className="col-md-6 mb-3">
+                    <label className="form-label">Display Name</label>
+                    <input className="form-control" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+                  </div>
+                  <div className="col-md-6 mb-3">
+                    <label className="form-label">Role</label>
+                    <input className="form-control" value={displayRole} onChange={(event) => setDisplayRole(event.target.value)} />
+                  </div>
+                  <div className="col-md-6 mb-3">
+                    <label className="form-label">Email</label>
+                    <input className="form-control" value={displayEmail} onChange={(event) => setDisplayEmail(event.target.value)} />
+                  </div>
+                  <div className="col-md-6 mb-3">
+                    <label className="form-label">Phone</label>
+                    <input className="form-control" value={displayPhone} onChange={(event) => setDisplayPhone(event.target.value)} />
+                  </div>
+                  <div className="col-md-12 mb-3">
+                    <label className="form-label">Profile Image</label>
+                    <input className="form-control" type="file" accept="image/*" onChange={handleAvatarChange} />
+                  </div>
+                </div>
+                <button className="btn btn-primary" onClick={() => setMessage("Profile display updated locally.")} type="button">
+                  Save Display Profile
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function isGroupOpen(group: string, activeTabs: WorkspaceTab[]) {
+    void activeTabs;
+    return openGroups[group] ?? false;
+  }
+
+  function toggleGroup(group: string) {
+    setOpenGroups((current) => (current[group] ? {} : { [group]: true }));
+  }
+
+  function handleWorkspaceNavigation(tab: WorkspaceTab) {
+    if (tab === "categories") setCategoryPageMode("view");
+    if (tab === "packages") setPackagePageMode("view");
+    if (tab === "members") setMemberPageMode("view");
+    setWorkspaceTab(tab);
+  }
+
+  function handleMenuSearchNavigation(tab: WorkspaceTab) {
+    handleWorkspaceNavigation(tab);
+    setMenuSearch("");
+    setShowMenuSearchResults(false);
+  }
+
+  function renderNavLink(item: NavItem, isSubMenu = false) {
+    return (
+      <li className="side-nav-item" key={item.key}>
+        <button
+          className={workspaceTab === item.key ? "side-nav-link active" : "side-nav-link"}
+          onClick={() => handleWorkspaceNavigation(item.key)}
+          type="button"
+        >
+          {!isSubMenu ? (
+            <span className="menu-icon">
+              <i className={item.icon} />
+            </span>
+          ) : null}
+          <span className="menu-text">{item.label}</span>
+          {item.badge ? <span className="badge bg-danger rounded-pill">{item.badge}</span> : null}
+        </button>
+      </li>
+    );
+  }
+
+  function renderNavGroup(group: string, label: string, icon: string, children: NavItem[]) {
+    const activeTabs = children.map((child) => child.key);
+    const open = isGroupOpen(group, activeTabs);
+
+    return (
+      <li className="side-nav-item">
+        <button
+          className={`${activeTabs.includes(workspaceTab) ? "side-nav-link active" : "side-nav-link"}${open ? " menu-open" : ""}`}
+          onClick={() => toggleGroup(group)}
+          type="button"
+        >
+          <span className="menu-icon">
+            <i className={icon} />
+          </span>
+          <span className="menu-text">{label}</span>
+          <span className="menu-arrow" />
+        </button>
+        <div className={open ? "side-nav-collapse show" : "side-nav-collapse"}>
+          <ul className="sub-menu">{children.map((child) => renderNavLink(child, true))}</ul>
+        </div>
+      </li>
+    );
+  }
+
+  function renderSettingsPanel() {
+    if (!showSettings) return null;
+
+    function radioCard(active: boolean, label: string, onClick: () => void, preview: ReactNode, cols = "col-4") {
+      return (
+        <div className={cols}>
+          <div className="form-check card-radio">
+            <input className="form-check-input" type="radio" checked={active} onChange={onClick} />
+            <button className="form-check-label p-0 w-100 theme-card-button" onClick={onClick} type="button">
+              {preview}
+            </button>
+          </div>
+          <h5 className="fs-14 text-center text-muted mt-2">{label}</h5>
+        </div>
+      );
+    }
+
+    function colorDot(colorClass: string) {
+      return (
+        <span className="d-flex align-items-center justify-content-center h-100">
+          <span className={`p-2 d-inline-flex shadow rounded-circle ${colorClass}`} />
+        </span>
+      );
+    }
+
+    function layoutPreview(mode: "fluid" | "detached") {
+      return (
+        <span className={mode === "detached" ? "theme-preview detached" : "theme-preview"}>
+          <span className="theme-preview-top" />
+          <span className="theme-preview-body">
+            <span className="theme-preview-menu" />
+            <span className="theme-preview-content" />
+          </span>
+        </span>
+      );
+    }
+
+    function sidebarPreview(size: SidenavSize) {
+      return (
+        <span className={`theme-preview sidebar-${size}`}>
+          <span className="theme-preview-body">
+            <span className="theme-preview-menu">
+              <span />
+              <span />
+              <span />
+              <span />
+            </span>
+            <span className="theme-preview-content" />
+          </span>
+        </span>
+      );
+    }
+
+    return (
+      <>
+        <div className="offcanvas offcanvas-end show theme-settings-panel" id="theme-settings-offcanvas" tabIndex={-1}>
+          <div className="d-flex align-items-center gap-2 px-3 py-3 offcanvas-header border-bottom border-dashed">
+            <h5 className="flex-grow-1 mb-0">Theme Settings</h5>
+            <button className="btn-close" onClick={() => setShowSettings(false)} type="button" />
+          </div>
+
+          <div className="offcanvas-body p-0 h-100">
+            <div className="p-3 border-bottom border-dashed">
+              <h5 className="mb-3 fs-16 fw-bold">Color Scheme</h5>
+              <div className="row">
+                {radioCard(themeMode === "light", "Light", () => setThemeMode("light"), <span className="avatar-xl w-100 d-flex align-items-center justify-content-center"><i className="ri-sun-line fs-32 text-muted" /></span>)}
+                {radioCard(themeMode === "dark", "Dark", () => setThemeMode("dark"), <span className="avatar-xl w-100 d-flex align-items-center justify-content-center"><i className="ri-moon-line fs-32 text-muted" /></span>)}
+              </div>
+            </div>
+
+            <div className="p-3 border-bottom border-dashed">
+              <h5 className="mb-3 fs-16 fw-bold">Layout Mode</h5>
+              <div className="row">
+                {radioCard(layoutMode === "fluid", "Fluid", () => setLayoutMode("fluid"), layoutPreview("fluid"))}
+                {radioCard(layoutMode === "detached", "Detached", () => setLayoutMode("detached"), layoutPreview("detached"))}
+              </div>
+            </div>
+
+            <div className="p-3 border-bottom border-dashed">
+              <h5 className="mb-3 fs-16 fw-bold">Topbar Color</h5>
+              <div className="row">
+                {radioCard(topbarColor === "light", "Light", () => setTopbarColor("light"), <span className="avatar-lg w-100 bg-light">{colorDot("bg-white")}</span>, "col-3")}
+                {radioCard(topbarColor === "dark", "Dark", () => setTopbarColor("dark"), <span className="avatar-lg w-100 bg-light">{colorDot("bg-dark")}</span>, "col-3")}
+                {radioCard(topbarColor === "brand", "Brand", () => setTopbarColor("brand"), <span className="avatar-lg w-100 bg-light">{colorDot("bg-primary")}</span>, "col-3")}
+              </div>
+            </div>
+
+            <div className="p-3 border-bottom border-dashed">
+              <h5 className="mb-3 fs-16 fw-bold">Menu Color</h5>
+              <div className="row">
+                {radioCard(menuColor === "light", "Light", () => setMenuColor("light"), <span className="avatar-lg w-100 bg-light">{colorDot("bg-white")}</span>, "col-3")}
+                {radioCard(menuColor === "dark", "Dark", () => setMenuColor("dark"), <span className="avatar-lg w-100 bg-light">{colorDot("bg-dark")}</span>, "col-3")}
+                {radioCard(menuColor === "brand", "Brand", () => setMenuColor("brand"), <span className="avatar-lg w-100 bg-light">{colorDot("bg-primary")}</span>, "col-3")}
+              </div>
+            </div>
+
+            <div className="p-3 border-bottom border-dashed">
+              <h5 className="mb-3 fs-16 fw-bold">Sidebar Size</h5>
+              <div className="row">
+                {radioCard(sidenavSize === "default", "Default", () => setSidenavSize("default"), sidebarPreview("default"))}
+                {radioCard(sidenavSize === "compact", "Compact", () => setSidenavSize("compact"), sidebarPreview("compact"))}
+                {radioCard(sidenavSize === "condensed", "Condensed", () => setSidenavSize("condensed"), sidebarPreview("condensed"))}
+                {radioCard(sidenavSize === "sm-hover", "Hover View", () => setSidenavSize("sm-hover"), sidebarPreview("sm-hover"))}
+                {radioCard(sidenavSize === "full", "Full Layout", () => setSidenavSize("full"), sidebarPreview("full"))}
+                {radioCard(sidenavSize === "fullscreen", "Hidden", () => setSidenavSize("fullscreen"), sidebarPreview("fullscreen"))}
+              </div>
+            </div>
+          </div>
+
+          <div className="d-flex align-items-center gap-2 px-3 py-2 offcanvas-header border-top border-dashed">
+            <button
+              className="btn w-50 btn-soft-danger"
+              onClick={() => {
+                setThemeMode("dark");
+                setLayoutMode("fluid");
+                setMenuColor("brand");
+                setTopbarColor("dark");
+                setSidenavSize("default");
+              }}
+              type="button"
+            >
+              Reset
+            </button>
+            <button className="btn w-50 btn-soft-info" onClick={() => setShowSettings(false)} type="button">
+              Apply
+            </button>
+          </div>
+        </div>
+        <div className="offcanvas-backdrop fade show" onClick={() => setShowSettings(false)} />
+      </>
+    );
+  }
+
+  function renderCurrentPage() {
+    if (workspaceTab === "dashboard") return renderDashboard();
+    if (workspaceTab === "categories") return renderCategories();
+    if (workspaceTab === "packages") return renderPackages();
+    if (workspaceTab === "members") return renderMembers();
+    if (workspaceTab === "billing-heads-view" || workspaceTab === "billing-heads-entry") return renderBillingHeadsSetup();
+    if (workspaceTab === "billing-mappings-view" || workspaceTab === "billing-mappings-entry") return renderBillingMappingsSetup();
+    if (workspaceTab === "billing") return renderBilling();
+    if (workspaceTab === "billing-registers") return renderBillingRegisters();
+    if (workspaceTab === "coa-view") return renderChartAccountsView();
+    if (workspaceTab === "coa-entry") return renderChartAccountEntry();
+    if (workspaceTab === "income-view") return renderEntryView("income");
+    if (workspaceTab === "income-entry") return renderEntryBatch("income");
+    if (workspaceTab === "expense-view") return renderEntryView("expense");
+    if (workspaceTab === "expense-entry") return renderEntryBatch("expense");
+    if (workspaceTab === "reports") return renderReports();
+    if (workspaceTab === "messaging") return renderMessaging();
+    return renderProfile();
+  }
+
+  if (authState === "checking") {
+    return (
+      <div className="auth-bg d-flex min-vh-100 justify-content-center align-items-center">
+        <div className="spinner-border text-primary" role="status" />
+      </div>
+    );
+  }
+
+  if (authState !== "authenticated" || !profile) {
+    return (
+      <div className="auth-bg d-flex min-vh-100 justify-content-center align-items-center">
+        <div className="row g-0 justify-content-center w-100 m-xxl-5 px-xxl-4 m-3">
+          <div className="col-xl-4 col-lg-5 col-md-6">
+            <div className="card overflow-hidden text-center h-100 p-xxl-4 p-3 mb-0">
+              <a href="#" onClick={(event) => event.preventDefault()} className="auth-brand mb-4">
+                <img src="/makan-logo-2.png" alt="Makan Society" className="logo-dark app-brand-logo" />
+                <img src="/makan-logo-2.png" alt="Makan Society" className="logo-light app-brand-logo" />
+              </a>
+              <h4 className="fw-semibold mb-2 fs-18">{formMode === "login" ? "Log in to your account" : "Create first admin"}</h4>
+              <p className="text-muted mb-4">
+                {formMode === "login" ? "Enter your login name and password to access society admin panel." : "Set up the first administrator account."}
+              </p>
+
+              <div className="d-flex gap-2 mb-3">
+                <button className={formMode === "login" ? "btn btn-primary w-100" : "btn btn-light w-100"} onClick={() => setFormMode("login")} type="button">
+                  Login
+                </button>
+                <button className={formMode === "bootstrap" ? "btn btn-primary w-100" : "btn btn-light w-100"} onClick={() => setFormMode("bootstrap")} type="button">
+                  First Admin
+                </button>
+              </div>
+
+              {formMode === "bootstrap" ? (
+                <form className="text-start mb-3" onSubmit={handleBootstrap}>
+                  <div className="mb-3">
+                    <label className="form-label">Username</label>
+                    <input className="form-control" value={username} onChange={(event) => setUsername(event.target.value)} required />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label">Login Name</label>
+                    <input className="form-control" value={loginName} onChange={(event) => setLoginName(event.target.value)} required />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label">Email</label>
+                    <input className="form-control" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label">Password</label>
+                    <input className="form-control" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+                  </div>
+                  <div className="d-grid">
+                    <button className="btn btn-primary fw-semibold" disabled={isSubmitting} type="submit">
+                      {isSubmitting ? "Creating..." : "Create Admin"}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <form className="text-start mb-3" onSubmit={handleLogin}>
+                  <div className="mb-3">
+                    <label className="form-label">Login Name</label>
+                    <input className="form-control" value={loginName} onChange={(event) => setLoginName(event.target.value)} required />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label">Password</label>
+                    <input className="form-control" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+                  </div>
+                  <div className="d-flex justify-content-between mb-3">
+                    <div className="form-check">
+                      <input type="checkbox" className="form-check-input" id="checkbox-signin" defaultChecked />
+                      <label className="form-check-label" htmlFor="checkbox-signin">
+                        Remember me
+                      </label>
+                    </div>
+                    <span className="text-muted border-bottom border-dashed">Society Login</span>
+                  </div>
+                  <div className="d-grid">
+                    <button className="btn btn-primary fw-semibold" disabled={isSubmitting} type="submit">
+                      {isSubmitting ? "Signing in..." : "Login"}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              <p className="text-muted fs-14 mb-4">{message}</p>
+              <p className="mt-auto mb-0">{new Date().getFullYear()} Makan Society</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="wrapper">
+      <div className="sidenav-menu">
+        <a href="#" onClick={(event) => event.preventDefault()} className="logo">
+          <span className="logo-light">
+            <span className="logo-lg">
+              <img src="/makan-logo-2.png" alt="Makan Society" className="app-brand-logo" />
+            </span>
+            <span className="logo-sm">
+              <img src="/makan-logo-2.png" alt="Makan Society" className="app-brand-logo-sm" />
+            </span>
+          </span>
+          <span className="logo-dark">
+            <span className="logo-lg">
+              <img src="/makan-logo-2.png" alt="Makan Society" className="app-brand-logo" />
+            </span>
+            <span className="logo-sm">
+              <img src="/makan-logo-2.png" alt="Makan Society" className="app-brand-logo-sm" />
+            </span>
+          </span>
+        </a>
+
+        <button className="button-sm-hover" type="button">
+          <i className="ri-circle-line align-middle" />
+        </button>
+        <button className="button-close-fullsidebar" type="button">
+          <i className="ri-close-line align-middle" />
+        </button>
+
+        <div data-simplebar>
+          <ul className="side-nav">
+            <li className="side-nav-title">Navigation</li>
+            {renderNavLink({ key: "dashboard", label: "Dashboard", icon: "ri-dashboard-3-line", badge: "5" })}
+            {renderNavGroup("setup", "Setup", "ri-pages-line", [
+              { key: "categories", label: "Category Setup", icon: "ri-list-check-3" },
+              { key: "packages", label: "Package Setup", icon: "ri-stack-line" },
+              { key: "billing-heads-view", label: "Billing Head", icon: "ri-price-tag-3-line" },
+              { key: "billing-mappings-view", label: "Billing Mapping", icon: "ri-node-tree" },
+            ])}
+            {renderNavGroup("operations", "Operations", "ri-file-paper-line", [
+              { key: "members", label: "Member Registration", icon: "ri-team-line" },
+              { key: "billing", label: "Billing & Receipt", icon: "ri-file-list-3-line" },
+              { key: "billing-registers", label: "Billing Registers", icon: "ri-table-line" },
+            ])}
+            {renderNavGroup("accounting", "Accounting", "ri-bank-line", [
+              { key: "coa-view", label: "Chart Of Accounts", icon: "ri-book-2-line" },
+              { key: "income-view", label: "Income Entry", icon: "ri-money-dollar-circle-line" },
+              { key: "expense-view", label: "Expense Entry", icon: "ri-bank-card-line" },
+            ])}
+            {renderNavGroup("reporting", "Reporting", "ri-bar-chart-box-line", [
+              { key: "reports", label: "Reports", icon: "ri-bar-chart-box-line" },
+              { key: "messaging", label: "SMS", icon: "ri-message-3-line" },
+            ])}
+            <li className="side-nav-title">More</li>
+            <li className="side-nav-item">
+              <button className="side-nav-link" onClick={() => void loadWorkspace()} type="button">
+                <span className="menu-icon">
+                  <i className="ri-refresh-line" />
+                </span>
+                <span className="menu-text">Refresh Data</span>
+              </button>
+            </li>
+          </ul>
+
+          <div className="help-box text-center">
+            <h5 className="fw-semibold fs-16">Makan Society</h5>
+            <p className="mb-0 opacity-75">{message}</p>
+          </div>
+          <div className="clearfix" />
+        </div>
+      </div>
+
+      <div className="color-line" />
+
+      <header className="app-topbar">
+        <div className="page-container topbar-menu">
+          <div className="d-flex align-items-center gap-2">
+            <a href="#" onClick={(event) => event.preventDefault()} className="logo">
+              <span className="logo-light">
+                <span className="logo-lg">
+                  <img src="/makan-logo-2.png" alt="Makan Society" className="app-brand-logo" />
+                </span>
+                <span className="logo-sm">
+                  <img src="/makan-logo-2.png" alt="Makan Society" className="app-brand-logo-sm" />
+                </span>
+              </span>
+            </a>
+            <button className="sidenav-toggle-button px-2" type="button">
+              <i className="ri-menu-5-line fs-24" />
+            </button>
+            <div className="topbar-item d-none d-md-flex">
+              <div>
+                <h4 className="page-title fs-18 fw-bold mb-0">{pageTitle(workspaceTab)}</h4>
+              </div>
+            </div>
+          </div>
+
+          <div className="d-flex align-items-center gap-2">
+            <div className="topbar-search d-none d-xl-flex me-2 align-items-center">
+              <div className={`menu-search-box ${showMenuSearchResults ? "open" : ""}`}>
+                <div className="menu-search-input-wrap">
+                  <i className="ri-search-line fs-18" />
+                  <input
+                    className="menu-search-input"
+                    onBlur={() => window.setTimeout(() => setShowMenuSearchResults(false), 120)}
+                    onChange={(event) => {
+                      setMenuSearch(event.target.value);
+                      setShowMenuSearchResults(true);
+                    }}
+                    onFocus={() => setShowMenuSearchResults(true)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        setShowMenuSearchResults(false);
+                        return;
+                      }
+                      if (event.key === "Enter" && filteredMenuItems.length > 0) {
+                        event.preventDefault();
+                        handleMenuSearchNavigation(filteredMenuItems[0].key);
+                      }
+                    }}
+                    placeholder="Search menu and go to page"
+                    value={menuSearch}
+                  />
+                </div>
+                {showMenuSearchResults ? (
+                  <div className="menu-search-results">
+                    {filteredMenuItems.length > 0 ? (
+                      filteredMenuItems.map((item) => (
+                        <button
+                          className="menu-search-result"
+                          key={item.key}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            handleMenuSearchNavigation(item.key);
+                          }}
+                          type="button"
+                        >
+                          <span className="menu-search-result-icon">
+                            <i className={item.icon} />
+                          </span>
+                          <span className="menu-search-result-copy">
+                            <strong>{item.label}</strong>
+                            <small>{item.group ?? "Menu"}</small>
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="menu-search-empty">No menu found</div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <div className="topbar-item d-none d-sm-flex">
+              <button className="topbar-link" onClick={() => window.location.reload()} type="button">
+                <i className="ri-refresh-line fs-22" />
+              </button>
+            </div>
+            <div className="topbar-item d-none d-sm-flex">
+              <button className="topbar-link" onClick={() => setShowSettings(true)} type="button">
+                <i className="ri-settings-4-line fs-22" />
+              </button>
+            </div>
+            <div className="topbar-item d-none d-sm-flex">
+              <button className="topbar-link" onClick={() => setThemeMode(themeMode === "dark" ? "light" : "dark")} type="button">
+                <i className={themeMode === "dark" ? "ri-sun-line fs-22" : "ri-moon-line fs-22"} />
+              </button>
+            </div>
+            <div className="topbar-item nav-user">
+              <button
+                className="topbar-link dropdown-toggle drop-arrow-none px-2"
+                onClick={() => setShowUserMenu((current) => !current)}
+                type="button"
+              >
+                <img src={avatarUrl} width="32" className="rounded-circle me-lg-2 d-flex" alt="user" />
+                <span className="d-lg-flex flex-column gap-1 d-none nav-user-text">
+                  <h5 className="my-0">{displayName}</h5>
+                </span>
+                <i className="ri-arrow-down-s-line d-none d-lg-block align-middle ms-2" />
+              </button>
+              <div className={`dropdown-menu dropdown-menu-end profile-dropdown ${showUserMenu ? "show" : ""}`}>
+                <div className="dropdown-header noti-title">
+                  <h6 className="text-overflow m-0">Welcome!</h6>
+                </div>
+                <button
+                  className="dropdown-item"
+                  onClick={() => {
+                    setWorkspaceTab("profile");
+                    setShowUserMenu(false);
+                  }}
+                  type="button"
+                >
+                  <i className="ri-account-circle-line me-1 fs-16 align-middle" />
+                  <span>My Profile</span>
+                </button>
+                <button className="dropdown-item text-danger" onClick={handleLogout} type="button">
+                  <i className="ri-logout-box-line me-1 fs-16 align-middle" />
+                  <span>Logout</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div className="page-content">
+        <div className="page-container">{renderCurrentPage()}</div>
+      </div>
+      {renderSettingsPanel()}
+      {renderPreviousBillsModal()}
+      {renderInvoiceReportModal()}
+    </div>
+  );
+}
