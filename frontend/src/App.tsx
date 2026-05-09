@@ -735,6 +735,7 @@ export function App() {
   const [accountingSummary, setAccountingSummary] = useState<AccountingSummary | null>(null);
   const [incomeExpenseReport, setIncomeExpenseReport] = useState<IncomeExpenseComparisonReport | null>(null);
   const [currentReport, setCurrentReport] = useState<ReportEnvelope | null>(null);
+  const [reportViewerPage, setReportViewerPage] = useState(1);
   const [receiptReport, setReceiptReport] = useState<ReceiptDetailReport | null>(null);
   const [memberStatementReport, setMemberStatementReport] = useState<SingleMemberStatementReport | null>(null);
   const [smsTemplates, setSmsTemplates] = useState<SmsTemplate[]>([]);
@@ -2044,6 +2045,255 @@ export function App() {
     return "";
   }
 
+  function escapePrintHtml(value: unknown) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function buildPaginatedTableReportMarkup(report: ReportEnvelope) {
+    const columns = report.rows.length > 0 ? Object.keys(report.rows[0]) : [];
+    const rowsPerPage = 22;
+    const pageChunks: Array<typeof report.rows> = [];
+    for (let index = 0; index < report.rows.length; index += rowsPerPage) {
+      pageChunks.push(report.rows.slice(index, index + rowsPerPage));
+    }
+    if (pageChunks.length === 0) {
+      pageChunks.push([]);
+    }
+
+    const totalPages = pageChunks.length;
+    const totalsMarkup = Object.entries(report.totals)
+      .map(
+        ([key, value]) => `
+          <div class="report-meta-card">
+            <span class="text-muted">${escapePrintHtml(key.replace(/_/g, " "))}</span>
+            <strong>${escapePrintHtml(formatReportCell(key, value))}</strong>
+          </div>
+        `,
+      )
+      .join("");
+
+    return pageChunks
+      .map((rows, pageIndex) => {
+        const rowMarkup = rows.length
+          ? rows
+              .map(
+                (row) => `
+                  <tr>
+                    ${columns
+                      .map((column) => {
+                        const alignClass = ["amount", "bill", "paid", "due", "collection", "discount", "subtotal", "total", "net"].some((token) =>
+                          column.toLowerCase().includes(token),
+                        )
+                          ? "text-end"
+                          : "";
+                        return `<td class="${alignClass}">${escapePrintHtml(formatReportCell(column, row[column]))}</td>`;
+                      })
+                      .join("")}
+                  </tr>
+                `,
+              )
+              .join("")
+          : `<tr><td colspan="${Math.max(columns.length, 1)}" class="empty-cell">No rows returned for this filter.</td></tr>`;
+
+        return `
+          <section class="print-page">
+            <div class="print-page-inner">
+              <div class="report-sheet-header">
+                <img src="/makan-logo-3.png" alt="Darul Mohan Plot Owners Society" class="report-logo" />
+                <div class="page-head">
+                  <div>
+                    <div class="section-title">Report Viewer</div>
+                    <div class="text-muted">Makan Society</div>
+                  </div>
+                  <div class="text-end">
+                    <h2 class="report-title">${escapePrintHtml(report.title)}</h2>
+                    <div class="text-muted">Generated ${escapePrintHtml(shortDate(report.generated_at))}</div>
+                    <div class="page-number">Page ${pageIndex + 1} of ${totalPages}</div>
+                  </div>
+                </div>
+              </div>
+              ${
+                pageIndex === 0
+                  ? `
+                <div class="report-filter-grid">
+                  <div class="report-meta-card">
+                    <span class="text-muted">Report Type</span>
+                    <strong>${escapePrintHtml(report.report_type)}</strong>
+                  </div>
+                  <div class="report-meta-card">
+                    <span class="text-muted">Rows</span>
+                    <strong>${escapePrintHtml(report.row_count)}</strong>
+                  </div>
+                  ${totalsMarkup}
+                </div>
+              `
+                  : ""
+              }
+              <table>
+                <thead>
+                  <tr>
+                    ${columns.map((column) => `<th>${escapePrintHtml(column.replace(/_/g, " "))}</th>`).join("")}
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rowMarkup}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        `;
+      })
+      .join("");
+  }
+
+  function buildPaginatedMemberStatementMarkup(report: SingleMemberStatementReport) {
+    const billingRowsPerPage = 18;
+    const paymentRowsPerPage = 20;
+    const billingChunks: Array<typeof report.billing_history> = [];
+    const paymentChunks: Array<typeof report.payment_history> = [];
+
+    for (let index = 0; index < report.billing_history.length; index += billingRowsPerPage) {
+      billingChunks.push(report.billing_history.slice(index, index + billingRowsPerPage));
+    }
+    for (let index = 0; index < report.payment_history.length; index += paymentRowsPerPage) {
+      paymentChunks.push(report.payment_history.slice(index, index + paymentRowsPerPage));
+    }
+    if (billingChunks.length === 0) billingChunks.push([]);
+    if (paymentChunks.length === 0) paymentChunks.push([]);
+
+    const pageEntries: Array<{
+      section: "billing" | "payment";
+      rows: SingleMemberStatementReport["billing_history"] | SingleMemberStatementReport["payment_history"];
+      firstInSection: boolean;
+    }> = [
+      ...billingChunks.map((rows, index) => ({ section: "billing" as const, rows, firstInSection: index === 0 })),
+      ...paymentChunks.map((rows, index) => ({ section: "payment" as const, rows, firstInSection: index === 0 })),
+    ];
+
+    return pageEntries
+      .map((entry, pageIndex) => {
+        const billingTable =
+          entry.section === "billing"
+            ? `
+              <h3 class="subsection-title">Billing History</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Invoice No</th>
+                    <th>Date</th>
+                    <th class="text-end">Bill</th>
+                    <th class="text-end">Paid</th>
+                    <th class="text-end">Due</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${
+                    entry.rows.length
+                      ? (entry.rows as SingleMemberStatementReport["billing_history"])
+                          .map(
+                            (item) => `
+                          <tr>
+                            <td>${escapePrintHtml(item.invoice_no)}</td>
+                            <td>${escapePrintHtml(shortDate(item.invoice_date))}</td>
+                            <td class="text-end">${escapePrintHtml(money(item.total_bill))}</td>
+                            <td class="text-end">${escapePrintHtml(money(item.paid_amount))}</td>
+                            <td class="text-end">${escapePrintHtml(money(item.due_amount))}</td>
+                            <td>${escapePrintHtml(item.status)}</td>
+                          </tr>
+                        `,
+                          )
+                          .join("")
+                      : `<tr><td colspan="6" class="empty-cell">No billing history found.</td></tr>`
+                  }
+                </tbody>
+              </table>
+            `
+            : `
+              <h3 class="subsection-title">Payment History</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Receipt No</th>
+                    <th>Date</th>
+                    <th class="text-end">Paid</th>
+                    <th class="text-end">Discount</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${
+                    entry.rows.length
+                      ? (entry.rows as SingleMemberStatementReport["payment_history"])
+                          .map(
+                            (item) => `
+                          <tr>
+                            <td>${escapePrintHtml(item.receipt_no)}</td>
+                            <td>${escapePrintHtml(shortDate(item.payment_date))}</td>
+                            <td class="text-end">${escapePrintHtml(money(item.amount))}</td>
+                            <td class="text-end">${escapePrintHtml(money(item.discount_amount))}</td>
+                            <td>${escapePrintHtml(item.notes ?? "-")}</td>
+                          </tr>
+                        `,
+                          )
+                          .join("")
+                      : `<tr><td colspan="5" class="empty-cell">No payment history found.</td></tr>`
+                  }
+                </tbody>
+              </table>
+            `;
+
+        return `
+          <section class="print-page">
+            <div class="print-page-inner">
+              <div class="report-sheet-header">
+                <img src="/makan-logo-3.png" alt="Darul Mohan Plot Owners Society" class="report-logo" />
+                <div class="page-head">
+                  <div>
+                    <div class="section-title">Single Member Due And Paid Statement</div>
+                    <div class="text-muted">Makan Society</div>
+                  </div>
+                  <div class="text-end">
+                    <h2 class="report-title">${escapePrintHtml(report.member_code)}</h2>
+                    <div>${escapePrintHtml(report.member_name)}</div>
+                    ${report.plot_no ? `<div class="text-muted">Plot No: ${escapePrintHtml(report.plot_no)}</div>` : ""}
+                    <div class="page-number">Page ${pageIndex + 1} of ${pageEntries.length}</div>
+                  </div>
+                </div>
+              </div>
+              ${
+                pageIndex === 0
+                  ? `
+                <div class="report-summary-grid">
+                  <div class="statement-summary-card">
+                    <span class="text-muted">Total Bill</span>
+                    <strong>${escapePrintHtml(money(report.total_bill))}</strong>
+                  </div>
+                  <div class="statement-summary-card">
+                    <span class="text-muted">Paid Amount</span>
+                    <strong>${escapePrintHtml(money(report.paid_amount))}</strong>
+                  </div>
+                  <div class="statement-summary-card highlight">
+                    <span class="text-muted">Due Amount</span>
+                    <strong>${escapePrintHtml(money(report.due_amount))}</strong>
+                  </div>
+                </div>
+              `
+                  : ""
+              }
+              ${billingTable}
+            </div>
+          </section>
+        `;
+      })
+      .join("");
+  }
+
   function printReportViewer() {
     const printArea = document.getElementById("report-viewer-print-area");
     if (!printArea) {
@@ -2056,6 +2306,11 @@ export function App() {
       return;
     }
     const title = reportViewerTitle();
+    const printableMarkup = currentReport
+      ? buildPaginatedTableReportMarkup(currentReport)
+      : memberStatementReport
+        ? buildPaginatedMemberStatementMarkup(memberStatementReport)
+        : `<main class="sheet">${printArea.innerHTML}</main>`;
     printWindow.document.write(`
       <!doctype html>
       <html>
@@ -2066,6 +2321,14 @@ export function App() {
             * { box-sizing: border-box; }
             body { margin: 0; background: #fff; color: #111827; font-family: Arial, Helvetica, sans-serif; font-size: 13px; }
             .sheet { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 16mm 14mm; }
+            .print-page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 14mm 12mm; page-break-after: always; }
+            .print-page:last-child { page-break-after: auto; }
+            .print-page-inner { min-height: calc(297mm - 28mm); display: flex; flex-direction: column; }
+            .page-head { display: flex; justify-content: space-between; gap: 18px; }
+            .section-title { font-weight: 700; }
+            .report-title { margin: 0 0 4px; font-size: 30px; font-weight: 800; }
+            .page-number { margin-top: 6px; font-weight: 700; }
+            .subsection-title { margin: 8px 0 0; font-size: 20px; font-weight: 700; }
             .report-logo { display: block; width: 100%; max-height: 118px; object-fit: contain; margin-bottom: 14px; }
             .invoice-report-sheet, .report-sheet { width: 100%; }
             .invoice-report-header, .report-sheet-header { border-bottom: 2px solid #111827; padding-bottom: 18px; margin-bottom: 18px; }
@@ -2079,6 +2342,7 @@ export function App() {
             th { background: #eef2f7; }
             .text-end, .right { text-align: right; }
             .text-muted, .muted { color: #6b7280; }
+            .empty-cell { text-align: center; color: #6b7280; padding: 24px 12px; }
             .badge { display: inline-block; padding: 5px 10px; border-radius: 4px; font-weight: 700; }
             .bg-success-subtle { background: #dcfce7; }
             .text-success { color: #166534; }
@@ -2096,7 +2360,7 @@ export function App() {
           </style>
         </head>
         <body>
-          <main class="sheet">${printArea.innerHTML}</main>
+          ${printableMarkup}
         </body>
       </html>
     `);
@@ -2107,6 +2371,11 @@ export function App() {
 
   function renderReportEnvelopeContent(report: ReportEnvelope) {
     const columns = report.rows.length > 0 ? Object.keys(report.rows[0]) : [];
+    const pageSize = 15;
+    const totalPages = Math.max(1, Math.ceil(report.rows.length / pageSize));
+    const activePage = Math.min(reportViewerPage, totalPages);
+    const startIndex = (activePage - 1) * pageSize;
+    const pagedRows = report.rows.slice(startIndex, startIndex + pageSize);
     return (
       <div className="report-sheet">
         <div className="report-sheet-header">
@@ -2131,6 +2400,10 @@ export function App() {
             <span className="text-muted d-block">Rows</span>
             <strong>{report.row_count}</strong>
           </div>
+          <div className="report-meta-card">
+            <span className="text-muted d-block">Page</span>
+            <strong>{activePage} / {totalPages}</strong>
+          </div>
           {Object.entries(report.totals).map(([key, value]) => (
             <div className="report-meta-card" key={key}>
               <span className="text-muted d-block text-capitalize">{key.replace(/_/g, " ")}</span>
@@ -2149,12 +2422,12 @@ export function App() {
                 </tr>
               </thead>
               <tbody>
-                {report.rows.map((row, index) => (
-                  <tr key={`${report.report_type}-${index}`}>
+                {pagedRows.map((row, index) => (
+                  <tr key={`${report.report_type}-${startIndex + index}`}>
                     {columns.map((column) => (
                       <td
                         className={["amount", "bill", "paid", "due", "collection", "discount", "subtotal", "total", "net"].some((token) => column.toLowerCase().includes(token)) ? "text-end" : ""}
-                        key={`${report.report_type}-${index}-${column}`}
+                        key={`${report.report_type}-${startIndex + index}-${column}`}
                       >
                         {formatReportCell(column, row[column])}
                       </td>
@@ -2167,6 +2440,32 @@ export function App() {
             <EmptyState label="No rows returned for this filter." />
           )}
         </div>
+        {report.rows.length > pageSize ? (
+          <div className="report-pagination-bar">
+            <div className="report-pagination-summary">
+              Showing {startIndex + 1}-{Math.min(startIndex + pageSize, report.rows.length)} of {report.rows.length}
+            </div>
+            <div className="report-pagination-controls">
+              <button
+                className="btn btn-outline-secondary btn-sm"
+                disabled={activePage <= 1}
+                onClick={() => setReportViewerPage((page) => Math.max(1, page - 1))}
+                type="button"
+              >
+                Previous
+              </button>
+              <span className="report-pagination-current">Page {activePage} of {totalPages}</span>
+              <button
+                className="btn btn-outline-secondary btn-sm"
+                disabled={activePage >= totalPages}
+                onClick={() => setReportViewerPage((page) => Math.min(totalPages, page + 1))}
+                type="button"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -2671,6 +2970,7 @@ export function App() {
     setIsSubmitting(true);
     try {
       setShowReportViewer(false);
+      setReportViewerPage(1);
       if (reportType === "income-expense") {
         const params = new URLSearchParams();
         if (reportFromDate) params.set("from_date", reportFromDate);
