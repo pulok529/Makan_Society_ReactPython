@@ -24,15 +24,13 @@ class DueMemberRow(BaseModel):
 
 
 class CollectionRow(BaseModel):
-    receipt_id: int
-    receipt_no: str
-    payment_date: date
     member_id: int | None
     member_code: str | None
     member_name: str | None
+    receipt_no: str
+    payment_date: date
     total_amount: float
     discount_amount: float
-    notes: str | None
 
 
 class ChargeRegisterRow(BaseModel):
@@ -90,7 +88,6 @@ class SingleMemberPaymentHistoryRow(BaseModel):
     payment_date: date
     amount: float
     discount_amount: float
-    notes: str | None
 
 
 class SingleMemberStatementReport(BaseModel):
@@ -120,7 +117,6 @@ class ReceiptDetailReport(BaseModel):
     subtotal_amount: float
     discount_amount: float
     total_amount: float
-    notes: str | None
     lines: list[ReceiptDetailLine]
 
 
@@ -130,6 +126,7 @@ class ReportEnvelope(BaseModel):
     generated_at: datetime
     row_count: int
     totals: dict[str, float | int]
+    applied_filters: dict[str, str] = Field(default_factory=dict)
     rows: list[dict]
 
 

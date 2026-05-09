@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.modules.accounting.service import AccountingService
 from app.modules.auth.dependencies import get_current_user, require_permission
 from app.modules.reporting.schemas import ReceiptDetailReport, ReportEnvelope, ReportFilter, SingleMemberStatementReport
 from app.modules.reporting.service import ReportingService
@@ -134,6 +135,60 @@ def receipt_report(
     db: Session = Depends(get_db),
 ) -> ReceiptDetailReport:
     return ReportingService(db).receipt_detail(receipt_id)
+
+
+@router.get("/member-statement/xlsx", dependencies=[Depends(require_permission("reports:view"))])
+def member_statement_xlsx(
+    from_date=None,
+    to_date=None,
+    member_id: int | None = None,
+    _: object = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    service = ReportingService(db)
+    report = service.single_member_statement(_filters(from_date, to_date, member_id))
+    payload = service.render_member_statement_xlsx(report)
+    headers = {"Content-Disposition": 'attachment; filename="member-statement-report.xlsx"'}
+    return Response(
+        content=payload,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
+
+
+@router.get("/receipt/{receipt_id}/xlsx", dependencies=[Depends(require_permission("reports:view"))])
+def receipt_report_xlsx(
+    receipt_id: int,
+    _: object = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    service = ReportingService(db)
+    report = service.receipt_detail(receipt_id)
+    payload = service.render_receipt_xlsx(report)
+    headers = {"Content-Disposition": f'attachment; filename="receipt-{receipt_id}-report.xlsx"'}
+    return Response(
+        content=payload,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
+
+
+@router.get("/income-expense/xlsx", dependencies=[Depends(require_permission("reports:view"))])
+def income_expense_xlsx(
+    from_date=None,
+    to_date=None,
+    _: object = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    reporting_service = ReportingService(db)
+    report = AccountingService(db).income_expense_report(from_date=from_date, to_date=to_date)
+    payload = reporting_service.render_income_expense_xlsx(report)
+    headers = {"Content-Disposition": 'attachment; filename="income-expense-report.xlsx"'}
+    return Response(
+        content=payload,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
 
 
 @router.get("/{report_key}/html", response_class=HTMLResponse, dependencies=[Depends(require_permission("reports:view"))])

@@ -448,12 +448,12 @@ def migrate_billing(db, execute: bool) -> dict[str, int]:
                 receipt_no=receipt_no,
                 member_id=None,
                 collected_by_user_id=user_by_legacy_id.get(int(row["UserId"])) if row.get("UserId") is not None else None,
-                receipt_type="legacy-collection",
+                receipt_type="collection",
                 payment_date=payment_dt.date(),
                 subtotal_amount=float(row.get("TotalAmount") or 0),
                 discount_amount=float(row.get("TotalDiscount") or 0),
                 total_amount=float(row.get("TotalAmount") or 0),
-                notes=f"Legacy BillInfoMId={row['BillInfoMId']}",
+                notes=f"BillInfoMId={row['BillInfoMId']}",
             )
             db.add(receipt)
             db.flush()
@@ -494,7 +494,7 @@ def migrate_billing(db, execute: bool) -> dict[str, int]:
 
         existing_line = (
             db.query(ChargeItem)
-            .filter(ChargeItem.description == f"LegacyBillInfoId={legacy_id}")
+            .filter(ChargeItem.description == f"BillInfoId={legacy_id}")
             .one_or_none()
         )
         if existing_line is not None:
@@ -521,7 +521,7 @@ def migrate_billing(db, execute: bool) -> dict[str, int]:
             charge_id=charge.id,
             package_id=None,
             item_type="legacy",
-            description=f"LegacyBillInfoId={legacy_id}",
+            description=f"BillInfoId={legacy_id}",
             quantity=1,
             unit_amount=amount,
             line_amount=net,

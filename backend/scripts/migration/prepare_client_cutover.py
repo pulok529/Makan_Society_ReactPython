@@ -357,12 +357,12 @@ def import_legacy_billing(db) -> dict[str, int]:
             receipt_no=receipt_no,
             member_id=None,
             collected_by_user_id=user_by_legacy_id.get(int(row["UserId"])) if row.get("UserId") is not None else None,
-            receipt_type="legacy-collection",
+            receipt_type="collection",
             payment_date=(row.get("CollectionDate") or datetime.now(UTC)).date(),
             subtotal_amount=float(row.get("TotalAmount") or 0),
             discount_amount=float(row.get("TotalDiscount") or 0),
             total_amount=float(row.get("TotalAmount") or 0),
-            notes=f"Legacy BillInfoMId={row['BillInfoMId']} VoucherNo={base_receipt_no}",
+            notes=f"BillInfoMId={row['BillInfoMId']} VoucherNo={base_receipt_no}",
         )
         db.add(receipt)
         db.flush()
@@ -419,7 +419,7 @@ def import_legacy_billing(db) -> dict[str, int]:
             charge_id=charge.id,
             package_id=None,
             item_type="legacy",
-            description=f"LegacyBillInfoId={row['BillInfoId']}",
+            description=f"BillInfoId={row['BillInfoId']}",
             quantity=1,
             unit_amount=amount,
             line_amount=net,
@@ -469,7 +469,7 @@ def rebuild_invoice_history(db) -> dict[str, int]:
 
         for _, receipt_rows in grouped.items():
             receipt_no = str(receipt_rows[0]["receipt_no"]).strip()
-            invoice_no = f"LEGACY-{member.member_code}-{receipt_no}"[:50]
+            invoice_no = f"{member.member_code}-{receipt_no}"[:50]
             if db.query(BillingInvoice).filter(BillingInvoice.invoice_no == invoice_no).one_or_none() is not None:
                 continue
 
@@ -588,7 +588,7 @@ def rebuild_invoice_history(db) -> dict[str, int]:
                 due_payloads.append((period_date, adjustment_due))
 
         if due_payloads:
-            due_invoice_no = f"LEGACY-DUE-{member.member_code}"[:50]
+            due_invoice_no = f"DUE-{member.member_code}"[:50]
             if db.query(BillingInvoice).filter(BillingInvoice.invoice_no == due_invoice_no).one_or_none() is None:
                 mapping = mappings.get(monthly_head.id)
                 invoice = BillingInvoice(

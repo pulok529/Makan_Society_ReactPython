@@ -145,9 +145,9 @@ def _delete_generated_legacy_invoices(db, member_id: int, member_code: str) -> i
             ),
             {
                 "member_id": member_id,
-                "receipt_prefix": f"LEGACY-{member_code}-%",
-                "due_invoice": f"LEGACY-DUE-{member_code}"[:50],
-                "oldest_invoice": f"LEGACY-OLDEST-{member_code}"[:50],
+                "receipt_prefix": f"{member_code}-%",
+                "due_invoice": f"DUE-{member_code}"[:50],
+                "oldest_invoice": f"OLDEST-{member_code}"[:50],
             },
         ).all()
     ]
@@ -164,7 +164,7 @@ def _convert_oldest_first(db, member: Member, member_code: str, head_row: dict[s
     if not generated_rows:
         return 0, 0
 
-    invoice_no = f"LEGACY-OLDEST-{member_code}"[:50]
+    invoice_no = f"OLDEST-{member_code}"[:50]
     existing_invoice = db.query(BillingInvoice).filter(BillingInvoice.invoice_no == invoice_no).one_or_none()
     if existing_invoice is not None:
         return 0, 0
@@ -252,7 +252,7 @@ def convert_member(member_code: str, execute: bool, allocation_mode: str = "lega
         existing = int(
             db.execute(
                 text("SELECT COUNT(*) FROM billing.billing_invoices WHERE InvoiceNo LIKE :prefix"),
-                {"prefix": f"LEGACY-{member_code}-%"},
+                {"prefix": f"{member_code}-%"},
             ).scalar()
             or 0
         )
@@ -314,7 +314,7 @@ def convert_member(member_code: str, execute: bool, allocation_mode: str = "lega
         created_details = 0
         for receipt_id, receipt_rows in grouped.items():
             receipt_no = str(receipt_rows[0]["receipt_no"]).strip()
-            invoice_no = f"LEGACY-{member_code}-{receipt_no}"[:50]
+            invoice_no = f"{member_code}-{receipt_no}"[:50]
             existing_invoice = db.query(BillingInvoice).filter(BillingInvoice.invoice_no == invoice_no).one_or_none()
             if existing_invoice is not None:
                 continue
@@ -371,7 +371,7 @@ def convert_member(member_code: str, execute: bool, allocation_mode: str = "lega
                 )
                 created_details += 1
 
-        due_invoice_no = f"LEGACY-DUE-{member_code}"[:50]
+        due_invoice_no = f"DUE-{member_code}"[:50]
         existing_due_invoice = db.query(BillingInvoice).filter(BillingInvoice.invoice_no == due_invoice_no).one_or_none()
         if existing_due_invoice is None:
             paid_by_period = _legacy_paid_by_period(rows)

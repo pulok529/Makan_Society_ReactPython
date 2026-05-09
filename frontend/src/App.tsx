@@ -282,6 +282,7 @@ type ReportEnvelope = {
   generated_at: string;
   row_count: number;
   totals: Record<string, number | string>;
+  applied_filters: Record<string, string>;
   rows: Record<string, unknown>[];
 };
 
@@ -306,7 +307,6 @@ type SingleMemberStatementReport = {
     payment_date: string;
     amount: number;
     discount_amount: number;
-    notes: string | null;
   }[];
 };
 
@@ -319,7 +319,6 @@ type ReceiptDetailReport = {
   subtotal_amount: number;
   discount_amount: number;
   total_amount: number;
-  notes: string | null;
   lines: { line_type: string; amount: number; charge_id: number | null }[];
 };
 
@@ -788,7 +787,6 @@ export function App() {
   const [receiptChargeId, setReceiptChargeId] = useState("");
   const [receiptAmount, setReceiptAmount] = useState("");
   const [receiptDate, setReceiptDate] = useState("");
-  const [receiptNotes, setReceiptNotes] = useState("");
   const [receiptDiscount, setReceiptDiscount] = useState("0");
   const [billingHeadName, setBillingHeadName] = useState("");
   const [billingHeadType, setBillingHeadType] = useState<"Period" | "OneTime">("Period");
@@ -1768,7 +1766,7 @@ export function App() {
         body: JSON.stringify({
           member_id: Number(receiptMemberId),
           payment_date: receiptDate,
-          notes: receiptNotes || null,
+          notes: null,
           discount_amount: Number(receiptDiscount || 0),
           lines: [{ charge_id: Number(receiptChargeId), amount: Number(receiptAmount) }],
         }),
@@ -1777,7 +1775,6 @@ export function App() {
       setReceiptChargeId("");
       setReceiptAmount("");
       setReceiptDate("");
-      setReceiptNotes("");
       setReceiptDiscount("0");
       await refreshBillingWorkspace();
       await refreshAccountingWorkspace();
@@ -2129,6 +2126,16 @@ export function App() {
                     <span class="text-muted">Rows</span>
                     <strong>${escapePrintHtml(report.row_count)}</strong>
                   </div>
+                  ${Object.entries(report.applied_filters ?? {})
+                    .map(
+                      ([key, value]) => `
+                    <div class="report-meta-card">
+                      <span class="text-muted">${escapePrintHtml(key.replace(/_/g, " "))}</span>
+                      <strong>${escapePrintHtml(value)}</strong>
+                    </div>
+                  `,
+                    )
+                    .join("")}
                   ${totalsMarkup}
                 </div>
               `
@@ -2223,7 +2230,6 @@ export function App() {
                     <th>Date</th>
                     <th class="text-end">Paid</th>
                     <th class="text-end">Discount</th>
-                    <th>Notes</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2237,12 +2243,11 @@ export function App() {
                             <td>${escapePrintHtml(shortDate(item.payment_date))}</td>
                             <td class="text-end">${escapePrintHtml(money(item.amount))}</td>
                             <td class="text-end">${escapePrintHtml(money(item.discount_amount))}</td>
-                            <td>${escapePrintHtml(item.notes ?? "-")}</td>
                           </tr>
                         `,
                           )
                           .join("")
-                      : `<tr><td colspan="5" class="empty-cell">No payment history found.</td></tr>`
+                      : `<tr><td colspan="4" class="empty-cell">No payment history found.</td></tr>`
                   }
                 </tbody>
               </table>
@@ -2274,12 +2279,12 @@ export function App() {
                     <span class="text-muted">Total Bill</span>
                     <strong>${escapePrintHtml(money(report.total_bill))}</strong>
                   </div>
-                  <div class="statement-summary-card">
-                    <span class="text-muted">Paid Amount</span>
+                  <div class="statement-summary-card highlight">
+                    <span class="text-muted">Payment Summary</span>
                     <strong>${escapePrintHtml(money(report.paid_amount))}</strong>
                   </div>
                   <div class="statement-summary-card highlight">
-                    <span class="text-muted">Due Amount</span>
+                    <span class="text-muted">Due Summary</span>
                     <strong>${escapePrintHtml(money(report.due_amount))}</strong>
                   </div>
                 </div>
@@ -2404,6 +2409,12 @@ export function App() {
             <span className="text-muted d-block">Page</span>
             <strong>{activePage} / {totalPages}</strong>
           </div>
+          {Object.entries(report.applied_filters ?? {}).map(([key, value]) => (
+            <div className="report-meta-card" key={`filter-${key}`}>
+              <span className="text-muted d-block text-capitalize">{key.replace(/_/g, " ")}</span>
+              <strong>{value}</strong>
+            </div>
+          ))}
           {Object.entries(report.totals).map(([key, value]) => (
             <div className="report-meta-card" key={key}>
               <span className="text-muted d-block text-capitalize">{key.replace(/_/g, " ")}</span>
@@ -2603,12 +2614,12 @@ export function App() {
             <span className="text-muted d-block">Total Bill</span>
             <strong>{money(report.total_bill)}</strong>
           </div>
-          <div className="statement-summary-card">
-            <span className="text-muted d-block">Paid Amount</span>
+          <div className="statement-summary-card highlight">
+            <span className="text-muted d-block">Payment Summary</span>
             <strong>{money(report.paid_amount)}</strong>
           </div>
           <div className="statement-summary-card highlight">
-            <span className="text-muted d-block">Due Amount</span>
+            <span className="text-muted d-block">Due Summary</span>
             <strong>{money(report.due_amount)}</strong>
           </div>
         </div>
@@ -2659,7 +2670,6 @@ export function App() {
                         <th>Date</th>
                         <th className="text-end">Paid</th>
                         <th className="text-end">Discount</th>
-                        <th>Notes</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2669,7 +2679,6 @@ export function App() {
                           <td>{shortDate(item.payment_date)}</td>
                           <td className="text-end">{money(item.amount)}</td>
                           <td className="text-end">{money(item.discount_amount)}</td>
-                          <td>{item.notes ?? "-"}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -3025,12 +3034,54 @@ export function App() {
   }
 
   function openReportExport(kind: "html" | "xlsx") {
-    const exportableReports = new Set(["due-members", "collections", "charges", "members", "total-collection", "total-due"]);
+    const exportableReports = new Set([
+      "due-members",
+      "collections",
+      "charges",
+      "members",
+      "total-collection",
+      "total-due",
+      "member-statement",
+      "receipt-detail",
+      "income-expense",
+    ]);
     if (!exportableReports.has(reportType)) {
-      setMessage("This report can be printed from the preview. HTML and XLSX export are available for tabular reports.");
+      setMessage("This report type is not available for export.");
       return;
     }
     const query = reportQueryString ? `?${reportQueryString}` : "";
+    if (reportType === "receipt-detail") {
+      if (!reportReceiptId) {
+        setMessage("Select a receipt first.");
+        return;
+      }
+      if (kind === "html") {
+        setMessage("Receipt detail supports Excel export and print preview.");
+        return;
+      }
+      window.open(`${apiBaseUrl}/api/reports/receipt/${reportReceiptId}/xlsx`, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (reportType === "member-statement") {
+      if (!reportMemberId) {
+        setMessage("Select a member first.");
+        return;
+      }
+      if (kind === "html") {
+        setMessage("Single member statement supports Excel export and print preview.");
+        return;
+      }
+      window.open(`${apiBaseUrl}/api/reports/member-statement/xlsx${query}`, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (reportType === "income-expense") {
+      if (kind === "html") {
+        setMessage("Income vs Expense supports Excel export and print preview.");
+        return;
+      }
+      window.open(`${apiBaseUrl}/api/reports/income-expense/xlsx${query}`, "_blank", "noopener,noreferrer");
+      return;
+    }
     window.open(`${apiBaseUrl}/api/reports/${reportType}/${kind}${query}`, "_blank", "noopener,noreferrer");
   }
 

@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from openpyxl import Workbook
 
+from app.modules.accounting.schemas import IncomeExpenseComparisonReport
 from app.modules.reporting.repository import ReportingRepository
 from app.modules.reporting.schemas import (
     ChargeRegisterRow,
@@ -33,6 +34,33 @@ class ReportingService:
             loader=FileSystemLoader("app/modules/reporting/templates"),
             autoescape=select_autoescape(["html"]),
         )
+
+    def _applied_filters(self, filters: ReportFilter) -> dict[str, str]:
+        applied: dict[str, str] = {}
+
+        if filters.from_date and filters.to_date:
+            applied["date_range"] = f"{filters.from_date.isoformat()} to {filters.to_date.isoformat()}"
+        elif filters.from_date:
+            applied["from_date"] = filters.from_date.isoformat()
+        elif filters.to_date:
+            applied["to_date"] = filters.to_date.isoformat()
+
+        if filters.member_id is not None:
+            member = next(iter(self.repository.list_members(member_id=filters.member_id)), None)
+            applied["member"] = f"{member.member_code} - {member.full_name}" if member else str(filters.member_id)
+
+        if filters.category_id is not None:
+            category = next((item for item in self.repository.list_categories() if item.id == filters.category_id), None)
+            applied["category"] = category.name if category else str(filters.category_id)
+
+        if filters.billing_period_id is not None:
+            period = next((item for item in self.repository.list_periods() if item.id == filters.billing_period_id), None)
+            applied["billing_period"] = period.period_name if period else str(filters.billing_period_id)
+
+        if filters.plot_no and filters.plot_no.strip():
+            applied["plot_no"] = filters.plot_no.strip()
+
+        return applied
 
     def due_members(self, filters: ReportFilter) -> ReportEnvelope:
         categories = {item.id: item for item in self.repository.list_categories()}
@@ -81,6 +109,7 @@ class ReportingService:
                 "total_due_amount": round(sum(item.total_due for item in rows), 2),
                 "member_count": len(rows),
             },
+            applied_filters=self._applied_filters(filters),
             rows=[row.model_dump() for row in rows],
         )
 
@@ -93,15 +122,13 @@ class ReportingService:
         )
         rows = [
             CollectionRow(
-                receipt_id=receipt.id,
-                receipt_no=receipt.receipt_no,
-                payment_date=receipt.payment_date,
                 member_id=receipt.member_id,
                 member_code=members[receipt.member_id].member_code if receipt.member_id in members else None,
                 member_name=members[receipt.member_id].full_name if receipt.member_id in members else None,
+                receipt_no=receipt.receipt_no,
+                payment_date=receipt.payment_date,
                 total_amount=float(receipt.total_amount),
                 discount_amount=float(receipt.discount_amount),
-                notes=receipt.notes,
             )
             for receipt in receipts
         ]
@@ -115,6 +142,7 @@ class ReportingService:
                 "total_collected": round(sum(item.total_amount for item in rows), 2),
                 "discount_amount": round(sum(item.discount_amount for item in rows), 2),
             },
+            applied_filters=self._applied_filters(filters),
             rows=[row.model_dump() for row in rows],
         )
 
@@ -157,6 +185,7 @@ class ReportingService:
                 "total_collection_amount": round(sum(item.total_collection_amount for item in rows), 2),
                 "member_count": len(rows),
             },
+            applied_filters=self._applied_filters(filters),
             rows=[row.model_dump() for row in rows],
         )
 
@@ -200,6 +229,7 @@ class ReportingService:
                 "total_due_amount": round(sum(item.total_due_amount for item in rows), 2),
                 "member_count": len(rows),
             },
+            applied_filters=self._applied_filters(filters),
             rows=[row.model_dump() for row in rows],
         )
 
@@ -239,7 +269,6 @@ class ReportingService:
                 payment_date=receipt.payment_date,
                 amount=float(receipt.total_amount),
                 discount_amount=float(receipt.discount_amount),
-                notes=receipt.notes,
             )
             for receipt in receipts
         ]
@@ -291,6 +320,7 @@ class ReportingService:
                 "net_amount": round(sum(item.net_amount for item in rows), 2),
                 "due_amount": round(sum(item.due_amount for item in rows), 2),
             },
+            applied_filters=self._applied_filters(filters),
             rows=[row.model_dump(mode="json") for row in rows],
         )
 
@@ -324,6 +354,7 @@ class ReportingService:
             generated_at=datetime.now(UTC),
             row_count=len(rows),
             totals={"member_count": len(rows), "active_members": sum(1 for row in rows if row.is_active)},
+            applied_filters=self._applied_filters(filters),
             rows=[row.model_dump(mode="json") for row in rows],
         )
 
@@ -343,7 +374,6 @@ class ReportingService:
             subtotal_amount=float(receipt.subtotal_amount),
             discount_amount=float(receipt.discount_amount),
             total_amount=float(receipt.total_amount),
-            notes=receipt.notes,
             lines=[
                 ReceiptDetailLine(line_type=line.line_type, amount=float(line.amount), charge_id=line.charge_id)
                 for line in lines
@@ -360,6 +390,8 @@ class ReportingService:
         sheet.title = report.title[:31]
         sheet.append([report.title])
         sheet.append([f"Generated at: {report.generated_at.isoformat()}"])
+        for key, value in report.applied_filters.items():
+            sheet.append([key, value])
         sheet.append([])
         if report.rows:
             headers = list(report.rows[0].keys())
@@ -370,6 +402,88 @@ class ReportingService:
         sheet.append(["Totals"])
         for key, value in report.totals.items():
             sheet.append([key, value])
+
+        buffer = BytesIO()
+        workbook.save(buffer)
+        return buffer.getvalue()
+
+    def render_receipt_xlsx(self, report: ReceiptDetailReport) -> bytes:
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Receipt Detail"
+        sheet.append(["Receipt Detail Report"])
+        sheet.append(["Receipt No", report.receipt_no])
+        sheet.append(["Payment Date", report.payment_date.isoformat()])
+        sheet.append(["Member Name", report.member_name or ""])
+        sheet.append(["Member Code", report.member_code or ""])
+        sheet.append(["Subtotal", report.subtotal_amount])
+        sheet.append(["Discount", report.discount_amount])
+        sheet.append(["Collected", report.total_amount])
+        sheet.append([])
+        sheet.append(["Line Type", "Charge ID", "Amount"])
+        for line in report.lines:
+            sheet.append([line.line_type, line.charge_id, line.amount])
+
+        buffer = BytesIO()
+        workbook.save(buffer)
+        return buffer.getvalue()
+
+    def render_member_statement_xlsx(self, report: SingleMemberStatementReport) -> bytes:
+        workbook = Workbook()
+        summary_sheet = workbook.active
+        summary_sheet.title = "Member Statement"
+        summary_sheet.append(["Single Member Due And Paid Statement"])
+        summary_sheet.append(["Member Code", report.member_code])
+        summary_sheet.append(["Member Name", report.member_name])
+        summary_sheet.append(["Plot No", report.plot_no or ""])
+        summary_sheet.append(["Total Bill", report.total_bill])
+        summary_sheet.append(["Paid Amount", report.paid_amount])
+        summary_sheet.append(["Due Amount", report.due_amount])
+
+        billing_sheet = workbook.create_sheet("Billing History")
+        billing_sheet.append(["Invoice No", "Invoice Date", "Total Bill", "Paid Amount", "Due Amount", "Status"])
+        for row in report.billing_history:
+            billing_sheet.append(
+                [row.invoice_no, row.invoice_date.isoformat(), row.total_bill, row.paid_amount, row.due_amount, row.status]
+            )
+
+        payment_sheet = workbook.create_sheet("Payment History")
+        payment_sheet.append(["Receipt No", "Payment Date", "Paid Amount", "Discount Amount"])
+        for row in report.payment_history:
+            payment_sheet.append([row.receipt_no, row.payment_date.isoformat(), row.amount, row.discount_amount])
+
+        buffer = BytesIO()
+        workbook.save(buffer)
+        return buffer.getvalue()
+
+    def render_income_expense_xlsx(self, report: IncomeExpenseComparisonReport) -> bytes:
+        workbook = Workbook()
+        summary_sheet = workbook.active
+        summary_sheet.title = "Summary"
+        summary_sheet.append(["Income vs Expense Report"])
+        summary_sheet.append(["From Date", report.from_date.isoformat() if report.from_date else ""])
+        summary_sheet.append(["To Date", report.to_date.isoformat() if report.to_date else ""])
+        summary_sheet.append(["Income Subtotal", report.income.subtotal])
+        summary_sheet.append(["Expense Subtotal", report.expense.subtotal])
+        summary_sheet.append(["Net Amount", report.net_amount])
+
+        income_sheet = workbook.create_sheet("Income")
+        income_rows = report.income.rows
+        income_headers = list(income_rows[0].keys()) if income_rows else ["coa_name", "amount"]
+        income_sheet.append(income_headers)
+        for row in income_rows:
+            income_sheet.append([row.get(header) for header in income_headers])
+        income_sheet.append([])
+        income_sheet.append(["Subtotal", report.income.subtotal])
+
+        expense_sheet = workbook.create_sheet("Expense")
+        expense_rows = report.expense.rows
+        expense_headers = list(expense_rows[0].keys()) if expense_rows else ["coa_name", "amount"]
+        expense_sheet.append(expense_headers)
+        for row in expense_rows:
+            expense_sheet.append([row.get(header) for header in expense_headers])
+        expense_sheet.append([])
+        expense_sheet.append(["Subtotal", report.expense.subtotal])
 
         buffer = BytesIO()
         workbook.save(buffer)
