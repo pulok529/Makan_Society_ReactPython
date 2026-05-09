@@ -3,6 +3,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from datetime import date
+from collections import defaultdict
 
 from app.modules.accounting.models import Account, AccountingVoucher, AccountingVoucherDetail, ExpenseEntry, IncomeEntry, IncomeEntryDetail, IncomeExpenseEntry
 from app.modules.accounting.repository import AccountingRepository
@@ -230,6 +231,23 @@ class AccountingService:
             account = self.repository.get_account(line.coa_id)
             if account is None or not account.is_active or account.account_type not in account_types:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or inactive COA selected")
+
+        pending_by_coa: dict[int, list] = {}
+        if voucher_type == "income":
+            requested_by_coa: dict[int, float] = defaultdict(float)
+            for line in payload.lines:
+                requested_by_coa[line.coa_id] += float(line.amount)
+
+            for coa_id, requested_total in requested_by_coa.items():
+                pending = self.repository.list_pending_income_transfers(coa_id=coa_id)
+                pending_by_coa[coa_id] = pending
+                pending_total = round(sum(float(detail.receive_amount) for detail, _invoice, _member in pending), 2)
+                if pending_total > 0 and round(requested_total, 2) != pending_total:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Income amount for selected COA must equal mapped billing collection total {pending_total:.2f}",
+                    )
+
         total = sum(line.amount for line in payload.lines)
         prefix = "RV" if voucher_type == "income" else "PV"
         voucher = AccountingVoucher(
@@ -244,6 +262,13 @@ class AccountingService:
         for line in payload.lines:
             self.repository.add_voucher_detail(AccountingVoucherDetail(voucher_id=voucher.id, coa_id=line.coa_id, amount=line.amount, remarks=line.remarks))
             self.repository.add_entry(IncomeExpenseEntry(account_id=line.coa_id, entry_type=voucher_type, amount=line.amount, remarks=line.remarks or voucher.voucher_no))
+
+        if voucher_type == "income":
+            for coa_id, pending in pending_by_coa.items():
+                for detail, _invoice, _member in pending:
+                    detail.is_income_transferred = True
+                    detail.income_voucher_id = voucher.id
+
         self.db.commit()
         return self._serialize_voucher(voucher)
 

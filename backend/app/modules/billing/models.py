@@ -158,6 +158,7 @@ class BillingInvoiceDetail(Base):
     due_amount: Mapped[float] = mapped_column("DueAmount", Numeric(18, 2), default=0)
     discount_amount: Mapped[float] = mapped_column("DiscountAmount", Numeric(18, 2), default=0)
     coa_id_snapshot: Mapped[int | None] = mapped_column("COAIDSnapshot", ForeignKey("accounting.accounts.id"))
+    income_voucher_id: Mapped[int | None] = mapped_column("IncomeVoucherID", ForeignKey("accounting.accounting_vouchers.VoucherID"))
     is_income_transferred: Mapped[bool] = mapped_column("IsIncomeTransferred", Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column("CreatedAt", DateTime(timezone=True), server_default=func.now())
     created_by: Mapped[int | None] = mapped_column("CreatedBy", ForeignKey("auth.users.id"))

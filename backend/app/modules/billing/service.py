@@ -603,6 +603,7 @@ class BillingService:
             due_amount=float(detail.due_amount),
             discount_amount=float(detail.discount_amount),
             coa_id_snapshot=detail.coa_id_snapshot,
+            income_voucher_id=detail.income_voucher_id,
             is_income_transferred=detail.is_income_transferred,
             created_at=detail.created_at,
             created_by=detail.created_by,

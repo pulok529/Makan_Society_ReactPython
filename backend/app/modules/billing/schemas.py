@@ -187,6 +187,7 @@ class BillingInvoiceDetailRead(BaseModel):
     due_amount: float
     discount_amount: float
     coa_id_snapshot: int | None
+    income_voucher_id: int | None
     is_income_transferred: bool
     created_at: datetime
     created_by: int | None

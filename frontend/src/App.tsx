@@ -222,6 +222,7 @@ type BillingInvoice = {
     fee_amount: number;
     receive_amount: number;
     due_amount: number;
+    income_voucher_id?: number | null;
     is_income_transferred: boolean;
   }[];
 };
@@ -266,6 +267,16 @@ type AccountingVoucher = {
     amount: number;
     remarks: string | null;
   }[];
+};
+
+type IncomeTransferPendingItem = {
+  billing_detail_id: number;
+  invoice_no: string;
+  member_name: string;
+  coa_id: number;
+  amount: number;
+  head_name: string;
+  period_display: string | null;
 };
 
 type IncomeExpenseComparisonReport = {
@@ -826,6 +837,7 @@ export function App() {
   const [entryVoucherRemarks, setEntryVoucherRemarks] = useState("");
   const [entryAmount, setEntryAmount] = useState("");
   const [entryRemarks, setEntryRemarks] = useState("");
+  const [entryMappedIncomeAmount, setEntryMappedIncomeAmount] = useState<number | null>(null);
   const [entrySearch, setEntrySearch] = useState("");
   const [pendingEntries, setPendingEntries] = useState<{ account_id: number; account_label: string; amount: number; remarks: string | null }[]>([]);
   const [reportType, setReportType] = useState("due-members");
@@ -2897,8 +2909,40 @@ export function App() {
     setEntryAccountId("");
     setEntryAccountSearch("");
     setEntryAmount("");
+    setEntryMappedIncomeAmount(null);
     setEntryRemarks("");
     setMessage(`${entryType === "income" ? "Income" : "Expense"} line added to list.`);
+  }
+
+  async function handleEntryAccountChange(value: string, entryType: "income" | "expense") {
+    setEntryAccountId(value);
+    setEntryMappedIncomeAmount(null);
+
+    if (entryType !== "income" || !value) {
+      return;
+    }
+
+    const accessToken = token();
+    if (!accessToken) return;
+
+    try {
+      const pending = await apiRequest<IncomeTransferPendingItem[]>(
+        `/api/accounting/income-transfer-pending?coa_id=${value}`,
+        accessToken,
+      );
+      const total = pending.reduce((sum, item) => sum + Number(item.amount), 0);
+      if (total > 0) {
+        setEntryAmount(total.toFixed(2));
+        setEntryMappedIncomeAmount(total);
+        if (!entryRemarks.trim()) {
+          setEntryRemarks("Mapped billing collection transfer");
+        }
+      } else {
+        setEntryAmount("");
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to load mapped billing total");
+    }
   }
 
   async function handleSavePendingEntries(entryType: "income" | "expense") {
@@ -2919,6 +2963,7 @@ export function App() {
         }),
       });
       setPendingEntries([]);
+      setEntryMappedIncomeAmount(null);
       setEntryVoucherRemarks("");
       await refreshAccountingWorkspace();
       setWorkspaceTab(entryType === "income" ? "income-view" : "expense-view");
@@ -5053,7 +5098,9 @@ export function App() {
                   <SearchableDropdown
                     isOpen={entryAccountDropdownOpen}
                     label="Account"
-                    onChange={setEntryAccountId}
+                    onChange={(value) => {
+                      void handleEntryAccountChange(value, entryType);
+                    }}
                     onOpenChange={setEntryAccountDropdownOpen}
                     onSearchChange={setEntryAccountSearch}
                     options={accountOptions}
@@ -5065,6 +5112,11 @@ export function App() {
                 <div className="col-lg-3">
                   <label className="form-label">Amount</label>
                   <input className="form-control" type="number" value={entryAmount} onChange={(event) => setEntryAmount(event.target.value)} required />
+                  {entryType === "income" && entryMappedIncomeAmount !== null ? (
+                    <div className="form-text">
+                      Auto-filled from mapped billing collection: {money(entryMappedIncomeAmount)}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="col-lg-3">
                   <label className="form-label">Remarks</label>
