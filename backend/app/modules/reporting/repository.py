@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.billing.models import BillingInvoice, BillingInvoiceDetail, BillingPeriod, Charge, Receipt, ReceiptLine
 from app.modules.categories.models import MemberCategory
-from app.modules.members.models import Member, MemberPackage
+from app.modules.members.models import Member, MemberNominee, MemberPackage
 from app.modules.packages.models import Package
 
 
@@ -35,6 +35,10 @@ class ReportingRepository:
 
     def list_member_packages(self) -> list[MemberPackage]:
         return list(self.db.scalars(select(MemberPackage).order_by(MemberPackage.id.asc())))
+
+    def get_member_nominee(self, member_id: int) -> MemberNominee | None:
+        statement = select(MemberNominee).where(MemberNominee.member_id == member_id)
+        return self.db.scalar(statement)
 
     def list_periods(self) -> list[BillingPeriod]:
         return list(self.db.scalars(select(BillingPeriod).order_by(BillingPeriod.year.desc(), BillingPeriod.month.desc())))

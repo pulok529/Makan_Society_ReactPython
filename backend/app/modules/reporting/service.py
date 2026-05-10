@@ -332,6 +332,7 @@ class ReportingService:
 
         categories = {item.id: item for item in self.repository.list_categories()}
         latest_active_package = self._latest_active_packages()
+        nominee = self.repository.get_member_nominee(member.id)
         receipts = self.repository.list_receipts(
             member_id=filters.member_id,
             from_date=filters.from_date,
@@ -392,8 +393,8 @@ class ReportingService:
                 present_address=member.present_address,
                 permanent_address=member.permanent_address,
                 reference=member.reference,
-                nominee_name=member.nominee_name,
-                nominee_cell=member.nominee_cell,
+                nominee_name=nominee.nominee_name if nominee is not None else None,
+                nominee_cell=nominee.nominee_cell if nominee is not None else None,
                 active_package_name=latest_active_package.get(member.id),
                 total_collection_amount=round(sum(item.amount for item in payment_history), 2),
                 total_due_amount=round(sum(item.due_amount for item in due_history), 2),
