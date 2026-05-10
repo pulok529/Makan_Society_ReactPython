@@ -719,7 +719,7 @@ function SearchableDropdown({
               {option.meta ? <span className="d-block fs-12 opacity-75">{option.meta}</span> : null}
             </button>
           ))}
-          {filtered.length === 0 ? <span className="dropdown-item text-muted">No account found</span> : null}
+          {filtered.length === 0 ? <span className="dropdown-item text-muted">No results found</span> : null}
         </div>
       </div>
     </div>
@@ -856,6 +856,8 @@ export function App() {
   const [pendingEntries, setPendingEntries] = useState<{ account_id: number; account_label: string; amount: number; remarks: string | null }[]>([]);
   const [reportType, setReportType] = useState("due-members");
   const [reportMemberId, setReportMemberId] = useState("");
+  const [reportMemberSearch, setReportMemberSearch] = useState("");
+  const [reportMemberDropdownOpen, setReportMemberDropdownOpen] = useState(false);
   const [reportCategoryId, setReportCategoryId] = useState("");
   const [reportPeriodId, setReportPeriodId] = useState("");
   const [reportFromDate, setReportFromDate] = useState("");
@@ -1135,6 +1137,15 @@ export function App() {
     });
     return totals;
   }, [expenseEntries]);
+  const memberOptions = useMemo(
+    () =>
+      members.map((member) => ({
+        value: String(member.id),
+        label: `${member.member_code} - ${member.full_name}`,
+        meta: `${member.cell_no ?? "No phone"}${member.category_name ? ` | ${member.category_name}` : ""}`,
+      })),
+    [members],
+  );
 
   useEffect(() => {
     const accessToken = token();
@@ -1185,6 +1196,22 @@ export function App() {
     }
     setSmsSelectedMemberIds((current) => current.filter((id) => smsEligibleMembers.some((member) => member.id === id)));
   }, [smsEligibleMembers, smsMemberId, smsTargetMode]);
+
+  useEffect(() => {
+    if (reportType !== "member-statement") {
+      setReportMemberDropdownOpen(false);
+      setReportMemberSearch("");
+      return;
+    }
+    if (members.length > 0) return;
+    const accessToken = token();
+    if (!accessToken) return;
+    apiRequest<MemberListItem[]>("/api/members", accessToken)
+      .then((nextMembers) => setMembers(nextMembers))
+      .catch(() => {
+        setMessage("Unable to load members for the report.");
+      });
+  }, [members.length, reportType]);
 
   useEffect(() => {
     setSmsMessageBody(selectedSmsTemplate?.body ?? "");
@@ -5266,15 +5293,31 @@ export function App() {
                   </select>
                 </div>
                 <div className="col-xl-3 col-md-6 mb-3">
-                  <label className="form-label">Member</label>
-                  <select className="form-select" value={reportMemberId} onChange={(event) => setReportMemberId(event.target.value)}>
-                    <option value="">{reportType === "member-statement" ? "Select member" : "All members"}</option>
-                    {members.map((member) => (
-                      <option key={member.id} value={member.id}>
-                        {member.member_code} - {member.full_name}
-                      </option>
-                    ))}
-                  </select>
+                  {reportType === "member-statement" ? (
+                    <SearchableDropdown
+                      isOpen={reportMemberDropdownOpen}
+                      label="Member"
+                      onChange={setReportMemberId}
+                      onOpenChange={setReportMemberDropdownOpen}
+                      onSearchChange={setReportMemberSearch}
+                      options={memberOptions}
+                      placeholder="Search member"
+                      search={reportMemberSearch}
+                      value={reportMemberId}
+                    />
+                  ) : (
+                    <>
+                      <label className="form-label">Member</label>
+                      <select className="form-select" value={reportMemberId} onChange={(event) => setReportMemberId(event.target.value)}>
+                        <option value="">All members</option>
+                        {members.map((member) => (
+                          <option key={member.id} value={member.id}>
+                            {member.member_code} - {member.full_name}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  )}
                 </div>
                 <div className="col-xl-3 col-md-6 mb-3">
                   <label className="form-label">Category</label>
@@ -5358,11 +5401,6 @@ export function App() {
     const allSelected = smsFilteredMembers.length > 0 && smsFilteredMembers.every((member) => smsSelectedMemberIds.includes(member.id));
     const progressPercent =
       smsBulkProgress.total > 0 ? Math.round((smsBulkProgress.completed / smsBulkProgress.total) * 100) : 0;
-    const memberOptions = members.map((member) => ({
-      value: String(member.id),
-      label: `${member.member_code} - ${member.full_name}`,
-      meta: `${member.cell_no ?? "No phone"}${member.category_name ? ` | ${member.category_name}` : ""}`,
-    }));
 
     return (
       <>
