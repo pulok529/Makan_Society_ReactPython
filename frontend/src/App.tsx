@@ -496,6 +496,20 @@ async function apiRequest<T>(path: string, accessToken: string, init?: RequestIn
   return response.json() as Promise<T>;
 }
 
+function fileNameFromDisposition(header: string | null, fallback: string) {
+  if (!header) return fallback;
+  const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+  const plainMatch = header.match(/filename=\"?([^\";]+)\"?/i);
+  return plainMatch?.[1] ?? fallback;
+}
+
 function money(value: number | null | undefined) {
   return Number(value ?? 0).toLocaleString(undefined, {
     minimumFractionDigits: 2,
@@ -3078,6 +3092,44 @@ export function App() {
     }
   }
 
+  async function downloadAuthenticatedFile(path: string, fallbackFileName: string) {
+    const accessToken = token();
+    if (!accessToken) {
+      setMessage("Please log in again.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(`${apiBaseUrl}${path}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail ?? "Unable to download file");
+      }
+
+      const blob = await response.blob();
+      const fileName = fileNameFromDisposition(response.headers.get("Content-Disposition"), fallbackFileName);
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+      setMessage("Excel download started.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to download file");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   function openReportExport(kind: "html" | "xlsx") {
     const exportableReports = new Set([
       "due-members",
@@ -3104,7 +3156,7 @@ export function App() {
         setMessage("Receipt detail supports Excel export and print preview.");
         return;
       }
-      window.open(`${apiBaseUrl}/api/reports/receipt/${reportReceiptId}/xlsx`, "_blank", "noopener,noreferrer");
+      void downloadAuthenticatedFile(`/api/reports/receipt/${reportReceiptId}/xlsx`, `receipt-${reportReceiptId}-report.xlsx`);
       return;
     }
     if (reportType === "member-statement") {
@@ -3116,7 +3168,7 @@ export function App() {
         setMessage("Single member statement supports Excel export and print preview.");
         return;
       }
-      window.open(`${apiBaseUrl}/api/reports/member-statement/xlsx${query}`, "_blank", "noopener,noreferrer");
+      void downloadAuthenticatedFile(`/api/reports/member-statement/xlsx${query}`, "member-statement-report.xlsx");
       return;
     }
     if (reportType === "income-expense") {
@@ -3124,7 +3176,11 @@ export function App() {
         setMessage("Income vs Expense supports Excel export and print preview.");
         return;
       }
-      window.open(`${apiBaseUrl}/api/reports/income-expense/xlsx${query}`, "_blank", "noopener,noreferrer");
+      void downloadAuthenticatedFile(`/api/reports/income-expense/xlsx${query}`, "income-expense-report.xlsx");
+      return;
+    }
+    if (kind === "xlsx") {
+      void downloadAuthenticatedFile(`/api/reports/${reportType}/xlsx${query}`, `${reportType}-report.xlsx`);
       return;
     }
     window.open(`${apiBaseUrl}/api/reports/${reportType}/${kind}${query}`, "_blank", "noopener,noreferrer");
