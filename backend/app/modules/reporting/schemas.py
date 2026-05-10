@@ -97,6 +97,7 @@ class SingleMemberStatementReport(BaseModel):
     total_bill: float
     paid_amount: float
     due_amount: float
+    applied_filters: dict[str, str] = Field(default_factory=dict)
     due_history: list[SingleMemberDueHistoryRow]
     payment_history: list[SingleMemberPaymentHistoryRow]
 
@@ -116,6 +117,7 @@ class ReceiptDetailReport(BaseModel):
     subtotal_amount: float
     discount_amount: float
     total_amount: float
+    applied_filters: dict[str, str] = Field(default_factory=dict)
     lines: list[ReceiptDetailLine]
 
 

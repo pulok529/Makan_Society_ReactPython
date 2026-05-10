@@ -51,10 +51,11 @@ def due_members_report(
     member_id: int | None = None,
     category_id: int | None = None,
     billing_period_id: int | None = None,
+    plot_no: str | None = Query(default=None),
     _: object = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ReportEnvelope:
-    return ReportingService(db).due_members(_filters(from_date, to_date, member_id, category_id, billing_period_id))
+    return ReportingService(db).due_members(_filters(from_date, to_date, member_id, category_id, billing_period_id, plot_no))
 
 
 @router.get("/collections", response_model=ReportEnvelope, dependencies=[Depends(require_permission("reports:view"))])
@@ -62,10 +63,12 @@ def collections_report(
     from_date=None,
     to_date=None,
     member_id: int | None = None,
+    category_id: int | None = None,
+    plot_no: str | None = Query(default=None),
     _: object = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ReportEnvelope:
-    return ReportingService(db).collections(_filters(from_date, to_date, member_id))
+    return ReportingService(db).collections(_filters(from_date, to_date, member_id, category_id, None, plot_no))
 
 
 @router.get("/total-collection", response_model=ReportEnvelope, dependencies=[Depends(require_permission("reports:view"))])
@@ -100,21 +103,27 @@ def charges_report(
     from_date=None,
     to_date=None,
     member_id: int | None = None,
+    category_id: int | None = None,
     billing_period_id: int | None = None,
+    plot_no: str | None = Query(default=None),
     _: object = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ReportEnvelope:
-    return ReportingService(db).charge_register(_filters(from_date, to_date, member_id, None, billing_period_id))
+    return ReportingService(db).charge_register(_filters(from_date, to_date, member_id, category_id, billing_period_id, plot_no))
 
 
 @router.get("/members", response_model=ReportEnvelope, dependencies=[Depends(require_permission("reports:view"))])
 def members_report(
+    from_date=None,
+    to_date=None,
     member_id: int | None = None,
     category_id: int | None = None,
+    billing_period_id: int | None = None,
+    plot_no: str | None = Query(default=None),
     _: object = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ReportEnvelope:
-    return ReportingService(db).member_register(_filters(member_id=member_id, category_id=category_id))
+    return ReportingService(db).member_register(_filters(from_date, to_date, member_id, category_id, billing_period_id, plot_no))
 
 
 @router.get("/member-statement", response_model=SingleMemberStatementReport, dependencies=[Depends(require_permission("reports:view"))])

@@ -305,6 +305,7 @@ type SingleMemberStatementReport = {
   total_bill: number;
   paid_amount: number;
   due_amount: number;
+  applied_filters: Record<string, string>;
   due_history: {
     head_name: string;
     period_display: string | null;
@@ -329,6 +330,7 @@ type ReceiptDetailReport = {
   subtotal_amount: number;
   discount_amount: number;
   total_amount: number;
+  applied_filters: Record<string, string>;
   lines: { line_type: string; amount: number; charge_id: number | null }[];
 };
 
@@ -2338,6 +2340,24 @@ export function App() {
                     <strong>${escapePrintHtml(money(report.total_bill))}</strong>
                   </div>
                 </div>
+                ${
+                  Object.entries(report.applied_filters ?? {}).length
+                    ? `
+                  <div class="report-filter-grid">
+                    ${Object.entries(report.applied_filters ?? {})
+                      .map(
+                        ([key, value]) => `
+                      <div class="report-meta-card">
+                        <span class="text-muted">${escapePrintHtml(key.replace(/_/g, " "))}</span>
+                        <strong>${escapePrintHtml(value)}</strong>
+                      </div>
+                    `,
+                      )
+                      .join("")}
+                  </div>
+                `
+                    : ""
+                }
               `
                   : ""
               }
@@ -2531,6 +2551,22 @@ export function App() {
     );
   }
 
+  function renderAppliedFilterCards(filters: Record<string, string>) {
+    const entries = Object.entries(filters ?? {}).filter(([, value]) => String(value ?? "").trim() !== "");
+    if (entries.length === 0) return null;
+
+    return (
+      <div className="report-filter-grid mt-3">
+        {entries.map(([key, value]) => (
+          <div className="report-meta-card" key={`special-filter-${key}`}>
+            <span className="text-muted d-block text-capitalize">{key.replace(/_/g, " ")}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   function renderReceiptReportContent(report: ReceiptDetailReport) {
     return (
       <div className="report-sheet">
@@ -2562,6 +2598,7 @@ export function App() {
             </div>
           ))}
         </div>
+        {renderAppliedFilterCards(report.applied_filters)}
         <div className="table-responsive">
           <table className="table table-bordered invoice-report-table mb-0">
             <thead>
@@ -2634,6 +2671,14 @@ export function App() {
             );
           })}
         </div>
+        {renderAppliedFilterCards(
+          Object.fromEntries(
+            [
+              report.from_date ? ["from_date", report.from_date] : null,
+              report.to_date ? ["to_date", report.to_date] : null,
+            ].filter((entry): entry is [string, string] => entry !== null),
+          ),
+        )}
         <div className={report.net_amount >= 0 ? "net-banner positive" : "net-banner negative"}>
           <span>Net Income - Expense</span>
           <strong>{money(report.net_amount)}</strong>
@@ -2673,6 +2718,7 @@ export function App() {
             <strong>{money(report.total_bill)}</strong>
           </div>
         </div>
+        {renderAppliedFilterCards(report.applied_filters)}
         <div className="row g-3 mt-1">
           <div className="col-xl-6">
             <div className="card mb-0">

@@ -62,6 +62,10 @@ class ReportingService:
 
         return applied
 
+    @staticmethod
+    def _month_start(value):
+        return value.replace(day=1)
+
     def due_members(self, filters: ReportFilter) -> ReportEnvelope:
         categories = {item.id: item for item in self.repository.list_categories()}
         charges = self.repository.list_charges(
@@ -114,7 +118,14 @@ class ReportingService:
         )
 
     def collections(self, filters: ReportFilter) -> ReportEnvelope:
-        members = {member.id: member for member in self.repository.list_members()}
+        members = {
+            member.id: member
+            for member in self.repository.list_members(
+                member_id=filters.member_id,
+                category_id=filters.category_id,
+                plot_no=filters.plot_no,
+            )
+        }
         receipts = self.repository.list_receipts(
             member_id=filters.member_id,
             from_date=filters.from_date,
@@ -123,14 +134,15 @@ class ReportingService:
         rows = [
             CollectionRow(
                 member_id=receipt.member_id,
-                member_code=members[receipt.member_id].member_code if receipt.member_id in members else None,
-                member_name=members[receipt.member_id].full_name if receipt.member_id in members else None,
+                member_code=members[receipt.member_id].member_code,
+                member_name=members[receipt.member_id].full_name,
                 receipt_no=receipt.receipt_no,
                 payment_date=receipt.payment_date,
                 total_amount=float(receipt.total_amount),
                 discount_amount=float(receipt.discount_amount),
             )
             for receipt in receipts
+            if receipt.member_id in members
         ]
         rows.sort(key=lambda item: (item.member_code or "", item.payment_date, item.receipt_no))
         return ReportEnvelope(
@@ -257,6 +269,8 @@ class ReportingService:
             )
             for line in due_lines
             if float(line.due_amount) > 0
+            and (filters.from_date is None or line.period_date is None or line.period_date >= self._month_start(filters.from_date))
+            and (filters.to_date is None or line.period_date is None or line.period_date <= self._month_start(filters.to_date))
         ]
         due_history.sort(key=lambda item: (item.period_display or "", item.head_name))
         payment_history = [
@@ -276,12 +290,20 @@ class ReportingService:
             total_bill=round(sum(item.total_bill for item in due_history), 2),
             paid_amount=round(sum(item.amount for item in payment_history), 2),
             due_amount=round(sum(item.due_amount for item in due_history), 2),
+            applied_filters=self._applied_filters(filters),
             due_history=due_history,
             payment_history=payment_history,
         )
 
     def charge_register(self, filters: ReportFilter) -> ReportEnvelope:
-        members = {member.id: member for member in self.repository.list_members()}
+        members = {
+            member.id: member
+            for member in self.repository.list_members(
+                member_id=filters.member_id,
+                category_id=filters.category_id,
+                plot_no=filters.plot_no,
+            )
+        }
         periods = {period.id: period for period in self.repository.list_periods()}
         charges = self.repository.list_charges(
             member_id=filters.member_id,
@@ -305,6 +327,7 @@ class ReportingService:
                 due_amount=float(charge.due_amount),
             )
             for charge in charges
+            if charge.member_id in members
         ]
         rows.sort(key=lambda item: (item.member_code, item.created_at, item.charge_id))
         return ReportEnvelope(
@@ -329,7 +352,7 @@ class ReportingService:
             if assignment.is_active and assignment.package_id in packages:
                 latest_active_package[assignment.member_id] = packages[assignment.package_id].name
 
-        members = self.repository.list_members(member_id=filters.member_id, category_id=filters.category_id)
+        members = self.repository.list_members(member_id=filters.member_id, category_id=filters.category_id, plot_no=filters.plot_no)
         rows = [
             MemberRegisterRow(
                 member_id=member.id,
@@ -343,6 +366,8 @@ class ReportingService:
                 active_package_name=latest_active_package.get(member.id),
             )
             for member in members
+            if (filters.from_date is None or member.joined_on is None or member.joined_on >= filters.from_date)
+            and (filters.to_date is None or member.joined_on is None or member.joined_on <= filters.to_date)
         ]
         return ReportEnvelope(
             report_type="member_register",
@@ -370,6 +395,14 @@ class ReportingService:
             subtotal_amount=float(receipt.subtotal_amount),
             discount_amount=float(receipt.discount_amount),
             total_amount=float(receipt.total_amount),
+            applied_filters={
+                "receipt_no": receipt.receipt_no,
+                **(
+                    {"member": f"{member.member_code} - {member.full_name}"}
+                    if member is not None
+                    else {}
+                ),
+            },
             lines=[
                 ReceiptDetailLine(line_type=line.line_type, amount=float(line.amount), charge_id=line.charge_id)
                 for line in lines
@@ -432,6 +465,8 @@ class ReportingService:
         summary_sheet.append(["Member Code", report.member_code])
         summary_sheet.append(["Member Name", report.member_name])
         summary_sheet.append(["Plot No", report.plot_no or ""])
+        for key, value in report.applied_filters.items():
+            summary_sheet.append([key.replace("_", " ").title(), value])
         summary_sheet.append(["Outstanding Bill Total", report.total_bill])
         summary_sheet.append(["Total Paid", report.paid_amount])
         summary_sheet.append(["Outstanding Due", report.due_amount])
