@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from openpyxl import Workbook
 
+from app.modules.billing.service import BillingService
 from app.modules.accounting.schemas import IncomeExpenseComparisonReport
 from app.modules.reporting.repository import ReportingRepository
 from app.modules.reporting.schemas import (
@@ -18,7 +19,7 @@ from app.modules.reporting.schemas import (
     ReceiptDetailReport,
     ReportEnvelope,
     ReportFilter,
-    SingleMemberBillingHistoryRow,
+    SingleMemberDueHistoryRow,
     SingleMemberPaymentHistoryRow,
     SingleMemberStatementReport,
     TotalCollectionRow,
@@ -240,28 +241,24 @@ class ReportingService:
         if member is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
 
-        invoices = self.repository.list_invoices(
-            member_id=filters.member_id,
-            from_date=filters.from_date,
-            to_date=filters.to_date,
-        )
         receipts = self.repository.list_receipts(
             member_id=filters.member_id,
             from_date=filters.from_date,
             to_date=filters.to_date,
         )
-
-        billing_history = [
-            SingleMemberBillingHistoryRow(
-                invoice_no=invoice.invoice_no,
-                invoice_date=invoice.invoice_date,
-                total_bill=float(invoice.net_amount),
-                paid_amount=float(invoice.total_receive_amount),
-                due_amount=float(invoice.total_due_amount),
-                status="Cancelled" if invoice.is_cancelled else ("Paid" if float(invoice.total_due_amount) <= 0 else "Due"),
+        due_lines = BillingService(self.db).preview_member_dues(filters.member_id)
+        due_history = [
+            SingleMemberDueHistoryRow(
+                head_name=line.head_name,
+                period_display=line.period_display,
+                total_bill=float(line.fee_amount),
+                paid_amount=float(line.paid_amount),
+                due_amount=float(line.due_amount),
             )
-            for invoice in invoices
+            for line in due_lines
+            if float(line.due_amount) > 0
         ]
+        due_history.sort(key=lambda item: (item.period_display or "", item.head_name))
         payment_history = [
             SingleMemberPaymentHistoryRow(
                 receipt_no=receipt.receipt_no,
@@ -276,10 +273,10 @@ class ReportingService:
             member_code=member.member_code,
             member_name=member.full_name,
             plot_no=member.member_id_text,
-            total_bill=round(sum(item.total_bill for item in billing_history), 2),
-            paid_amount=round(sum(item.paid_amount for item in billing_history), 2),
-            due_amount=round(sum(item.due_amount for item in billing_history), 2),
-            billing_history=billing_history,
+            total_bill=round(sum(item.total_bill for item in due_history), 2),
+            paid_amount=round(sum(item.amount for item in payment_history), 2),
+            due_amount=round(sum(item.due_amount for item in due_history), 2),
+            due_history=due_history,
             payment_history=payment_history,
         )
 
@@ -435,16 +432,14 @@ class ReportingService:
         summary_sheet.append(["Member Code", report.member_code])
         summary_sheet.append(["Member Name", report.member_name])
         summary_sheet.append(["Plot No", report.plot_no or ""])
-        summary_sheet.append(["Total Bill", report.total_bill])
-        summary_sheet.append(["Paid Amount", report.paid_amount])
-        summary_sheet.append(["Due Amount", report.due_amount])
+        summary_sheet.append(["Outstanding Bill Total", report.total_bill])
+        summary_sheet.append(["Total Paid", report.paid_amount])
+        summary_sheet.append(["Outstanding Due", report.due_amount])
 
-        billing_sheet = workbook.create_sheet("Billing History")
-        billing_sheet.append(["Invoice No", "Invoice Date", "Total Bill", "Paid Amount", "Due Amount", "Status"])
-        for row in report.billing_history:
-            billing_sheet.append(
-                [row.invoice_no, row.invoice_date.isoformat(), row.total_bill, row.paid_amount, row.due_amount, row.status]
-            )
+        due_sheet = workbook.create_sheet("Outstanding Dues")
+        due_sheet.append(["Billing Head", "Period", "Bill Amount", "Paid Amount", "Due Amount"])
+        for row in report.due_history:
+            due_sheet.append([row.head_name, row.period_display or "", row.total_bill, row.paid_amount, row.due_amount])
 
         payment_sheet = workbook.create_sheet("Payment History")
         payment_sheet.append(["Receipt No", "Payment Date", "Paid Amount", "Discount Amount"])

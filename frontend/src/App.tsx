@@ -305,13 +305,12 @@ type SingleMemberStatementReport = {
   total_bill: number;
   paid_amount: number;
   due_amount: number;
-  billing_history: {
-    invoice_no: string;
-    invoice_date: string;
+  due_history: {
+    head_name: string;
+    period_display: string | null;
     total_bill: number;
     paid_amount: number;
     due_amount: number;
-    status: string;
   }[];
   payment_history: {
     receipt_no: string;
@@ -2212,64 +2211,62 @@ export function App() {
   }
 
   function buildPaginatedMemberStatementMarkup(report: SingleMemberStatementReport) {
-    const billingRowsPerPage = 18;
+    const dueRowsPerPage = 18;
     const paymentRowsPerPage = 20;
-    const billingChunks: Array<typeof report.billing_history> = [];
+    const dueChunks: Array<typeof report.due_history> = [];
     const paymentChunks: Array<typeof report.payment_history> = [];
 
-    for (let index = 0; index < report.billing_history.length; index += billingRowsPerPage) {
-      billingChunks.push(report.billing_history.slice(index, index + billingRowsPerPage));
+    for (let index = 0; index < report.due_history.length; index += dueRowsPerPage) {
+      dueChunks.push(report.due_history.slice(index, index + dueRowsPerPage));
     }
     for (let index = 0; index < report.payment_history.length; index += paymentRowsPerPage) {
       paymentChunks.push(report.payment_history.slice(index, index + paymentRowsPerPage));
     }
-    if (billingChunks.length === 0) billingChunks.push([]);
+    if (dueChunks.length === 0) dueChunks.push([]);
     if (paymentChunks.length === 0) paymentChunks.push([]);
 
     const pageEntries: Array<{
-      section: "billing" | "payment";
-      rows: SingleMemberStatementReport["billing_history"] | SingleMemberStatementReport["payment_history"];
+      section: "due" | "payment";
+      rows: SingleMemberStatementReport["due_history"] | SingleMemberStatementReport["payment_history"];
       firstInSection: boolean;
     }> = [
-      ...billingChunks.map((rows, index) => ({ section: "billing" as const, rows, firstInSection: index === 0 })),
+      ...dueChunks.map((rows, index) => ({ section: "due" as const, rows, firstInSection: index === 0 })),
       ...paymentChunks.map((rows, index) => ({ section: "payment" as const, rows, firstInSection: index === 0 })),
     ];
 
     return pageEntries
       .map((entry, pageIndex) => {
-        const billingTable =
-          entry.section === "billing"
+        const reportTable =
+          entry.section === "due"
             ? `
-              <h3 class="subsection-title">Billing History</h3>
+              <h3 class="subsection-title">Outstanding Dues By Period</h3>
               <table>
                 <thead>
                   <tr>
-                    <th>Invoice No</th>
-                    <th>Date</th>
+                    <th>Billing Head</th>
+                    <th>Period</th>
                     <th class="text-end">Bill</th>
                     <th class="text-end">Paid</th>
                     <th class="text-end">Due</th>
-                    <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   ${
                     entry.rows.length
-                      ? (entry.rows as SingleMemberStatementReport["billing_history"])
+                      ? (entry.rows as SingleMemberStatementReport["due_history"])
                           .map(
                             (item) => `
                           <tr>
-                            <td>${escapePrintHtml(item.invoice_no)}</td>
-                            <td>${escapePrintHtml(shortDate(item.invoice_date))}</td>
+                            <td>${escapePrintHtml(item.head_name)}</td>
+                            <td>${escapePrintHtml(item.period_display ?? "One Time")}</td>
                             <td class="text-end">${escapePrintHtml(money(item.total_bill))}</td>
                             <td class="text-end">${escapePrintHtml(money(item.paid_amount))}</td>
                             <td class="text-end">${escapePrintHtml(money(item.due_amount))}</td>
-                            <td>${escapePrintHtml(item.status)}</td>
                           </tr>
                         `,
                           )
                           .join("")
-                      : `<tr><td colspan="6" class="empty-cell">No billing history found.</td></tr>`
+                      : `<tr><td colspan="5" class="empty-cell">No outstanding dues found.</td></tr>`
                   }
                 </tbody>
               </table>
@@ -2329,22 +2326,22 @@ export function App() {
                   ? `
                 <div class="report-summary-grid">
                   <div class="statement-summary-card">
-                    <span class="text-muted">Total Bill</span>
-                    <strong>${escapePrintHtml(money(report.total_bill))}</strong>
-                  </div>
-                  <div class="statement-summary-card highlight">
-                    <span class="text-muted">Payment Summary</span>
+                    <span class="text-muted">Total Paid</span>
                     <strong>${escapePrintHtml(money(report.paid_amount))}</strong>
                   </div>
                   <div class="statement-summary-card highlight">
-                    <span class="text-muted">Due Summary</span>
+                    <span class="text-muted">Outstanding Due</span>
                     <strong>${escapePrintHtml(money(report.due_amount))}</strong>
+                  </div>
+                  <div class="statement-summary-card highlight">
+                    <span class="text-muted">Outstanding Bill Total</span>
+                    <strong>${escapePrintHtml(money(report.total_bill))}</strong>
                   </div>
                 </div>
               `
                   : ""
               }
-              ${billingTable}
+              ${reportTable}
             </div>
           </section>
         `;
@@ -2664,53 +2661,19 @@ export function App() {
         </div>
         <div className="report-summary-grid">
           <div className="statement-summary-card">
-            <span className="text-muted d-block">Total Bill</span>
-            <strong>{money(report.total_bill)}</strong>
-          </div>
-          <div className="statement-summary-card highlight">
-            <span className="text-muted d-block">Payment Summary</span>
+            <span className="text-muted d-block">Total Paid</span>
             <strong>{money(report.paid_amount)}</strong>
           </div>
           <div className="statement-summary-card highlight">
-            <span className="text-muted d-block">Due Summary</span>
+            <span className="text-muted d-block">Outstanding Due</span>
             <strong>{money(report.due_amount)}</strong>
+          </div>
+          <div className="statement-summary-card highlight">
+            <span className="text-muted d-block">Outstanding Bill Total</span>
+            <strong>{money(report.total_bill)}</strong>
           </div>
         </div>
         <div className="row g-3 mt-1">
-          <div className="col-xl-6">
-            <div className="card mb-0">
-              <div className="card-header"><h5 className="mb-0">Billing History</h5></div>
-              <div className="card-body p-0">
-                <div className="table-responsive">
-                  <table className="table table-bordered table-sm mb-0">
-                    <thead>
-                      <tr>
-                        <th>Invoice No</th>
-                        <th>Date</th>
-                        <th className="text-end">Bill</th>
-                        <th className="text-end">Paid</th>
-                        <th className="text-end">Due</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {report.billing_history.map((item) => (
-                        <tr key={item.invoice_no}>
-                          <td>{item.invoice_no}</td>
-                          <td>{shortDate(item.invoice_date)}</td>
-                          <td className="text-end">{money(item.total_bill)}</td>
-                          <td className="text-end">{money(item.paid_amount)}</td>
-                          <td className="text-end">{money(item.due_amount)}</td>
-                          <td>{item.status}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {report.billing_history.length === 0 ? <EmptyState label="No billing history found." /> : null}
-                </div>
-              </div>
-            </div>
-          </div>
           <div className="col-xl-6">
             <div className="card mb-0">
               <div className="card-header"><h5 className="mb-0">Payment History</h5></div>
@@ -2737,6 +2700,38 @@ export function App() {
                     </tbody>
                   </table>
                   {report.payment_history.length === 0 ? <EmptyState label="No payment history found." /> : null}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="col-xl-6">
+            <div className="card mb-0">
+              <div className="card-header"><h5 className="mb-0">Outstanding Dues By Period</h5></div>
+              <div className="card-body p-0">
+                <div className="table-responsive">
+                  <table className="table table-bordered table-sm mb-0">
+                    <thead>
+                      <tr>
+                        <th>Billing Head</th>
+                        <th>Period</th>
+                        <th className="text-end">Bill</th>
+                        <th className="text-end">Paid</th>
+                        <th className="text-end">Due</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.due_history.map((item, index) => (
+                        <tr key={`${item.head_name}-${item.period_display ?? "one-time"}-${index}`}>
+                          <td>{item.head_name}</td>
+                          <td>{item.period_display ?? "One Time"}</td>
+                          <td className="text-end">{money(item.total_bill)}</td>
+                          <td className="text-end">{money(item.paid_amount)}</td>
+                          <td className="text-end">{money(item.due_amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {report.due_history.length === 0 ? <EmptyState label="No outstanding dues found." /> : null}
                 </div>
               </div>
             </div>

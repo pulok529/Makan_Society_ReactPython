@@ -74,13 +74,12 @@ class TotalDueRow(BaseModel):
     total_due_amount: float
 
 
-class SingleMemberBillingHistoryRow(BaseModel):
-    invoice_no: str
-    invoice_date: date
+class SingleMemberDueHistoryRow(BaseModel):
+    head_name: str
+    period_display: str | None
     total_bill: float
     paid_amount: float
     due_amount: float
-    status: str
 
 
 class SingleMemberPaymentHistoryRow(BaseModel):
@@ -98,7 +97,7 @@ class SingleMemberStatementReport(BaseModel):
     total_bill: float
     paid_amount: float
     due_amount: float
-    billing_history: list[SingleMemberBillingHistoryRow]
+    due_history: list[SingleMemberDueHistoryRow]
     payment_history: list[SingleMemberPaymentHistoryRow]
 
 
