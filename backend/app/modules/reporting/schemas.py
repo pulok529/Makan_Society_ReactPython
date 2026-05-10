@@ -50,12 +50,15 @@ class MemberRegisterRow(BaseModel):
     member_id: int
     member_code: str
     full_name: str
+    plot_no: str | None
     category_name: str | None
+    national_id: str | None
     cell_no: str | None
-    email: str | None
     joined_on: date | None
     is_active: bool
     active_package_name: str | None
+    total_collection_amount: float
+    total_due_amount: float
 
 
 class TotalCollectionRow(BaseModel):
@@ -87,6 +90,38 @@ class SingleMemberPaymentHistoryRow(BaseModel):
     payment_date: date
     amount: float
     discount_amount: float
+    notes: str | None
+
+
+class MemberSmsHistoryRow(BaseModel):
+    created_at: datetime
+    recipient: str
+    template_name: str | None
+    message_body: str
+    status: str
+
+
+class MemberInformationSummary(BaseModel):
+    member_code: str
+    full_name: str
+    plot_no: str | None
+    category_name: str | None
+    national_id: str | None
+    cell_no: str | None
+    email: str | None
+    member_class: str | None
+    joined_on: date | None
+    is_active: bool
+    father_name: str | None
+    mother_name: str | None
+    present_address: str | None
+    permanent_address: str | None
+    reference: str | None
+    nominee_name: str | None
+    nominee_cell: str | None
+    active_package_name: str | None
+    total_collection_amount: float
+    total_due_amount: float
 
 
 class SingleMemberStatementReport(BaseModel):
@@ -100,6 +135,15 @@ class SingleMemberStatementReport(BaseModel):
     applied_filters: dict[str, str] = Field(default_factory=dict)
     due_history: list[SingleMemberDueHistoryRow]
     payment_history: list[SingleMemberPaymentHistoryRow]
+
+
+class MemberInformationDetailReport(BaseModel):
+    member_id: int
+    applied_filters: dict[str, str] = Field(default_factory=dict)
+    member_info: MemberInformationSummary
+    payment_history: list[SingleMemberPaymentHistoryRow]
+    due_history: list[SingleMemberDueHistoryRow]
+    sms_history: list[MemberSmsHistoryRow]
 
 
 class ReceiptDetailLine(BaseModel):

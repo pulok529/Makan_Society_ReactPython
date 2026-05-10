@@ -9,12 +9,16 @@ from openpyxl import Workbook
 
 from app.modules.billing.service import BillingService
 from app.modules.accounting.schemas import IncomeExpenseComparisonReport
+from app.modules.messaging.service import MessagingService
 from app.modules.reporting.repository import ReportingRepository
 from app.modules.reporting.schemas import (
     ChargeRegisterRow,
     CollectionRow,
     DueMemberRow,
     MemberRegisterRow,
+    MemberInformationDetailReport,
+    MemberInformationSummary,
+    MemberSmsHistoryRow,
     ReceiptDetailLine,
     ReceiptDetailReport,
     ReportEnvelope,
@@ -65,6 +69,28 @@ class ReportingService:
     @staticmethod
     def _month_start(value):
         return value.replace(day=1)
+
+    def _latest_active_packages(self) -> dict[int, str | None]:
+        packages = {item.id: item for item in self.repository.list_packages()}
+        latest_active_package: dict[int, str | None] = {}
+        for assignment in self.repository.list_member_packages():
+            if assignment.is_active and assignment.package_id in packages:
+                latest_active_package[assignment.member_id] = packages[assignment.package_id].name
+        return latest_active_package
+
+    def _member_collection_totals(self, member_ids: set[int]) -> dict[int, float]:
+        totals: dict[int, float] = {member_id: 0.0 for member_id in member_ids}
+        for receipt in self.repository.list_receipts():
+            if receipt.member_id in totals:
+                totals[receipt.member_id] += float(receipt.total_amount)
+        return totals
+
+    def _member_due_totals(self, member_ids: set[int]) -> dict[int, float]:
+        totals: dict[int, float] = {member_id: 0.0 for member_id in member_ids}
+        for charge in self.repository.list_charges():
+            if charge.member_id in totals:
+                totals[charge.member_id] += float(charge.due_amount)
+        return totals
 
     def due_members(self, filters: ReportFilter) -> ReportEnvelope:
         categories = {item.id: item for item in self.repository.list_categories()}
@@ -279,6 +305,7 @@ class ReportingService:
                 payment_date=receipt.payment_date,
                 amount=float(receipt.total_amount),
                 discount_amount=float(receipt.discount_amount),
+                notes=receipt.notes,
             )
             for receipt in receipts
         ]
@@ -293,6 +320,87 @@ class ReportingService:
             applied_filters=self._applied_filters(filters),
             due_history=due_history,
             payment_history=payment_history,
+        )
+
+    def member_information_detail(self, filters: ReportFilter) -> MemberInformationDetailReport:
+        if filters.member_id is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Member is required for this report")
+
+        member = next(iter(self.repository.list_members(member_id=filters.member_id)), None)
+        if member is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+
+        categories = {item.id: item for item in self.repository.list_categories()}
+        latest_active_package = self._latest_active_packages()
+        receipts = self.repository.list_receipts(
+            member_id=filters.member_id,
+            from_date=filters.from_date,
+            to_date=filters.to_date,
+        )
+        payment_history = [
+            SingleMemberPaymentHistoryRow(
+                receipt_no=receipt.receipt_no,
+                payment_date=receipt.payment_date,
+                amount=float(receipt.total_amount),
+                discount_amount=float(receipt.discount_amount),
+                notes=receipt.notes,
+            )
+            for receipt in receipts
+        ]
+        due_lines = BillingService(self.db).preview_member_dues(filters.member_id)
+        due_history = [
+            SingleMemberDueHistoryRow(
+                head_name=line.head_name,
+                period_display=line.period_display,
+                total_bill=float(line.fee_amount),
+                paid_amount=float(line.paid_amount),
+                due_amount=float(line.due_amount),
+            )
+            for line in due_lines
+            if float(line.due_amount) > 0
+            and (filters.from_date is None or line.period_date is None or line.period_date >= self._month_start(filters.from_date))
+            and (filters.to_date is None or line.period_date is None or line.period_date <= self._month_start(filters.to_date))
+        ]
+        sms_history = [
+            MemberSmsHistoryRow(
+                created_at=item.created_at,
+                recipient=item.recipient,
+                template_name=item.template_name,
+                message_body=item.message_body,
+                status=item.status,
+            )
+            for item in MessagingService(self.db).list_messages()
+            if item.member_id == filters.member_id
+        ]
+
+        return MemberInformationDetailReport(
+            member_id=member.id,
+            applied_filters=self._applied_filters(filters),
+            member_info=MemberInformationSummary(
+                member_code=member.member_code,
+                full_name=member.full_name,
+                plot_no=member.member_id_text,
+                category_name=categories[member.category_id].name if member.category_id in categories else None,
+                national_id=member.national_id,
+                cell_no=member.cell_no,
+                email=member.email,
+                member_class=member.member_class,
+                joined_on=member.joined_on,
+                is_active=member.is_active,
+                father_name=member.father_name,
+                mother_name=member.mother_name,
+                present_address=member.present_address,
+                permanent_address=member.permanent_address,
+                reference=member.reference,
+                nominee_name=member.nominee_name,
+                nominee_cell=member.nominee_cell,
+                active_package_name=latest_active_package.get(member.id),
+                total_collection_amount=round(sum(item.amount for item in payment_history), 2),
+                total_due_amount=round(sum(item.due_amount for item in due_history), 2),
+            ),
+            payment_history=payment_history,
+            due_history=due_history,
+            sms_history=sms_history,
         )
 
     def charge_register(self, filters: ReportFilter) -> ReportEnvelope:
@@ -345,36 +453,41 @@ class ReportingService:
 
     def member_register(self, filters: ReportFilter) -> ReportEnvelope:
         categories = {item.id: item for item in self.repository.list_categories()}
-        packages = {item.id: item for item in self.repository.list_packages()}
-        member_packages = self.repository.list_member_packages()
-        latest_active_package: dict[int, str | None] = {}
-        for assignment in member_packages:
-            if assignment.is_active and assignment.package_id in packages:
-                latest_active_package[assignment.member_id] = packages[assignment.package_id].name
-
+        latest_active_package = self._latest_active_packages()
         members = self.repository.list_members(member_id=filters.member_id, category_id=filters.category_id, plot_no=filters.plot_no)
+        member_ids = {member.id for member in members}
+        collection_totals = self._member_collection_totals(member_ids)
+        due_totals = self._member_due_totals(member_ids)
         rows = [
             MemberRegisterRow(
                 member_id=member.id,
                 member_code=member.member_code,
                 full_name=member.full_name,
+                plot_no=member.member_id_text,
                 category_name=categories[member.category_id].name if member.category_id in categories else None,
+                national_id=member.national_id,
                 cell_no=member.cell_no,
-                email=member.email,
                 joined_on=member.joined_on,
                 is_active=member.is_active,
                 active_package_name=latest_active_package.get(member.id),
+                total_collection_amount=round(collection_totals.get(member.id, 0.0), 2),
+                total_due_amount=round(due_totals.get(member.id, 0.0), 2),
             )
             for member in members
             if (filters.from_date is None or member.joined_on is None or member.joined_on >= filters.from_date)
             and (filters.to_date is None or member.joined_on is None or member.joined_on <= filters.to_date)
         ]
         return ReportEnvelope(
-            report_type="member_register",
-            title="Member Register",
+            report_type="member_summary",
+            title="Total Member Summary",
             generated_at=datetime.now(UTC),
             row_count=len(rows),
-            totals={"member_count": len(rows), "active_members": sum(1 for row in rows if row.is_active)},
+            totals={
+                "member_count": len(rows),
+                "active_members": sum(1 for row in rows if row.is_active),
+                "total_collection_amount": round(sum(row.total_collection_amount for row in rows), 2),
+                "total_due_amount": round(sum(row.total_due_amount for row in rows), 2),
+            },
             applied_filters=self._applied_filters(filters),
             rows=[row.model_dump(mode="json") for row in rows],
         )
@@ -477,9 +590,9 @@ class ReportingService:
             due_sheet.append([row.head_name, row.period_display or "", row.total_bill, row.paid_amount, row.due_amount])
 
         payment_sheet = workbook.create_sheet("Payment History")
-        payment_sheet.append(["Receipt No", "Payment Date", "Paid Amount", "Discount Amount"])
+        payment_sheet.append(["Receipt No", "Payment Date", "Paid Amount", "Discount Amount", "Notes"])
         for row in report.payment_history:
-            payment_sheet.append([row.receipt_no, row.payment_date.isoformat(), row.amount, row.discount_amount])
+            payment_sheet.append([row.receipt_no, row.payment_date.isoformat(), row.amount, row.discount_amount, row.notes or ""])
 
         buffer = BytesIO()
         workbook.save(buffer)

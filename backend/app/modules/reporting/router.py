@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.modules.accounting.service import AccountingService
 from app.modules.auth.dependencies import get_current_user, require_permission
-from app.modules.reporting.schemas import ReceiptDetailReport, ReportEnvelope, ReportFilter, SingleMemberStatementReport
+from app.modules.reporting.schemas import MemberInformationDetailReport, ReceiptDetailReport, ReportEnvelope, ReportFilter, SingleMemberStatementReport
 from app.modules.reporting.service import ReportingService
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -135,6 +135,17 @@ def member_statement_report(
     db: Session = Depends(get_db),
 ) -> SingleMemberStatementReport:
     return ReportingService(db).single_member_statement(_filters(from_date, to_date, member_id))
+
+
+@router.get("/member-information-detail", response_model=MemberInformationDetailReport, dependencies=[Depends(require_permission("reports:view"))])
+def member_information_detail_report(
+    from_date=None,
+    to_date=None,
+    member_id: int | None = None,
+    _: object = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> MemberInformationDetailReport:
+    return ReportingService(db).member_information_detail(_filters(from_date, to_date, member_id))
 
 
 @router.get("/receipt/{receipt_id}", response_model=ReceiptDetailReport, dependencies=[Depends(require_permission("reports:view"))])

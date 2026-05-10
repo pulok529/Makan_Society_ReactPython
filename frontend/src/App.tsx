@@ -52,6 +52,29 @@ type MemberListItem = {
   active_package_name: string | null;
 };
 
+type MemberInformationSummary = {
+  member_code: string;
+  full_name: string;
+  plot_no: string | null;
+  category_name: string | null;
+  national_id: string | null;
+  cell_no: string | null;
+  email: string | null;
+  member_class: string | null;
+  joined_on: string | null;
+  is_active: boolean;
+  father_name: string | null;
+  mother_name: string | null;
+  present_address: string | null;
+  permanent_address: string | null;
+  reference: string | null;
+  nominee_name: string | null;
+  nominee_cell: string | null;
+  active_package_name: string | null;
+  total_collection_amount: number;
+  total_due_amount: number;
+};
+
 type MemberPackageAssignment = {
   id: number;
   package_id: number;
@@ -318,6 +341,22 @@ type SingleMemberStatementReport = {
     payment_date: string;
     amount: number;
     discount_amount: number;
+    notes: string | null;
+  }[];
+};
+
+type MemberInformationDetailReport = {
+  member_id: number;
+  applied_filters: Record<string, string>;
+  member_info: MemberInformationSummary;
+  payment_history: SingleMemberStatementReport["payment_history"];
+  due_history: SingleMemberStatementReport["due_history"];
+  sms_history: {
+    created_at: string;
+    recipient: string;
+    template_name: string | null;
+    message_body: string;
+    status: string;
   }[];
 };
 
@@ -495,6 +534,15 @@ async function apiRequest<T>(path: string, accessToken: string, init?: RequestIn
   }
 
   return response.json() as Promise<T>;
+}
+
+async function settleRequest<T>(path: string, accessToken: string, init?: RequestInit) {
+  try {
+    const value = await apiRequest<T>(path, accessToken, init);
+    return { ok: true as const, value };
+  } catch (error) {
+    return { ok: false as const, error };
+  }
 }
 
 function fileNameFromDisposition(header: string | null, fallback: string) {
@@ -763,6 +811,7 @@ export function App() {
   const [reportViewerPage, setReportViewerPage] = useState(1);
   const [receiptReport, setReceiptReport] = useState<ReceiptDetailReport | null>(null);
   const [memberStatementReport, setMemberStatementReport] = useState<SingleMemberStatementReport | null>(null);
+  const [memberInformationDetailReport, setMemberInformationDetailReport] = useState<MemberInformationDetailReport | null>(null);
   const [smsTemplates, setSmsTemplates] = useState<SmsTemplate[]>([]);
   const [smsMessages, setSmsMessages] = useState<SmsMessage[]>([]);
   const [smsAttempts, setSmsAttempts] = useState<SmsAttempt[]>([]);
@@ -1199,7 +1248,7 @@ export function App() {
   }, [smsEligibleMembers, smsMemberId, smsTargetMode]);
 
   useEffect(() => {
-    if (reportType !== "member-statement") {
+    if (reportType !== "member-statement" && reportType !== "member-information-detail") {
       setReportMemberDropdownOpen(false);
       setReportMemberSearch("");
       return;
@@ -1225,83 +1274,86 @@ export function App() {
     setIsWorkspaceLoading(true);
     try {
       const [
-        nextCategories,
-        nextPackages,
-        nextMembers,
-        nextPeriods,
-        nextCharges,
-        nextReceipts,
-        nextDashboard,
-        nextDueSummaries,
-        nextAccounts,
-        nextEntries,
-        nextIncomeVouchers,
-        nextExpenseVouchers,
-        nextSummary,
-        nextTemplates,
-        nextMessages,
-        nextAttempts,
-        nextSmsStatus,
-        nextBillingHeads,
-        nextBillingMappings,
-        nextInvoices,
+        categoriesResult,
+        packagesResult,
+        membersResult,
+        periodsResult,
+        chargesResult,
+        receiptsResult,
+        dashboardResult,
+        dueSummariesResult,
+        accountsResult,
+        entriesResult,
+        incomeVouchersResult,
+        expenseVouchersResult,
+        summaryResult,
+        templatesResult,
+        messagesResult,
+        attemptsResult,
+        smsStatusResult,
+        billingHeadsResult,
+        billingMappingsResult,
+        invoicesResult,
       ] = await Promise.all([
-        apiRequest<Category[]>("/api/categories", accessToken),
-        apiRequest<Package[]>("/api/packages", accessToken),
-        apiRequest<MemberListItem[]>("/api/members", accessToken),
-        apiRequest<BillingPeriod[]>("/api/billing/periods", accessToken),
-        apiRequest<Charge[]>("/api/billing/charges", accessToken),
-        apiRequest<Receipt[]>("/api/billing/receipts", accessToken),
-        apiRequest<BillingDashboard>("/api/billing/dashboard", accessToken),
-        apiRequest<BillingMemberSummary[]>("/api/billing/member-due-summary", accessToken),
-        apiRequest<Account[]>("/api/accounting/accounts", accessToken),
-        apiRequest<AccountingEntry[]>("/api/accounting/entries", accessToken),
-        apiRequest<AccountingVoucher[]>("/api/accounting/vouchers/income", accessToken),
-        apiRequest<AccountingVoucher[]>("/api/accounting/vouchers/expense", accessToken),
-        apiRequest<AccountingSummary>("/api/accounting/summary", accessToken),
-        apiRequest<SmsTemplate[]>("/api/messaging/templates", accessToken),
-        apiRequest<SmsMessage[]>("/api/messaging/messages", accessToken),
-        apiRequest<SmsAttempt[]>("/api/messaging/attempts", accessToken),
-        apiRequest<SmsIntegrationStatus>("/api/messaging/status", accessToken),
-        apiRequest<BillingHead[]>("/api/billing/heads", accessToken),
-        apiRequest<BillingHeadMapping[]>("/api/billing/head-mappings", accessToken),
-        apiRequest<BillingInvoice[]>("/api/billing/invoices", accessToken),
+        settleRequest<Category[]>("/api/categories", accessToken),
+        settleRequest<Package[]>("/api/packages", accessToken),
+        settleRequest<MemberListItem[]>("/api/members", accessToken),
+        settleRequest<BillingPeriod[]>("/api/billing/periods", accessToken),
+        settleRequest<Charge[]>("/api/billing/charges", accessToken),
+        settleRequest<Receipt[]>("/api/billing/receipts", accessToken),
+        settleRequest<BillingDashboard>("/api/billing/dashboard", accessToken),
+        settleRequest<BillingMemberSummary[]>("/api/billing/member-due-summary", accessToken),
+        settleRequest<Account[]>("/api/accounting/accounts", accessToken),
+        settleRequest<AccountingEntry[]>("/api/accounting/entries", accessToken),
+        settleRequest<AccountingVoucher[]>("/api/accounting/vouchers/income", accessToken),
+        settleRequest<AccountingVoucher[]>("/api/accounting/vouchers/expense", accessToken),
+        settleRequest<AccountingSummary>("/api/accounting/summary", accessToken),
+        settleRequest<SmsTemplate[]>("/api/messaging/templates", accessToken),
+        settleRequest<SmsMessage[]>("/api/messaging/messages", accessToken),
+        settleRequest<SmsAttempt[]>("/api/messaging/attempts", accessToken),
+        settleRequest<SmsIntegrationStatus>("/api/messaging/status", accessToken),
+        settleRequest<BillingHead[]>("/api/billing/heads", accessToken),
+        settleRequest<BillingHeadMapping[]>("/api/billing/head-mappings", accessToken),
+        settleRequest<BillingInvoice[]>("/api/billing/invoices", accessToken),
       ]);
 
-      setCategories(nextCategories);
-      setPackages(nextPackages);
-      setMembers(nextMembers);
-      setBillingPeriods(nextPeriods);
-      setCharges(nextCharges);
-      setReceipts(nextReceipts);
-      setBillingDashboard(nextDashboard);
-      setMemberDueSummaries(nextDueSummaries);
-      setAccounts(nextAccounts);
-      setAccountingEntries(nextEntries);
-      setIncomeVouchers(nextIncomeVouchers);
-      setExpenseVouchers(nextExpenseVouchers);
-      setAccountingSummary(nextSummary);
-      setSmsTemplates(nextTemplates);
-      setSmsMessages(nextMessages);
-      setSmsAttempts(nextAttempts);
-      setSmsIntegrationStatus(nextSmsStatus);
-      setBillingHeads(nextBillingHeads);
-      setBillingHeadMappings(nextBillingMappings);
-      setBillingInvoices(nextInvoices);
-      setSmsProviderCheck(
-        nextSmsStatus.provider_check_message
-          ? {
-              provider_name: nextSmsStatus.provider_name,
-              provider_configured: nextSmsStatus.provider_configured,
-              ok: Boolean(nextSmsStatus.provider_check_ok),
-              status_code: null,
-              message: nextSmsStatus.provider_check_message,
-              response_sample: null,
-            }
-          : null,
-      );
+      if (categoriesResult.ok) setCategories(categoriesResult.value);
+      if (packagesResult.ok) setPackages(packagesResult.value);
+      if (membersResult.ok) setMembers(membersResult.value);
+      if (periodsResult.ok) setBillingPeriods(periodsResult.value);
+      if (chargesResult.ok) setCharges(chargesResult.value);
+      if (receiptsResult.ok) setReceipts(receiptsResult.value);
+      if (dashboardResult.ok) setBillingDashboard(dashboardResult.value);
+      if (dueSummariesResult.ok) setMemberDueSummaries(dueSummariesResult.value);
+      if (accountsResult.ok) setAccounts(accountsResult.value);
+      if (entriesResult.ok) setAccountingEntries(entriesResult.value);
+      if (incomeVouchersResult.ok) setIncomeVouchers(incomeVouchersResult.value);
+      if (expenseVouchersResult.ok) setExpenseVouchers(expenseVouchersResult.value);
+      if (summaryResult.ok) setAccountingSummary(summaryResult.value);
+      if (templatesResult.ok) setSmsTemplates(templatesResult.value);
+      if (messagesResult.ok) setSmsMessages(messagesResult.value);
+      if (attemptsResult.ok) setSmsAttempts(attemptsResult.value);
+      if (smsStatusResult.ok) {
+        setSmsIntegrationStatus(smsStatusResult.value);
+        setSmsProviderCheck(
+          smsStatusResult.value.provider_check_message
+            ? {
+                provider_name: smsStatusResult.value.provider_name,
+                provider_configured: smsStatusResult.value.provider_configured,
+                ok: Boolean(smsStatusResult.value.provider_check_ok),
+                status_code: null,
+                message: smsStatusResult.value.provider_check_message,
+                response_sample: null,
+              }
+            : null,
+        );
+      }
+      if (billingHeadsResult.ok) setBillingHeads(billingHeadsResult.value);
+      if (billingMappingsResult.ok) setBillingHeadMappings(billingMappingsResult.value);
+      if (invoicesResult.ok) setBillingInvoices(invoicesResult.value);
 
-      const memberIdToLoad = selectedMemberId ?? selectedMember?.id ?? nextMembers[0]?.id;
+      const availableMembers = membersResult.ok ? membersResult.value : members;
+      const memberIdToLoad = selectedMemberId ?? selectedMember?.id ?? availableMembers[0]?.id;
       if (memberIdToLoad) {
         const detail = await apiRequest<MemberDetail>(`/api/members/${memberIdToLoad}`, accessToken);
         setSelectedMember(detail);
@@ -1309,7 +1361,34 @@ export function App() {
         setSelectedMember(null);
       }
 
-      setMessage("Makan Society workspace loaded with live society data.");
+      const failedCount = [
+        categoriesResult,
+        packagesResult,
+        membersResult,
+        periodsResult,
+        chargesResult,
+        receiptsResult,
+        dashboardResult,
+        dueSummariesResult,
+        accountsResult,
+        entriesResult,
+        incomeVouchersResult,
+        expenseVouchersResult,
+        summaryResult,
+        templatesResult,
+        messagesResult,
+        attemptsResult,
+        smsStatusResult,
+        billingHeadsResult,
+        billingMappingsResult,
+        invoicesResult,
+      ].filter((result) => !result.ok).length;
+
+      setMessage(
+        failedCount === 0
+          ? "Makan Society workspace loaded with live society data."
+          : `Workspace loaded with existing data. ${failedCount} section${failedCount === 1 ? "" : "s"} could not be refreshed.`,
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to load workspace");
     } finally {
@@ -1321,26 +1400,26 @@ export function App() {
     const accessToken = token();
     if (!accessToken) return;
 
-    const [nextPeriods, nextCharges, nextReceipts, nextDashboard, nextDueSummary] = await Promise.all([
-      apiRequest<BillingPeriod[]>("/api/billing/periods", accessToken),
-      apiRequest<Charge[]>("/api/billing/charges", accessToken),
-      apiRequest<Receipt[]>("/api/billing/receipts", accessToken),
-      apiRequest<BillingDashboard>("/api/billing/dashboard", accessToken),
-      apiRequest<BillingMemberSummary[]>("/api/billing/member-due-summary", accessToken),
-    ]);
-    setBillingPeriods(nextPeriods);
-    setCharges(nextCharges);
-    setReceipts(nextReceipts);
-    setBillingDashboard(nextDashboard);
-    setMemberDueSummaries(nextDueSummary);
-    const [nextHeads, nextMappings, nextInvoices] = await Promise.all([
-      apiRequest<BillingHead[]>("/api/billing/heads", accessToken),
-      apiRequest<BillingHeadMapping[]>("/api/billing/head-mappings", accessToken),
-      apiRequest<BillingInvoice[]>("/api/billing/invoices", accessToken),
-    ]);
-    setBillingHeads(nextHeads);
-    setBillingHeadMappings(nextMappings);
-    setBillingInvoices(nextInvoices);
+    const [periodsResult, chargesResult, receiptsResult, dashboardResult, dueSummaryResult, headsResult, mappingsResult, invoicesResult] =
+      await Promise.all([
+        settleRequest<BillingPeriod[]>("/api/billing/periods", accessToken),
+        settleRequest<Charge[]>("/api/billing/charges", accessToken),
+        settleRequest<Receipt[]>("/api/billing/receipts", accessToken),
+        settleRequest<BillingDashboard>("/api/billing/dashboard", accessToken),
+        settleRequest<BillingMemberSummary[]>("/api/billing/member-due-summary", accessToken),
+        settleRequest<BillingHead[]>("/api/billing/heads", accessToken),
+        settleRequest<BillingHeadMapping[]>("/api/billing/head-mappings", accessToken),
+        settleRequest<BillingInvoice[]>("/api/billing/invoices", accessToken),
+      ]);
+
+    if (periodsResult.ok) setBillingPeriods(periodsResult.value);
+    if (chargesResult.ok) setCharges(chargesResult.value);
+    if (receiptsResult.ok) setReceipts(receiptsResult.value);
+    if (dashboardResult.ok) setBillingDashboard(dashboardResult.value);
+    if (dueSummaryResult.ok) setMemberDueSummaries(dueSummaryResult.value);
+    if (headsResult.ok) setBillingHeads(headsResult.value);
+    if (mappingsResult.ok) setBillingHeadMappings(mappingsResult.value);
+    if (invoicesResult.ok) setBillingInvoices(invoicesResult.value);
   }
 
   async function refreshAccountingWorkspace() {
@@ -2080,6 +2159,7 @@ export function App() {
 
   function reportViewerTitle() {
     if (memberStatementReport) return `Member Statement - ${memberStatementReport.member_code}`;
+    if (memberInformationDetailReport) return `Member Detail - ${memberInformationDetailReport.member_info.member_code}`;
     if (receiptReport) return `Receipt Detail - ${receiptReport.receipt_no}`;
     if (incomeExpenseReport) return "Income And Expense Report";
     if (currentReport) return currentReport.title;
@@ -2089,6 +2169,9 @@ export function App() {
   function reportViewerSubtitle() {
     if (memberStatementReport) {
       return `${memberStatementReport.member_name}${memberStatementReport.plot_no ? ` | Plot ${memberStatementReport.plot_no}` : ""}`;
+    }
+    if (memberInformationDetailReport) {
+      return `${memberInformationDetailReport.member_info.full_name}${memberInformationDetailReport.member_info.plot_no ? ` | Plot ${memberInformationDetailReport.member_info.plot_no}` : ""}`;
     }
     if (receiptReport) return shortDate(receiptReport.payment_date);
     if (incomeExpenseReport) return `${incomeExpenseReport.from_date ?? "Start"} to ${incomeExpenseReport.to_date ?? "Today"}`;
@@ -2787,7 +2870,167 @@ export function App() {
     );
   }
 
+  function renderMemberInformationDetailReportContent(report: MemberInformationDetailReport) {
+    const info = report.member_info;
+    return (
+      <div className="report-sheet">
+        <div className="report-sheet-header">
+          <img src="/makan-logo-3.png" alt="Darul Mohan Plot Owners Society" className="report-header-logo" />
+          <div className="d-flex justify-content-between gap-3">
+            <div>
+              <div className="fw-semibold">Member Information Detail</div>
+              <div className="text-muted">Makan Society</div>
+            </div>
+            <div className="text-end">
+              <h3 className="invoice-report-title mb-1">{info.member_code}</h3>
+              <div>{info.full_name}</div>
+              {info.plot_no ? <div className="text-muted">Plot No: {info.plot_no}</div> : null}
+            </div>
+          </div>
+        </div>
+        {renderAppliedFilterCards(report.applied_filters)}
+        <div className="row g-3">
+          <div className="col-xl-6">
+            <div className="card mb-0">
+              <div className="card-header"><h5 className="mb-0">Member Information</h5></div>
+              <div className="card-body">
+                <div className="row g-3">
+                  {[
+                    ["Member Code", info.member_code],
+                    ["Full Name", info.full_name],
+                    ["Plot No", info.plot_no ?? "N/A"],
+                    ["Category", info.category_name ?? "N/A"],
+                    ["National ID", info.national_id ?? "N/A"],
+                    ["Phone", info.cell_no ?? "N/A"],
+                    ["Email", info.email ?? "N/A"],
+                    ["Member Class", info.member_class ?? "N/A"],
+                    ["Joined On", info.joined_on ? shortDate(info.joined_on) : "N/A"],
+                    ["Status", info.is_active ? "Active" : "Inactive"],
+                    ["Father Name", info.father_name ?? "N/A"],
+                    ["Mother Name", info.mother_name ?? "N/A"],
+                    ["Present Address", info.present_address ?? "N/A"],
+                    ["Permanent Address", info.permanent_address ?? "N/A"],
+                    ["Reference", info.reference ?? "N/A"],
+                    ["Nominee Name", info.nominee_name ?? "N/A"],
+                    ["Nominee Cell", info.nominee_cell ?? "N/A"],
+                    ["Active Package", info.active_package_name ?? "N/A"],
+                    ["Total Collection", money(info.total_collection_amount)],
+                    ["Total Due", money(info.total_due_amount)],
+                  ].map(([label, value]) => (
+                    <div className="col-md-6" key={String(label)}>
+                      <div className="report-meta-card h-100">
+                        <span className="text-muted d-block">{label}</span>
+                        <strong>{value}</strong>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="col-xl-6">
+            <div className="card mb-0">
+              <div className="card-header"><h5 className="mb-0">Payment History</h5></div>
+              <div className="card-body p-0">
+                <div className="table-responsive">
+                  <table className="table table-bordered table-sm mb-0">
+                    <thead>
+                      <tr>
+                        <th>Receipt No</th>
+                        <th>Date</th>
+                        <th className="text-end">Paid</th>
+                        <th className="text-end">Discount</th>
+                        <th>Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.payment_history.map((item) => (
+                        <tr key={item.receipt_no}>
+                          <td>{item.receipt_no}</td>
+                          <td>{shortDate(item.payment_date)}</td>
+                          <td className="text-end">{money(item.amount)}</td>
+                          <td className="text-end">{money(item.discount_amount)}</td>
+                          <td>{item.notes ?? "N/A"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {report.payment_history.length === 0 ? <EmptyState label="No payment history found." /> : null}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="col-xl-6">
+            <div className="card mb-0">
+              <div className="card-header"><h5 className="mb-0">Due List</h5></div>
+              <div className="card-body p-0">
+                <div className="table-responsive">
+                  <table className="table table-bordered table-sm mb-0">
+                    <thead>
+                      <tr>
+                        <th>Billing Head</th>
+                        <th>Period</th>
+                        <th className="text-end">Bill</th>
+                        <th className="text-end">Paid</th>
+                        <th className="text-end">Due</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.due_history.map((item, index) => (
+                        <tr key={`${item.head_name}-${item.period_display ?? "one-time"}-${index}`}>
+                          <td>{item.head_name}</td>
+                          <td>{item.period_display ?? "One Time"}</td>
+                          <td className="text-end">{money(item.total_bill)}</td>
+                          <td className="text-end">{money(item.paid_amount)}</td>
+                          <td className="text-end">{money(item.due_amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {report.due_history.length === 0 ? <EmptyState label="No dues found." /> : null}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="col-xl-6">
+            <div className="card mb-0">
+              <div className="card-header"><h5 className="mb-0">SMS History</h5></div>
+              <div className="card-body p-0">
+                <div className="table-responsive">
+                  <table className="table table-bordered table-sm mb-0">
+                    <thead>
+                      <tr>
+                        <th>Created</th>
+                        <th>Recipient</th>
+                        <th>Template</th>
+                        <th>Message</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.sms_history.map((item, index) => (
+                        <tr key={`${item.recipient}-${item.created_at}-${index}`}>
+                          <td>{shortDate(item.created_at)}</td>
+                          <td>{item.recipient}</td>
+                          <td>{item.template_name ?? "N/A"}</td>
+                          <td>{item.message_body}</td>
+                          <td>{item.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {report.sms_history.length === 0 ? <EmptyState label="No SMS history found." /> : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function renderReportViewerContent() {
+    if (memberInformationDetailReport) return renderMemberInformationDetailReportContent(memberInformationDetailReport);
     if (memberStatementReport) return renderMemberStatementReportContent(memberStatementReport);
     if (receiptReport) return renderReceiptReportContent(receiptReport);
     if (incomeExpenseReport) return renderIncomeExpenseReportContent(incomeExpenseReport);
@@ -3099,8 +3342,8 @@ export function App() {
       setMessage("Select a receipt first.");
       return;
     }
-    if (reportType === "member-statement" && !reportMemberId) {
-      setMessage("Select a member for the single member statement.");
+    if ((reportType === "member-statement" || reportType === "member-information-detail") && !reportMemberId) {
+      setMessage("Select a member for this report.");
       return;
     }
     setIsSubmitting(true);
@@ -3116,6 +3359,7 @@ export function App() {
         setCurrentReport(null);
         setReceiptReport(null);
         setMemberStatementReport(null);
+        setMemberInformationDetailReport(null);
         setShowReportViewer(true);
         setMessage("Income expense report loaded.");
         return;
@@ -3126,6 +3370,7 @@ export function App() {
         setCurrentReport(null);
         setIncomeExpenseReport(null);
         setMemberStatementReport(null);
+        setMemberInformationDetailReport(null);
         setShowReportViewer(true);
       } else if (reportType === "member-statement") {
         const query = reportQueryString ? `?${reportQueryString}` : "";
@@ -3134,6 +3379,16 @@ export function App() {
         setCurrentReport(null);
         setReceiptReport(null);
         setIncomeExpenseReport(null);
+        setMemberInformationDetailReport(null);
+        setShowReportViewer(true);
+      } else if (reportType === "member-information-detail") {
+        const query = reportQueryString ? `?${reportQueryString}` : "";
+        const payload = await apiRequest<MemberInformationDetailReport>(`/api/reports/member-information-detail${query}`, accessToken);
+        setMemberInformationDetailReport(payload);
+        setCurrentReport(null);
+        setReceiptReport(null);
+        setIncomeExpenseReport(null);
+        setMemberStatementReport(null);
         setShowReportViewer(true);
       } else {
         const pathMap: Record<string, string> = {
@@ -3150,6 +3405,7 @@ export function App() {
         setReceiptReport(null);
         setIncomeExpenseReport(null);
         setMemberStatementReport(null);
+        setMemberInformationDetailReport(null);
         setShowReportViewer(true);
       }
       setMessage("Report loaded.");
@@ -3207,6 +3463,7 @@ export function App() {
       "total-collection",
       "total-due",
       "member-statement",
+      "member-information-detail",
       "receipt-detail",
       "income-expense",
     ]);
@@ -3237,6 +3494,10 @@ export function App() {
         return;
       }
       void downloadAuthenticatedFile(`/api/reports/member-statement/xlsx${query}`, "member-statement-report.xlsx");
+      return;
+    }
+    if (reportType === "member-information-detail") {
+      setMessage("Member Information Detail currently supports preview and print.");
       return;
     }
     if (reportType === "income-expense") {
@@ -5326,15 +5587,16 @@ export function App() {
                     <option value="collections">Collections</option>
                     <option value="total-collection">Total Collection</option>
                     <option value="total-due">Total Due</option>
+                    <option value="members">Total Member Summary</option>
                     <option value="member-statement">Single Member Due & Paid</option>
+                    <option value="member-information-detail">Member Information Detail</option>
                     <option value="charges">Charges</option>
-                    <option value="members">Members</option>
                     <option value="receipt-detail">Receipt Detail</option>
                     <option value="income-expense">Income vs Expense</option>
                   </select>
                 </div>
                 <div className="col-xl-3 col-md-6 mb-3">
-                  {reportType === "member-statement" ? (
+                  {reportType === "member-statement" || reportType === "member-information-detail" ? (
                     <SearchableDropdown
                       isOpen={reportMemberDropdownOpen}
                       label="Member"
