@@ -38,11 +38,10 @@ class ReportingService:
     def _applied_filters(self, filters: ReportFilter) -> dict[str, str]:
         applied: dict[str, str] = {}
 
-        if filters.from_date and filters.to_date:
-            applied["date_range"] = f"{filters.from_date.isoformat()} to {filters.to_date.isoformat()}"
-        elif filters.from_date:
+        if filters.from_date:
             applied["from_date"] = filters.from_date.isoformat()
-        elif filters.to_date:
+
+        if filters.to_date:
             applied["to_date"] = filters.to_date.isoformat()
 
         if filters.member_id is not None:
