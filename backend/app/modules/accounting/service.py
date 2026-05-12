@@ -157,9 +157,42 @@ class AccountingService:
             for detail, invoice, member in self.repository.list_pending_income_transfers(coa_id=coa_id)
         ]
 
+    def _next_voucher_no(self, voucher_type: str, voucher_date: date) -> str:
+        prefix = "RV" if voucher_type == "income" else "PV"
+        return f"{prefix}-{voucher_date:%Y%m%d}-{self.repository.count_vouchers(voucher_type) + 1:05d}"
+
+    def _create_single_line_voucher(
+        self,
+        *,
+        voucher_type: str,
+        voucher_date: date,
+        coa_id: int,
+        amount: float,
+        remarks: str | None,
+        created_by: int | None,
+    ) -> AccountingVoucher:
+        voucher = AccountingVoucher(
+            voucher_no=self._next_voucher_no(voucher_type, voucher_date),
+            voucher_type=voucher_type,
+            voucher_date=voucher_date,
+            total_amount=amount,
+            remarks=remarks,
+            created_by=created_by,
+        )
+        self.repository.add_voucher(voucher)
+        self.repository.add_voucher_detail(
+            AccountingVoucherDetail(
+                voucher_id=voucher.id,
+                coa_id=coa_id,
+                amount=amount,
+                remarks=remarks,
+            )
+        )
+        return voucher
+
     def create_income(self, payload: IncomeEntryCreate, created_by: int | None = None) -> IncomeEntryRead:
         account = self.repository.get_account(payload.coa_id)
-        if account is None or account.account_type not in {"income", "both"}:
+        if account is None or account.account_type not in {"income", "both", "income_expense"}:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Income COA is required")
         pending = self.repository.list_pending_income_transfers(coa_id=payload.coa_id)
         remaining = payload.amount
@@ -171,6 +204,14 @@ class AccountingService:
             created_by=created_by,
         )
         self.repository.add_income(income)
+        voucher = self._create_single_line_voucher(
+            voucher_type="income",
+            voucher_date=payload.income_date,
+            coa_id=payload.coa_id,
+            amount=payload.amount,
+            remarks=payload.remarks or "Transferred from billing collections",
+            created_by=created_by,
+        )
         for detail, _invoice, _member in pending:
             if remaining <= 0:
                 break
@@ -179,14 +220,15 @@ class AccountingService:
                 IncomeEntryDetail(income_id=income.id, billing_detail_id=detail.id, amount=transfer_amount)
             )
             detail.is_income_transferred = True
+            detail.income_voucher_id = voucher.id
             remaining -= transfer_amount
         self.repository.add_entry(
-            IncomeExpenseEntry(
-                account_id=payload.coa_id,
-                entry_type="income",
-                amount=payload.amount,
-                remarks=payload.remarks or "Transferred from billing collections",
-            )
+                IncomeExpenseEntry(
+                    account_id=payload.coa_id,
+                    entry_type="income",
+                    amount=payload.amount,
+                    remarks=payload.remarks or voucher.voucher_no,
+                )
         )
         self.db.commit()
         return self._serialize_income(income)
@@ -196,7 +238,7 @@ class AccountingService:
 
     def create_expense(self, payload: ExpenseEntryCreate, created_by: int | None = None) -> ExpenseEntryRead:
         account = self.repository.get_account(payload.coa_id)
-        if account is None or account.account_type not in {"expense", "both"}:
+        if account is None or account.account_type not in {"expense", "both", "income_expense"}:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Expense COA is required")
         expense = ExpenseEntry(
             expense_date=payload.expense_date,
@@ -206,12 +248,20 @@ class AccountingService:
             created_by=created_by,
         )
         self.repository.add_expense(expense)
+        voucher = self._create_single_line_voucher(
+            voucher_type="expense",
+            voucher_date=payload.expense_date,
+            coa_id=payload.coa_id,
+            amount=payload.amount,
+            remarks=payload.remarks,
+            created_by=created_by,
+        )
         self.repository.add_entry(
             IncomeExpenseEntry(
                 account_id=payload.coa_id,
                 entry_type="expense",
                 amount=payload.amount,
-                remarks=payload.remarks,
+                remarks=payload.remarks or voucher.voucher_no,
             )
         )
         self.db.commit()

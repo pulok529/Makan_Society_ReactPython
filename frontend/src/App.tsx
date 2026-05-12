@@ -268,6 +268,17 @@ type AccountingEntry = {
   created_at: string;
 };
 
+type AccountingMasterEntry = {
+  id: number;
+  coa_id: number;
+  coa_name: string | null;
+  amount: number;
+  remarks: string | null;
+  created_at: string;
+  income_date?: string;
+  expense_date?: string;
+};
+
 type AccountingSummary = {
   total_income: number;
   total_expense: number;
@@ -803,6 +814,8 @@ export function App() {
   const [billingInvoices, setBillingInvoices] = useState<BillingInvoice[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountingEntries, setAccountingEntries] = useState<AccountingEntry[]>([]);
+  const [incomeMasterEntries, setIncomeMasterEntries] = useState<AccountingMasterEntry[]>([]);
+  const [expenseMasterEntries, setExpenseMasterEntries] = useState<AccountingMasterEntry[]>([]);
   const [incomeVouchers, setIncomeVouchers] = useState<AccountingVoucher[]>([]);
   const [expenseVouchers, setExpenseVouchers] = useState<AccountingVoucher[]>([]);
   const [accountingSummary, setAccountingSummary] = useState<AccountingSummary | null>(null);
@@ -1284,6 +1297,8 @@ export function App() {
         dueSummariesResult,
         accountsResult,
         entriesResult,
+        incomeEntriesResult,
+        expenseEntriesResult,
         incomeVouchersResult,
         expenseVouchersResult,
         summaryResult,
@@ -1305,6 +1320,8 @@ export function App() {
         settleRequest<BillingMemberSummary[]>("/api/billing/member-due-summary", accessToken),
         settleRequest<Account[]>("/api/accounting/accounts", accessToken),
         settleRequest<AccountingEntry[]>("/api/accounting/entries", accessToken),
+        settleRequest<AccountingMasterEntry[]>("/api/accounting/income", accessToken),
+        settleRequest<AccountingMasterEntry[]>("/api/accounting/expense", accessToken),
         settleRequest<AccountingVoucher[]>("/api/accounting/vouchers/income", accessToken),
         settleRequest<AccountingVoucher[]>("/api/accounting/vouchers/expense", accessToken),
         settleRequest<AccountingSummary>("/api/accounting/summary", accessToken),
@@ -1327,6 +1344,8 @@ export function App() {
       if (dueSummariesResult.ok) setMemberDueSummaries(dueSummariesResult.value);
       if (accountsResult.ok) setAccounts(accountsResult.value);
       if (entriesResult.ok) setAccountingEntries(entriesResult.value);
+      if (incomeEntriesResult.ok) setIncomeMasterEntries(incomeEntriesResult.value);
+      if (expenseEntriesResult.ok) setExpenseMasterEntries(expenseEntriesResult.value);
       if (incomeVouchersResult.ok) setIncomeVouchers(incomeVouchersResult.value);
       if (expenseVouchersResult.ok) setExpenseVouchers(expenseVouchersResult.value);
       if (summaryResult.ok) setAccountingSummary(summaryResult.value);
@@ -1372,6 +1391,8 @@ export function App() {
         dueSummariesResult,
         accountsResult,
         entriesResult,
+        incomeEntriesResult,
+        expenseEntriesResult,
         incomeVouchersResult,
         expenseVouchersResult,
         summaryResult,
@@ -1425,15 +1446,19 @@ export function App() {
   async function refreshAccountingWorkspace() {
     const accessToken = token();
     if (!accessToken) return;
-    const [nextAccounts, nextEntries, nextIncomeVouchers, nextExpenseVouchers, nextSummary] = await Promise.all([
+    const [nextAccounts, nextEntries, nextIncomeEntries, nextExpenseEntries, nextIncomeVouchers, nextExpenseVouchers, nextSummary] = await Promise.all([
       apiRequest<Account[]>("/api/accounting/accounts", accessToken),
       apiRequest<AccountingEntry[]>("/api/accounting/entries", accessToken),
+      apiRequest<AccountingMasterEntry[]>("/api/accounting/income", accessToken),
+      apiRequest<AccountingMasterEntry[]>("/api/accounting/expense", accessToken),
       apiRequest<AccountingVoucher[]>("/api/accounting/vouchers/income", accessToken),
       apiRequest<AccountingVoucher[]>("/api/accounting/vouchers/expense", accessToken),
       apiRequest<AccountingSummary>("/api/accounting/summary", accessToken),
     ]);
     setAccounts(nextAccounts);
     setAccountingEntries(nextEntries);
+    setIncomeMasterEntries(nextIncomeEntries);
+    setExpenseMasterEntries(nextExpenseEntries);
     setIncomeVouchers(nextIncomeVouchers);
     setExpenseVouchers(nextExpenseVouchers);
     setAccountingSummary(nextSummary);
@@ -5353,12 +5378,21 @@ export function App() {
 
   function renderEntryView(entryType: "income" | "expense") {
     const vouchers = entryType === "income" ? incomeVouchers : expenseVouchers;
+    const masterEntries = entryType === "income" ? incomeMasterEntries : expenseMasterEntries;
     const filteredVouchers = vouchers.filter((entry) => {
       const needle = entrySearch.trim().toLowerCase();
       if (!needle) return true;
       return `${entry.voucher_no} ${entry.total_amount} ${entry.remarks ?? ""} ${shortDate(entry.voucher_date)}`.toLowerCase().includes(needle);
     });
+    const filteredMasterEntries = masterEntries.filter((entry) => {
+      const needle = entrySearch.trim().toLowerCase();
+      if (!needle) return true;
+      const entryDate = entryType === "income" ? entry.income_date : entry.expense_date;
+      const entryNo = `${entryType === "income" ? "INC" : "EXP"}-${entry.id}`;
+      return `${entryNo} ${entry.coa_name ?? ""} ${entry.amount} ${entry.remarks ?? ""} ${shortDate(entryDate)}`.toLowerCase().includes(needle);
+    });
     const label = entryType === "income" ? "Receive" : "Payment";
+    const showVoucherRegister = vouchers.length > 0;
     return (
       <>
           <div className="row row-cols-md-3 row-cols-1">
@@ -5397,38 +5431,71 @@ export function App() {
             </div>
             <div className="card-body p-0">
               <div className="table-responsive">
-                <table className="table table-custom table-centered table-nowrap table-hover mb-0">
-                  <thead>
-                    <tr>
-                      <th>{label} Voucher</th>
-                      <th>Date</th>
-                      <th>Amount</th>
-                      <th>Lines</th>
-                      <th className="text-end">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredVouchers.slice(0, entrySearch ? filteredVouchers.length : 20).map((entry) => (
-                      <tr key={entry.id}>
-                        <td className="fw-semibold">{entry.voucher_no}</td>
-                        <td>{shortDate(entry.voucher_date)}</td>
-                        <td>{money(entry.total_amount)}</td>
-                        <td>{entry.lines.length}</td>
-                        <td className="text-end">
-                          <button className="btn btn-sm btn-soft-info me-1" onClick={() => printAccountingVoucher(entry)} type="button">
-                            <i className="ri-file-text-line me-1" />
-                            View Report
-                          </button>
-                          <button className="btn btn-sm btn-soft-primary" onClick={() => printAccountingVoucher(entry)} type="button">
-                            <i className="ri-printer-line me-1" />
-                            Print
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {filteredVouchers.length === 0 ? <EmptyState label={`No ${label.toLowerCase()} voucher found`} /> : null}
+                {showVoucherRegister ? (
+                  <>
+                    <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+                      <thead>
+                        <tr>
+                          <th>{label} Voucher</th>
+                          <th>Date</th>
+                          <th>Amount</th>
+                          <th>Lines</th>
+                          <th className="text-end">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredVouchers.slice(0, entrySearch ? filteredVouchers.length : 20).map((entry) => (
+                          <tr key={entry.id}>
+                            <td className="fw-semibold">{entry.voucher_no}</td>
+                            <td>{shortDate(entry.voucher_date)}</td>
+                            <td>{money(entry.total_amount)}</td>
+                            <td>{entry.lines.length}</td>
+                            <td className="text-end">
+                              <button className="btn btn-sm btn-soft-info me-1" onClick={() => printAccountingVoucher(entry)} type="button">
+                                <i className="ri-file-text-line me-1" />
+                                View Report
+                              </button>
+                              <button className="btn btn-sm btn-soft-primary" onClick={() => printAccountingVoucher(entry)} type="button">
+                                <i className="ri-printer-line me-1" />
+                                Print
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {filteredVouchers.length === 0 ? <EmptyState label={`No ${label.toLowerCase()} voucher found`} /> : null}
+                  </>
+                ) : (
+                  <>
+                    <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+                      <thead>
+                        <tr>
+                          <th>{label} Entry</th>
+                          <th>Date</th>
+                          <th>COA</th>
+                          <th>Amount</th>
+                          <th>Remarks</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredMasterEntries.slice(0, entrySearch ? filteredMasterEntries.length : 20).map((entry) => {
+                          const entryDate = entryType === "income" ? entry.income_date : entry.expense_date;
+                          return (
+                            <tr key={entry.id}>
+                              <td className="fw-semibold">{entryType === "income" ? "INC" : "EXP"}-{entry.id}</td>
+                              <td>{shortDate(entryDate)}</td>
+                              <td>{entry.coa_name ?? "-"}</td>
+                              <td>{money(entry.amount)}</td>
+                              <td>{entry.remarks ?? "-"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    {filteredMasterEntries.length === 0 ? <EmptyState label={`No ${label.toLowerCase()} entry found`} /> : null}
+                  </>
+                )}
               </div>
             </div>
           </div>
