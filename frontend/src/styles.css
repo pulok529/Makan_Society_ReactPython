@@ -219,16 +219,14 @@ html[data-menu-color="light"] .sidenav-menu .sidenav-user {
 .auth-bg {
   position: relative;
   overflow: hidden;
-  background:
-    linear-gradient(135deg, rgba(7, 12, 22, 0.72), rgba(12, 24, 38, 0.58)),
-    url("/bg1.png") center center / cover no-repeat;
+  background: url("/bg1.png") center center / cover no-repeat;
 }
 
 .auth-bg::before {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(6, 11, 20, 0.18), rgba(6, 11, 20, 0.38));
+  background: transparent;
   pointer-events: none;
 }
 
