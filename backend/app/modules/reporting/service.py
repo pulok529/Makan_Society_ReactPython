@@ -15,6 +15,8 @@ from app.modules.reporting.schemas import (
     ChargeRegisterRow,
     CollectionRow,
     DueMemberRow,
+    ExpenseDetailRow,
+    IncomeDetailRow,
     MemberRegisterRow,
     MemberInformationDetailReport,
     MemberInformationSummary,
@@ -91,6 +93,60 @@ class ReportingService:
             if charge.member_id in totals:
                 totals[charge.member_id] += float(charge.due_amount)
         return totals
+
+    def income_detail(self, filters: ReportFilter) -> ReportEnvelope:
+        accounts = {item.id: item for item in self.repository.list_accounts()}
+        rows = [
+            IncomeDetailRow(
+                income_id=entry.id,
+                income_date=entry.income_date,
+                account_code=accounts[entry.coa_id].code if entry.coa_id in accounts else None,
+                account_name=accounts[entry.coa_id].name if entry.coa_id in accounts else None,
+                amount=float(entry.amount),
+                remarks=entry.remarks,
+                created_at=entry.created_at,
+            )
+            for entry in self.repository.list_income_entries(from_date=filters.from_date, to_date=filters.to_date)
+        ]
+        return ReportEnvelope(
+            report_type="income_detail",
+            title="Income Detail Report",
+            generated_at=datetime.now(UTC),
+            row_count=len(rows),
+            totals={
+                "total_income_amount": round(sum(item.amount for item in rows), 2),
+                "income_entry_count": len(rows),
+            },
+            applied_filters=self._applied_filters(filters),
+            rows=[row.model_dump(mode="json") for row in rows],
+        )
+
+    def expense_detail(self, filters: ReportFilter) -> ReportEnvelope:
+        accounts = {item.id: item for item in self.repository.list_accounts()}
+        rows = [
+            ExpenseDetailRow(
+                expense_id=entry.id,
+                expense_date=entry.expense_date,
+                account_code=accounts[entry.coa_id].code if entry.coa_id in accounts else None,
+                account_name=accounts[entry.coa_id].name if entry.coa_id in accounts else None,
+                amount=float(entry.amount),
+                remarks=entry.remarks,
+                created_at=entry.created_at,
+            )
+            for entry in self.repository.list_expense_entries(from_date=filters.from_date, to_date=filters.to_date)
+        ]
+        return ReportEnvelope(
+            report_type="expense_detail",
+            title="Expense Detail Report",
+            generated_at=datetime.now(UTC),
+            row_count=len(rows),
+            totals={
+                "total_expense_amount": round(sum(item.amount for item in rows), 2),
+                "expense_entry_count": len(rows),
+            },
+            applied_filters=self._applied_filters(filters),
+            rows=[row.model_dump(mode="json") for row in rows],
+        )
 
     def due_members(self, filters: ReportFilter) -> ReportEnvelope:
         categories = {item.id: item for item in self.repository.list_categories()}

@@ -35,6 +35,8 @@ def _build_report(report_key: str, service: ReportingService, filters: ReportFil
         "collections": service.collections,
         "charges": service.charge_register,
         "members": service.member_register,
+        "income-detail": service.income_detail,
+        "expense-detail": service.expense_detail,
         "total-collection": service.total_collection,
         "total-due": service.total_due,
     }
@@ -69,6 +71,26 @@ def collections_report(
     db: Session = Depends(get_db),
 ) -> ReportEnvelope:
     return ReportingService(db).collections(_filters(from_date, to_date, member_id, category_id, None, plot_no))
+
+
+@router.get("/income-detail", response_model=ReportEnvelope, dependencies=[Depends(require_permission("reports:view"))])
+def income_detail_report(
+    from_date=None,
+    to_date=None,
+    _: object = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ReportEnvelope:
+    return ReportingService(db).income_detail(_filters(from_date, to_date))
+
+
+@router.get("/expense-detail", response_model=ReportEnvelope, dependencies=[Depends(require_permission("reports:view"))])
+def expense_detail_report(
+    from_date=None,
+    to_date=None,
+    _: object = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ReportEnvelope:
+    return ReportingService(db).expense_detail(_filters(from_date, to_date))
 
 
 @router.get("/total-collection", response_model=ReportEnvelope, dependencies=[Depends(require_permission("reports:view"))])

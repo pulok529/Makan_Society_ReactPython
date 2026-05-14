@@ -61,6 +61,26 @@ class MemberRegisterRow(BaseModel):
     total_due_amount: float
 
 
+class IncomeDetailRow(BaseModel):
+    income_id: int
+    income_date: date
+    account_code: str | None
+    account_name: str | None
+    amount: float
+    remarks: str | None
+    created_at: datetime
+
+
+class ExpenseDetailRow(BaseModel):
+    expense_id: int
+    expense_date: date
+    account_code: str | None
+    account_name: str | None
+    amount: float
+    remarks: str | None
+    created_at: datetime
+
+
 class TotalCollectionRow(BaseModel):
     member_id: int
     member_code: str

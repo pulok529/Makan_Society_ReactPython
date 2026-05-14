@@ -1,6 +1,7 @@
 from sqlalchemy import Select, and_, select
 from sqlalchemy.orm import Session
 
+from app.modules.accounting.models import Account, ExpenseEntry, IncomeEntry
 from app.modules.billing.models import BillingInvoice, BillingInvoiceDetail, BillingPeriod, Charge, Receipt, ReceiptLine
 from app.modules.categories.models import MemberCategory
 from app.modules.members.models import Member, MemberNominee, MemberPackage
@@ -29,6 +30,9 @@ class ReportingRepository:
 
     def list_categories(self) -> list[MemberCategory]:
         return list(self.db.scalars(select(MemberCategory).order_by(MemberCategory.code.asc(), MemberCategory.name.asc())))
+
+    def list_accounts(self) -> list[Account]:
+        return list(self.db.scalars(select(Account).order_by(Account.code.asc(), Account.name.asc())))
 
     def list_packages(self) -> list[Package]:
         return list(self.db.scalars(select(Package).order_by(Package.id.asc(), Package.name.asc())))
@@ -71,6 +75,28 @@ class ReportingRepository:
             conditions.append(Receipt.payment_date >= from_date)
         if to_date is not None:
             conditions.append(Receipt.payment_date <= to_date)
+        if conditions:
+            statement = statement.where(and_(*conditions))
+        return list(self.db.scalars(statement))
+
+    def list_income_entries(self, *, from_date=None, to_date=None) -> list[IncomeEntry]:
+        statement: Select[tuple[IncomeEntry]] = select(IncomeEntry).order_by(IncomeEntry.income_date.desc(), IncomeEntry.id.desc())
+        conditions = []
+        if from_date is not None:
+            conditions.append(IncomeEntry.income_date >= from_date)
+        if to_date is not None:
+            conditions.append(IncomeEntry.income_date <= to_date)
+        if conditions:
+            statement = statement.where(and_(*conditions))
+        return list(self.db.scalars(statement))
+
+    def list_expense_entries(self, *, from_date=None, to_date=None) -> list[ExpenseEntry]:
+        statement: Select[tuple[ExpenseEntry]] = select(ExpenseEntry).order_by(ExpenseEntry.expense_date.desc(), ExpenseEntry.id.desc())
+        conditions = []
+        if from_date is not None:
+            conditions.append(ExpenseEntry.expense_date >= from_date)
+        if to_date is not None:
+            conditions.append(ExpenseEntry.expense_date <= to_date)
         if conditions:
             statement = statement.where(and_(*conditions))
         return list(self.db.scalars(statement))

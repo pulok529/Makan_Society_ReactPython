@@ -3419,6 +3419,8 @@ export function App() {
         const pathMap: Record<string, string> = {
           "due-members": "/api/reports/due-members",
           collections: "/api/reports/collections",
+          "income-detail": "/api/reports/income-detail",
+          "expense-detail": "/api/reports/expense-detail",
           charges: "/api/reports/charges",
           members: "/api/reports/members",
           "total-collection": "/api/reports/total-collection",
@@ -3483,6 +3485,8 @@ export function App() {
     const exportableReports = new Set([
       "due-members",
       "collections",
+      "income-detail",
+      "expense-detail",
       "charges",
       "members",
       "total-collection",
@@ -5652,6 +5656,8 @@ export function App() {
                   <select className="form-select" value={reportType} onChange={(event) => setReportType(event.target.value)}>
                     <option value="due-members">Due Members</option>
                     <option value="collections">Collections</option>
+                    <option value="income-detail">Income Detail</option>
+                    <option value="expense-detail">Expense Detail</option>
                     <option value="total-collection">Total Collection</option>
                     <option value="total-due">Total Due</option>
                     <option value="members">Total Member Summary</option>
