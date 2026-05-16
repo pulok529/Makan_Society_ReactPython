@@ -243,5 +243,24 @@ class BillingRepository:
         due_total = max(float(fee or 0) - paid_total, 0)
         return paid_total, due_total
 
+    def get_one_time_payment_totals(self, member_id: int, head_id: int) -> tuple[float, float]:
+        statement = (
+            select(
+                func.coalesce(func.sum(BillingInvoiceDetail.receive_amount + BillingInvoiceDetail.discount_amount), 0),
+                func.coalesce(func.max(BillingInvoiceDetail.fee_amount), 0),
+            )
+            .join(BillingInvoice, BillingInvoice.id == BillingInvoiceDetail.invoice_id)
+            .where(
+                BillingInvoice.is_cancelled == False,  # noqa: E712
+                BillingInvoiceDetail.member_id == member_id,
+                BillingInvoiceDetail.billing_head_id == head_id,
+                BillingInvoiceDetail.period_date.is_(None),
+            )
+        )
+        paid, fee = self.db.execute(statement).one()
+        paid_total = float(paid or 0)
+        due_total = max(float(fee or 0) - paid_total, 0)
+        return paid_total, due_total
+
     def list_accounts(self) -> list[Account]:
         return list(self.db.scalars(select(Account).order_by(Account.code.asc())))

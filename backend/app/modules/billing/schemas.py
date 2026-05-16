@@ -115,6 +115,7 @@ class BillingDashboardRead(BaseModel):
 class BillingHeadCreate(BaseModel):
     head_name: str = Field(min_length=2, max_length=150)
     head_type: str = Field(pattern="^(Period|OneTime)$")
+    billing_mode: str = Field(pattern="^(Mandatory|Optional)$")
     fee_amount: float = Field(ge=0)
     effective_from_month: int | None = Field(default=None, ge=1, le=12)
     effective_from_year: int | None = Field(default=None, ge=1900, le=2100)
@@ -150,6 +151,7 @@ class BillingDueLineRead(BaseModel):
     billing_head_id: int
     head_name: str
     head_type: str
+    billing_mode: str
     period_date: date | None
     period_display: str | None
     fee_amount: float

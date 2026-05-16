@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import UTC, date, datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -39,6 +39,7 @@ class MemberService:
         member = Member(
             member_code=payload.member_code.strip(),
             member_id_text=payload.member_id_text.strip() if payload.member_id_text else None,
+            plot_no=payload.plot_no.strip() if payload.plot_no else None,
             full_name=payload.full_name.strip(),
             father_name=payload.father_name.strip() if payload.father_name else None,
             mother_name=payload.mother_name.strip() if payload.mother_name else None,
@@ -50,8 +51,9 @@ class MemberService:
             national_id=payload.national_id.strip() if payload.national_id else None,
             category_id=payload.category_id,
             member_class=payload.member_class.strip() if payload.member_class else None,
-            joined_on=payload.joined_on,
+            joined_on=payload.joined_on or date.today(),
             is_active=payload.is_active,
+            entry_at=datetime.now(UTC),
         )
         self.repository.add_member(member)
 
@@ -105,6 +107,7 @@ class MemberService:
 
         member.member_code = payload.member_code.strip()
         member.member_id_text = payload.member_id_text.strip() if payload.member_id_text else None
+        member.plot_no = payload.plot_no.strip() if payload.plot_no else None
         member.full_name = payload.full_name.strip()
         member.father_name = payload.father_name.strip() if payload.father_name else None
         member.mother_name = payload.mother_name.strip() if payload.mother_name else None
@@ -116,8 +119,10 @@ class MemberService:
         member.national_id = payload.national_id.strip() if payload.national_id else None
         member.category_id = payload.category_id
         member.member_class = payload.member_class.strip() if payload.member_class else None
-        member.joined_on = payload.joined_on
+        if payload.joined_on is not None:
+            member.joined_on = payload.joined_on
         member.is_active = payload.is_active
+        member.entry_at = datetime.now(UTC)
 
         if payload.nominee is not None:
             nominee = self.repository.get_nominee(member_id)

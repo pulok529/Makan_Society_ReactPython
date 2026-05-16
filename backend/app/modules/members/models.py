@@ -13,6 +13,7 @@ class Member(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     member_code: Mapped[str] = mapped_column(String(50), unique=True, index=True)
     member_id_text: Mapped[str | None] = mapped_column(String(100))
+    plot_no: Mapped[str | None] = mapped_column(String(100), index=True)
     full_name: Mapped[str] = mapped_column(String(200), index=True)
     father_name: Mapped[str | None] = mapped_column(String(200))
     mother_name: Mapped[str | None] = mapped_column(String(200))
@@ -27,6 +28,7 @@ class Member(Base):
     joined_on: Mapped[date | None] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    entry_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class MemberNominee(Base):

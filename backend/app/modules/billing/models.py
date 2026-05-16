@@ -88,6 +88,7 @@ class BillingHead(Base):
     id: Mapped[int] = mapped_column("BillingHeadID", primary_key=True, autoincrement=True)
     head_name: Mapped[str] = mapped_column("HeadName", String(150), unique=True)
     head_type: Mapped[str] = mapped_column("HeadType", String(20))
+    billing_mode: Mapped[str] = mapped_column("BillingMode", String(20), default="Mandatory")
     fee_amount: Mapped[float] = mapped_column("FeeAmount", Numeric(18, 2))
     effective_from_month: Mapped[int | None] = mapped_column("EffectiveFromMonth")
     effective_from_year: Mapped[int | None] = mapped_column("EffectiveFromYear")

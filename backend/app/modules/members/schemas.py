@@ -18,6 +18,7 @@ class MemberNomineePayload(BaseModel):
 class MemberCreate(BaseModel):
     member_code: str
     member_id_text: str | None = None
+    plot_no: str | None = None
     full_name: str
     father_name: str | None = None
     mother_name: str | None = None
@@ -38,6 +39,7 @@ class MemberCreate(BaseModel):
 class MemberUpdate(BaseModel):
     member_code: str
     member_id_text: str | None = None
+    plot_no: str | None = None
     full_name: str
     father_name: str | None = None
     mother_name: str | None = None
@@ -70,6 +72,7 @@ class MemberDetailRead(BaseModel):
     id: int
     member_code: str
     member_id_text: str | None
+    plot_no: str | None
     full_name: str
     father_name: str | None
     mother_name: str | None
@@ -85,6 +88,7 @@ class MemberDetailRead(BaseModel):
     joined_on: date | None
     is_active: bool
     created_at: datetime
+    entry_at: datetime
     nominee_name: str | None
     nominee_cell: str | None
     active_package_id: int | None
@@ -95,6 +99,7 @@ class MemberListItem(BaseModel):
     id: int
     member_code: str
     full_name: str
+    plot_no: str | None
     cell_no: str | None
     category_id: int | None
     category_name: str | None

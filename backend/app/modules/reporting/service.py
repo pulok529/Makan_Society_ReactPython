@@ -264,7 +264,7 @@ class ReportingService:
                     member_id=member.id,
                     member_code=member.member_code,
                     member_name=member.full_name,
-                    plot_no=member.member_id_text,
+                    plot_no=member.plot_no or member.member_id_text,
                     total_collection_amount=float(receipt.total_amount),
                 )
             else:
@@ -308,7 +308,7 @@ class ReportingService:
                     member_id=member.id,
                     member_code=member.member_code,
                     member_name=member.full_name,
-                    plot_no=member.member_id_text,
+                    plot_no=member.plot_no or member.member_id_text,
                     total_due_amount=float(charge.due_amount),
                 )
             else:
@@ -369,7 +369,7 @@ class ReportingService:
             member_id=member.id,
             member_code=member.member_code,
             member_name=member.full_name,
-            plot_no=member.member_id_text,
+            plot_no=member.plot_no or member.member_id_text,
             total_bill=round(sum(item.total_bill for item in due_history), 2),
             paid_amount=round(sum(item.amount for item in payment_history), 2),
             due_amount=round(sum(item.due_amount for item in due_history), 2),
@@ -436,7 +436,7 @@ class ReportingService:
             member_info=MemberInformationSummary(
                 member_code=member.member_code,
                 full_name=member.full_name,
-                plot_no=member.member_id_text,
+                plot_no=member.plot_no or member.member_id_text,
                 category_name=categories[member.category_id].name if member.category_id in categories else None,
                 national_id=member.national_id,
                 cell_no=member.cell_no,
@@ -520,7 +520,7 @@ class ReportingService:
                 member_id=member.id,
                 member_code=member.member_code,
                 full_name=member.full_name,
-                plot_no=member.member_id_text,
+                plot_no=member.plot_no or member.member_id_text,
                 category_name=categories[member.category_id].name if member.category_id in categories else None,
                 national_id=member.national_id,
                 cell_no=member.cell_no,

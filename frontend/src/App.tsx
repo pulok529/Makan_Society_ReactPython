@@ -44,6 +44,7 @@ type MemberListItem = {
   id: number;
   member_code: string;
   full_name: string;
+  plot_no: string | null;
   cell_no: string | null;
   category_id: number | null;
   category_name: string | null;
@@ -88,6 +89,7 @@ type MemberDetail = {
   id: number;
   member_code: string;
   member_id_text: string | null;
+  plot_no: string | null;
   full_name: string;
   father_name: string | null;
   mother_name: string | null;
@@ -103,6 +105,7 @@ type MemberDetail = {
   joined_on: string | null;
   is_active: boolean;
   created_at: string;
+  entry_at: string;
   nominee_name: string | null;
   nominee_cell: string | null;
   active_package_id: number | null;
@@ -191,6 +194,7 @@ type BillingHead = {
   id: number;
   head_name: string;
   head_type: "Period" | "OneTime";
+  billing_mode: "Mandatory" | "Optional";
   fee_amount: number;
   effective_from_month: number | null;
   effective_from_year: number | null;
@@ -216,6 +220,7 @@ type BillingDueLine = {
   billing_head_id: number;
   head_name: string;
   head_type: string;
+  billing_mode: "Mandatory" | "Optional";
   period_date: string | null;
   period_display: string | null;
   fee_amount: number;
@@ -796,6 +801,7 @@ export function App() {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("Makan Society workspace is ready.");
+  const [messageTone, setMessageTone] = useState<"info" | "success" | "danger" | "warning">("info");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(false);
 
@@ -857,7 +863,6 @@ export function App() {
   const [memberCategoryId, setMemberCategoryId] = useState("");
   const [memberClass, setMemberClass] = useState("");
   const [memberPackageId, setMemberPackageId] = useState("");
-  const [memberJoinDate, setMemberJoinDate] = useState("");
   const [memberIsActive, setMemberIsActive] = useState(true);
   const [memberPageMode, setMemberPageMode] = useState<"view" | "entry">("view");
   const [editingMemberId, setEditingMemberId] = useState<number | null>(null);
@@ -878,6 +883,7 @@ export function App() {
   const [receiptDiscount, setReceiptDiscount] = useState("0");
   const [billingHeadName, setBillingHeadName] = useState("");
   const [billingHeadType, setBillingHeadType] = useState<"Period" | "OneTime">("Period");
+  const [billingHeadMode, setBillingHeadMode] = useState<"Mandatory" | "Optional">("Mandatory");
   const [billingHeadFee, setBillingHeadFee] = useState("500");
   const [billingHeadEffectiveDate, setBillingHeadEffectiveDate] = useState("2018-01-01");
   const [billingHeadPageMode, setBillingHeadPageMode] = useState<"view" | "entry">("view");
@@ -898,6 +904,7 @@ export function App() {
   const [showPreviousBills, setShowPreviousBills] = useState(false);
   const [manualBillingHeadId, setManualBillingHeadId] = useState("");
   const [manualBillingPeriod, setManualBillingPeriod] = useState(new Date().toISOString().slice(0, 7));
+  const [manualBillingFee, setManualBillingFee] = useState("");
   const [billingRegisterTab, setBillingRegisterTab] = useState<"charges" | "receipts">("charges");
   const [billingRegisterSearch, setBillingRegisterSearch] = useState("");
   const [billingRegisterPageSize, setBillingRegisterPageSize] = useState("25");
@@ -989,6 +996,19 @@ export function App() {
   );
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
+  function showStatus(nextMessage: string, tone: "info" | "success" | "danger" | "warning" = "info") {
+    setMessage(nextMessage);
+    setMessageTone(tone);
+  }
+
+  function showError(nextMessage: string) {
+    showStatus(nextMessage, "danger");
+  }
+
+  function showSuccess(nextMessage: string) {
+    showStatus(nextMessage, "success");
+  }
+
   const activeMembers = useMemo(() => members.filter((member) => member.is_active), [members]);
   const deferredMenuSearch = useDeferredValue(menuSearch);
   const filteredMenuItems = useMemo(() => {
@@ -1068,7 +1088,7 @@ export function App() {
       members.map((member) => ({
         value: String(member.id),
         label: `${member.member_code} - ${member.full_name}`,
-        meta: [member.cell_no, member.category_name, member.active_package_name].filter(Boolean).join(" | "),
+        meta: [member.plot_no ? `Plot ${member.plot_no}` : null, member.cell_no, member.category_name, member.active_package_name].filter(Boolean).join(" | "),
       })),
     [members],
   );
@@ -1205,9 +1225,19 @@ export function App() {
       members.map((member) => ({
         value: String(member.id),
         label: `${member.member_code} - ${member.full_name}`,
-        meta: `${member.cell_no ?? "No phone"}${member.category_name ? ` | ${member.category_name}` : ""}`,
+        meta: `${member.plot_no ? `Plot ${member.plot_no} | ` : ""}${member.cell_no ?? "No phone"}${member.category_name ? ` | ${member.category_name}` : ""}`,
       })),
     [members],
+  );
+
+  const manualBillingHeadOptions = useMemo(
+    () =>
+      billingHeads.filter(
+        (head) =>
+          head.is_active &&
+          (head.head_type === "Period" || (head.head_type === "OneTime" && head.billing_mode === "Optional")),
+      ),
+    [billingHeads],
   );
 
   useEffect(() => {
@@ -1684,7 +1714,6 @@ export function App() {
     setMemberCategoryId("");
     setMemberClass("General");
     setMemberPackageId("");
-    setMemberJoinDate("");
     setMemberIsActive(true);
     setNomineeName("");
     setNomineeCell("");
@@ -1710,11 +1739,10 @@ export function App() {
     setMemberPresentAddress(detail.present_address ?? "");
     setMemberPermanentAddress(detail.permanent_address ?? "");
     setMemberNationalId(detail.national_id ?? "");
-    setMemberPlotNo((detail.member_id_text ?? "").replace(/^Reg-/i, ""));
+    setMemberPlotNo(detail.plot_no ?? (detail.member_id_text ?? "").replace(/^Reg-/i, ""));
     setMemberCategoryId(detail.category_id ? String(detail.category_id) : "");
     setMemberClass(detail.member_class ?? "General");
     setMemberPackageId(detail.active_package_id ? String(detail.active_package_id) : "");
-    setMemberJoinDate(detail.joined_on ?? "");
     setMemberIsActive(detail.is_active);
     setNomineeName(detail.nominee_name ?? "");
     setNomineeCell(detail.nominee_cell ?? "");
@@ -1736,9 +1764,9 @@ export function App() {
       resetCategoryForm();
       setCategoryPageMode("view");
       await loadWorkspace();
-      setMessage(wasEditing ? "Category updated." : "Category saved.");
+      showSuccess(wasEditing ? "Category saved successfully." : "Category saved successfully.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to save category");
+      showError(error instanceof Error ? error.message : "Unable to save category");
     } finally {
       setIsSubmitting(false);
     }
@@ -1764,9 +1792,9 @@ export function App() {
       resetPackageForm();
       setPackagePageMode("view");
       await loadWorkspace();
-      setMessage(wasEditing ? "Package updated." : "Package saved.");
+      showSuccess(wasEditing ? "Package saved successfully." : "Package saved successfully.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to save package");
+      showError(error instanceof Error ? error.message : "Unable to save package");
     } finally {
       setIsSubmitting(false);
     }
@@ -1780,11 +1808,11 @@ export function App() {
     const normalizedPhone = memberCell.trim();
     const normalizedNomineePhone = nomineeCell.trim();
     if (normalizedPhone && !/^\d+$/.test(normalizedPhone)) {
-      setMessage("Phone number must contain digits only.");
+      showError("Phone number must contain digits only.");
       return;
     }
     if (normalizedNomineePhone && !/^\d+$/.test(normalizedNomineePhone)) {
-      setMessage("Nominee phone number must contain digits only.");
+      showError("Nominee phone number must contain digits only.");
       return;
     }
     setIsSubmitting(true);
@@ -1792,7 +1820,8 @@ export function App() {
       const wasEditing = editingMemberId !== null;
       const payload = {
         member_code: memberCode,
-        member_id_text: `Reg-${normalizedPlotNo}`,
+        member_id_text: normalizedPlotNo ? `Reg-${normalizedPlotNo}` : null,
+        plot_no: normalizedPlotNo || null,
         full_name: memberName,
         father_name: memberFatherName || null,
         mother_name: memberMotherName || null,
@@ -1803,7 +1832,6 @@ export function App() {
         national_id: memberNationalId || null,
         category_id: memberCategoryId ? Number(memberCategoryId) : null,
         member_class: memberClass || null,
-        joined_on: memberJoinDate || null,
         is_active: memberIsActive,
         nominee: nomineeName || normalizedNomineePhone ? { nominee_name: nomineeName || null, nominee_cell: normalizedNomineePhone || null } : null,
         ...(editingMemberId
@@ -1811,7 +1839,7 @@ export function App() {
           : {
               initial_package: {
                 package_id: Number(memberPackageId),
-                assigned_on: memberJoinDate,
+                assigned_on: new Date().toISOString().slice(0, 10),
                 ended_on: null,
                 is_active: true,
               },
@@ -1824,9 +1852,9 @@ export function App() {
       resetMemberForm();
       setMemberPageMode("view");
       await loadWorkspace(saved.id);
-      setMessage(wasEditing ? "Member updated." : "Member saved.");
+      showSuccess(wasEditing ? "Member saved successfully." : "Member saved successfully.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to save member");
+      showError(error instanceof Error ? error.message : "Unable to save member");
     } finally {
       setIsSubmitting(false);
     }
@@ -1858,9 +1886,9 @@ export function App() {
       setAssignPackageId("");
       setAssignDate("");
       await loadWorkspace(Number(assignMemberId));
-      setMessage("Package assigned.");
+      showSuccess("Package assigned successfully.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to assign package");
+      showError(error instanceof Error ? error.message : "Unable to assign package");
     } finally {
       setIsSubmitting(false);
     }
@@ -1885,9 +1913,9 @@ export function App() {
       setPeriodEnd("");
       setWorkspaceTab("billing");
       await refreshBillingWorkspace();
-      setMessage("Billing period saved.");
+      showSuccess("Billing period saved successfully.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to save billing period");
+      showError(error instanceof Error ? error.message : "Unable to save billing period");
     } finally {
       setIsSubmitting(false);
     }
@@ -1905,9 +1933,9 @@ export function App() {
       });
       setGenerationPeriodId("");
       await refreshBillingWorkspace();
-      setMessage("Billing generated.");
+      showSuccess("Billing generated successfully.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to generate billing");
+      showError(error instanceof Error ? error.message : "Unable to generate billing");
     } finally {
       setIsSubmitting(false);
     }
@@ -1936,9 +1964,9 @@ export function App() {
       setReceiptDiscount("0");
       await refreshBillingWorkspace();
       await refreshAccountingWorkspace();
-      setMessage("Receipt posted and accounting income updated.");
+      showSuccess("Receipt saved successfully.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to post receipt");
+      showError(error instanceof Error ? error.message : "Unable to post receipt");
     } finally {
       setIsSubmitting(false);
     }
@@ -1956,6 +1984,7 @@ export function App() {
         body: JSON.stringify({
           head_name: billingHeadName,
           head_type: billingHeadType,
+          billing_mode: billingHeadType === "Period" ? "Mandatory" : billingHeadMode,
           fee_amount: Number(billingHeadFee),
           effective_from_month: billingHeadType === "Period" ? Number(billingHeadEffectiveDate.slice(5, 7)) : null,
           effective_from_year: billingHeadType === "Period" ? Number(billingHeadEffectiveDate.slice(0, 4)) : null,
@@ -1964,15 +1993,16 @@ export function App() {
         }),
       });
       setBillingHeadName("");
+      setBillingHeadMode("Mandatory");
       setBillingHeadFee("500");
       setBillingHeadType("Period");
       setBillingHeadEffectiveDate("2018-01-01");
       setEditingBillingHeadId(null);
       setWorkspaceTab("billing-heads-view");
       await refreshBillingWorkspace();
-      setMessage(wasEditing ? "Billing head version updated. Previous head was made inactive." : "Billing head saved.");
+      showSuccess(wasEditing ? "Billing head saved successfully." : "Billing head saved successfully.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to save billing head");
+      showError(error instanceof Error ? error.message : "Unable to save billing head");
     } finally {
       setIsSubmitting(false);
     }
@@ -1992,9 +2022,9 @@ export function App() {
       setMappingCoaId("");
       setWorkspaceTab("billing-mappings-view");
       await refreshBillingWorkspace();
-      setMessage("Billing head mapped to COA.");
+      showSuccess("Billing head mapped successfully.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to save mapping");
+      showError(error instanceof Error ? error.message : "Unable to save mapping");
     } finally {
       setIsSubmitting(false);
     }
@@ -2008,9 +2038,9 @@ export function App() {
       const dues = await apiRequest<BillingDueLine[]>(`/api/billing/members/${invoiceMemberId}/dues`, accessToken);
       setBillingDueLines(dues);
       setInvoiceReceipts(Object.fromEntries(dues.map((line, index) => [`${line.billing_head_id}-${line.period_date ?? "one"}-${index}`, "0"])));
-      setMessage(`${dues.length} dues loaded month-wise.`);
+      showStatus(`${dues.length} dues loaded month-wise.`, "info");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to load dues");
+      showError(error instanceof Error ? error.message : "Unable to load dues");
     } finally {
       setIsSubmitting(false);
     }
@@ -3097,7 +3127,12 @@ export function App() {
   function handleAddManualBillingLine() {
     const head = billingHeads.find((item) => item.id === Number(manualBillingHeadId));
     if (!head) {
-      setMessage("Select a billing head first.");
+      showError("Select a billing head first.");
+      return;
+    }
+    const feeAmount = head.head_type === "OneTime" && head.billing_mode === "Optional" ? Number(manualBillingFee || 0) : Number(head.fee_amount);
+    if (feeAmount <= 0) {
+      showError("Enter a valid fee amount.");
       return;
     }
     const periodDate = head.head_type === "Period" ? `${manualBillingPeriod}-01` : null;
@@ -3109,16 +3144,18 @@ export function App() {
         billing_head_id: head.id,
         head_name: head.head_name,
         head_type: head.head_type,
+        billing_mode: head.billing_mode,
         period_date: periodDate,
         period_display: periodDisplay,
-        fee_amount: head.fee_amount,
+        fee_amount: feeAmount,
         paid_amount: 0,
-        due_amount: head.fee_amount,
+        due_amount: feeAmount,
         coa_id_snapshot: null,
       },
     ]);
     setManualBillingHeadId("");
-    setMessage(`${head.head_name} added to billing grid.`);
+    setManualBillingFee("");
+    showStatus(`${head.head_name} added to billing grid.`, "info");
   }
 
   async function handleInvoiceSubmit(event: FormEvent<HTMLFormElement>) {
@@ -3126,15 +3163,15 @@ export function App() {
     const accessToken = token();
     if (!accessToken || !invoiceMemberId) return;
     if (billingDueLines.length === 0) {
-      setMessage("Load dues or add at least one billing head.");
+      showError("Load dues or add at least one billing head.");
       return;
     }
     if (billingSelectedLines.length === 0) {
-      setMessage("Enter receive amount for at least one row.");
+      showError("Enter receive amount for at least one row.");
       return;
     }
     if (billingDiscount > billingSubtotal) {
-      setMessage("Discount cannot exceed received subtotal.");
+      showError("Discount cannot exceed received subtotal.");
       return;
     }
     setIsSubmitting(true);
@@ -3161,9 +3198,9 @@ export function App() {
       setInvoiceReceipts({});
       setInvoiceDiscount("0");
       await refreshBillingWorkspace();
-      setMessage(`Invoice ${invoice.invoice_no} generated.`);
+      showSuccess(`Invoice ${invoice.invoice_no} generated successfully.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to generate invoice");
+      showError(error instanceof Error ? error.message : "Unable to generate invoice");
     } finally {
       setIsSubmitting(false);
     }
@@ -3186,9 +3223,9 @@ export function App() {
       setEditingAccountId(null);
       await refreshAccountingWorkspace();
       setWorkspaceTab("coa-view");
-      setMessage(editingAccountId ? "Account updated." : "Account saved.");
+      showSuccess("Account saved successfully.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to save account");
+      showError(error instanceof Error ? error.message : "Unable to save account");
     } finally {
       setIsSubmitting(false);
     }
@@ -3212,9 +3249,9 @@ export function App() {
         body: JSON.stringify({ code: account.code, name: account.name, account_type: account.account_type, is_active: isActive }),
       });
       await refreshAccountingWorkspace();
-      setMessage(isActive ? "Account activated." : "Account inactivated.");
+      showSuccess(isActive ? "Account activated successfully." : "Account inactivated successfully.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to update account");
+      showError(error instanceof Error ? error.message : "Unable to update account");
     } finally {
       setIsSubmitting(false);
     }
@@ -3227,9 +3264,9 @@ export function App() {
     try {
       await apiRequest<void>(`/api/accounting/accounts/${accountId}`, accessToken, { method: "DELETE" });
       await refreshAccountingWorkspace();
-      setMessage("Account deleted.");
+      showSuccess("Account deleted successfully.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to delete account");
+      showError(error instanceof Error ? error.message : "Unable to delete account");
     } finally {
       setIsSubmitting(false);
     }
@@ -3317,9 +3354,9 @@ export function App() {
       setEntryVoucherRemarks("");
       await refreshAccountingWorkspace();
       setWorkspaceTab(entryType === "income" ? "income-view" : "expense-view");
-      setMessage(`${entryType === "income" ? "Receive" : "Payment"} voucher ${voucher.voucher_no} saved.`);
+      showSuccess(`${entryType === "income" ? "Income" : "Expense"} saved successfully.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to save accounting entry");
+      showError(error instanceof Error ? error.message : "Unable to save accounting entry");
     } finally {
       setIsSubmitting(false);
     }
@@ -3351,9 +3388,9 @@ export function App() {
     try {
       await apiRequest<void>(`/api/accounting/entries/${entryId}`, accessToken, { method: "DELETE" });
       await refreshAccountingWorkspace();
-      setMessage("Entry deleted.");
+      showSuccess("Entry deleted successfully.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to delete entry");
+      showError(error instanceof Error ? error.message : "Unable to delete entry");
     } finally {
       setIsSubmitting(false);
     }
@@ -3564,9 +3601,9 @@ export function App() {
       if (wasEditingSelected) {
         setSmsMessageBody(smsTemplateBody);
       }
-      setMessage(editingSmsTemplateId ? "SMS template updated." : "SMS template saved.");
+      showSuccess("SMS template saved successfully.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to save SMS template");
+      showError(error instanceof Error ? error.message : "Unable to save SMS template");
     } finally {
       setIsSubmitting(false);
     }
@@ -4243,15 +4280,11 @@ export function App() {
                 </button>
               </div>
               <div className="card-body">
-                <form onSubmit={handleMemberSubmit}>
-                  <div className="row">
-                    <div className="col-lg-6">
-                      <div className="mb-3">
-                        <label className="form-label">Entry Date</label>
-                        <input className="form-control" type="date" value={memberJoinDate} onChange={(event) => setMemberJoinDate(event.target.value)} required />
-                      </div>
-                      <div className="mb-3">
-                        <label className="form-label">Member Name</label>
+	                <form onSubmit={handleMemberSubmit}>
+	                  <div className="row">
+	                    <div className="col-lg-6">
+	                      <div className="mb-3">
+	                        <label className="form-label">Member Name</label>
                         <input className="form-control" value={memberName} onChange={(event) => setMemberName(event.target.value)} required />
                       </div>
                       <div className="mb-3">
@@ -4343,19 +4376,11 @@ export function App() {
                           ))}
                         </select>
                       </div>
-                      <div className="mb-3">
-                        <label className="form-label">Plot No</label>
-                        <div className="input-group">
-                          <span className="input-group-text">Reg-</span>
-                          <input
-                            className="form-control"
-                            value={memberPlotNo}
-                            onChange={(event) => setMemberPlotNo(event.target.value.replace(/^Reg-/i, ""))}
-                            required
-                          />
-                        </div>
-                      </div>
-                    </div>
+	                      <div className="mb-3">
+	                        <label className="form-label">Plot No</label>
+	                        <input className="form-control" value={memberPlotNo} onChange={(event) => setMemberPlotNo(event.target.value)} required />
+	                      </div>
+	                    </div>
                   </div>
                   <div className="mb-3">
                     <label className="form-label d-block">Status</label>
@@ -4403,10 +4428,11 @@ export function App() {
                 <div className="table-responsive">
                   <table className="table table-custom table-centered table-nowrap table-hover mb-0">
                     <thead>
-                      <tr>
-                        <th>Code</th>
-                        <th>Name</th>
-                        <th>Cell</th>
+	                      <tr>
+	                        <th>Code</th>
+	                        <th>Name</th>
+	                        <th>Plot No</th>
+	                        <th>Cell</th>
                         <th>Category</th>
                         <th>Package</th>
                         <th>Status</th>
@@ -4415,10 +4441,11 @@ export function App() {
                     </thead>
                     <tbody>
                       {members.map((member) => (
-                        <tr className="clickable-row" key={member.id} onClick={() => void handleMemberSelect(member.id)}>
-                          <td>{member.member_code}</td>
-                          <td>{member.full_name}</td>
-                          <td>{member.cell_no ?? "N/A"}</td>
+	                        <tr className="clickable-row" key={member.id} onClick={() => void handleMemberSelect(member.id)}>
+	                          <td>{member.member_code}</td>
+	                          <td>{member.full_name}</td>
+	                          <td>{member.plot_no ?? "N/A"}</td>
+	                          <td>{member.cell_no ?? "N/A"}</td>
                           <td>{member.category_name ?? "N/A"}</td>
                           <td>{member.active_package_name ?? "None"}</td>
                           <td>{statusBadge(member.is_active)}</td>
@@ -4505,11 +4532,12 @@ export function App() {
                       </div>
                     </div>
                     <div className="row">
-                      {[
-                        ["Cell", selectedMember.cell_no ?? "N/A"],
-                        ["Email", selectedMember.email ?? "N/A"],
-                        ["Class", selectedMember.member_class ?? "N/A"],
-                        ["Joined", shortDate(selectedMember.joined_on)],
+	                      {[
+	                        ["Cell", selectedMember.cell_no ?? "N/A"],
+	                        ["Email", selectedMember.email ?? "N/A"],
+	                        ["Plot No", selectedMember.plot_no ?? "N/A"],
+	                        ["Class", selectedMember.member_class ?? "N/A"],
+	                        ["Joined", shortDate(selectedMember.joined_on)],
                         ["Nominee", selectedMember.nominee_name ?? "N/A"],
                         ["Nominee Cell", selectedMember.nominee_cell ?? "N/A"],
                       ].map(([label, value]) => (
@@ -4572,19 +4600,49 @@ export function App() {
                     <label className="form-label">Head Name</label>
                     <input className="form-control" value={billingHeadName} onChange={(event) => setBillingHeadName(event.target.value)} required />
                   </div>
-                  <div className="row">
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">Head Type</label>
-                      <select className="form-select" value={billingHeadType} onChange={(event) => setBillingHeadType(event.target.value as "Period" | "OneTime")}>
-                        <option value="Period">Period</option>
-                        <option value="OneTime">OneTime</option>
-                      </select>
-                    </div>
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">Fee</label>
-                      <input className="form-control" type="number" value={billingHeadFee} onChange={(event) => setBillingHeadFee(event.target.value)} required />
-                    </div>
-                  </div>
+	                  <div className="row">
+	                    <div className="col-md-6 mb-3">
+	                      <label className="form-label">Head Type</label>
+	                      <select
+	                        className="form-select"
+	                        value={billingHeadType}
+	                        onChange={(event) => {
+	                          const nextType = event.target.value as "Period" | "OneTime";
+	                          setBillingHeadType(nextType);
+	                          if (nextType === "Period") {
+	                            setBillingHeadMode("Mandatory");
+	                          }
+	                        }}
+	                      >
+	                        <option value="Period">Period</option>
+	                        <option value="OneTime">OneTime</option>
+	                      </select>
+	                    </div>
+	                    <div className="col-md-6 mb-3">
+	                      <label className="form-label">Mode</label>
+	                      <select
+	                        className="form-select"
+	                        value={billingHeadType === "Period" ? "Mandatory" : billingHeadMode}
+	                        onChange={(event) => setBillingHeadMode(event.target.value as "Mandatory" | "Optional")}
+	                        disabled={billingHeadType === "Period"}
+	                      >
+	                        <option value="Mandatory">Mandatory</option>
+	                        <option value="Optional">Optional</option>
+	                      </select>
+	                    </div>
+	                  </div>
+	                  <div className="row">
+	                    <div className="col-md-6 mb-3">
+	                      <label className="form-label">Fee</label>
+	                      <input
+	                        className="form-control"
+	                        type="number"
+	                        value={billingHeadFee}
+	                        onChange={(event) => setBillingHeadFee(event.target.value)}
+	                        required={billingHeadType === "Period" || billingHeadMode === "Mandatory"}
+	                      />
+	                    </div>
+	                  </div>
                   {billingHeadType === "Period" ? (
                     <div className="mb-3">
                       <label className="form-label">Effective From</label>
@@ -4606,12 +4664,13 @@ export function App() {
           <h4 className="header-title">Billing Head Setup</h4>
           <button
             className="btn btn-primary btn-sm"
-            onClick={() => {
-              setEditingBillingHeadId(null);
-              setBillingHeadName("");
-              setBillingHeadType("Period");
-              setBillingHeadFee("500");
-              setBillingHeadEffectiveDate("2018-01-01");
+	            onClick={() => {
+	              setEditingBillingHeadId(null);
+	              setBillingHeadName("");
+	              setBillingHeadType("Period");
+	              setBillingHeadMode("Mandatory");
+	              setBillingHeadFee("500");
+	              setBillingHeadEffectiveDate("2018-01-01");
               setWorkspaceTab("billing-heads-entry");
             }}
             type="button"
@@ -4625,9 +4684,10 @@ export function App() {
             <table className="table table-custom table-centered table-nowrap table-hover mb-0">
               <thead>
                 <tr>
-                  <th>Head</th>
-                  <th>Type</th>
-                  <th>Fee</th>
+	                  <th>Head</th>
+	                  <th>Type</th>
+	                  <th>Mode</th>
+	                  <th>Fee</th>
                   <th>Effective From</th>
                   <th>Status</th>
                   <th className="text-end">Action</th>
@@ -4636,9 +4696,10 @@ export function App() {
               <tbody>
                 {billingHeads.map((head) => (
                   <tr key={head.id}>
-                    <td>{head.head_name}</td>
-                    <td>{head.head_type}</td>
-                    <td>{money(head.fee_amount)}</td>
+	                    <td>{head.head_name}</td>
+	                    <td>{head.head_type}</td>
+	                    <td>{head.billing_mode}</td>
+	                    <td>{money(head.fee_amount)}</td>
                     <td>{shortDate(head.effective_from_date)}</td>
                     <td>{statusBadge(head.is_active)}</td>
                     <td className="text-end">
@@ -4646,10 +4707,11 @@ export function App() {
                         <button
                           className="btn btn-sm btn-soft-info"
                           onClick={() => {
-                            setEditingBillingHeadId(head.id);
-                            setBillingHeadName(head.head_name);
-                            setBillingHeadType(head.head_type);
-                            setBillingHeadFee(String(head.fee_amount));
+	                            setEditingBillingHeadId(head.id);
+	                            setBillingHeadName(head.head_name);
+	                            setBillingHeadType(head.head_type);
+	                            setBillingHeadMode(head.billing_mode);
+	                            setBillingHeadFee(String(head.fee_amount));
                             setBillingHeadEffectiveDate(head.effective_from_date ?? "2018-01-01");
                             setWorkspaceTab("billing-heads-entry");
                           }}
@@ -4968,8 +5030,8 @@ export function App() {
               </div>
             ) : null}
             <form onSubmit={handleInvoiceSubmit}>
-              <div className="row g-3 align-items-end">
-                <div className="col-xl-5 col-lg-5">
+	              <div className="row g-3 align-items-end">
+	                <div className="col-xl-5 col-lg-5">
                   <SearchableDropdown
                     isOpen={invoiceMemberDropdownOpen}
                     label="Member"
@@ -4983,21 +5045,25 @@ export function App() {
                     options={memberDropdownOptions}
                     placeholder="Search member by code, name, or number"
                     search={invoiceMemberSearch}
-                    value={invoiceMemberId}
-                  />
-                </div>
-                <div className="col-xl-3 col-lg-3">
-                  <label className="form-label">Invoice Date</label>
-                  <input className="form-control" type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} required />
-                </div>
-                <div className="col-xl-2 col-lg-2">
-                  <button className="btn btn-outline-info w-100" disabled={!invoiceMemberId || isSubmitting} onClick={() => void handleLoadMemberDues()} type="button">
-                    <i className="ri-search-eye-line me-1" />
-                    View Due
-                  </button>
-                </div>
-                <div className="col-xl-2 col-lg-2">
-                  <button className="btn btn-secondary w-100" disabled={!invoiceMemberId} onClick={() => setShowPreviousBills(true)} type="button">
+	                    value={invoiceMemberId}
+	                  />
+	                </div>
+	                <div className="col-xl-2 col-lg-2">
+	                  <label className="form-label">Plot No</label>
+	                  <input className="form-control" readOnly value={selectedInvoiceMember?.plot_no ?? ""} />
+	                </div>
+	                <div className="col-xl-2 col-lg-2">
+	                  <label className="form-label">Invoice Date</label>
+	                  <input className="form-control" type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} required />
+	                </div>
+	                <div className="col-xl-1 col-lg-1">
+	                  <button className="btn btn-outline-info w-100" disabled={!invoiceMemberId || isSubmitting} onClick={() => void handleLoadMemberDues()} type="button">
+	                    <i className="ri-search-eye-line me-1" />
+	                    View Due
+	                  </button>
+	                </div>
+	                <div className="col-xl-2 col-lg-2">
+	                  <button className="btn btn-secondary w-100" disabled={!invoiceMemberId} onClick={() => setShowPreviousBills(true)} type="button">
                     <i className="ri-file-list-2-line me-1" />
                     Previous Bill
                   </button>
@@ -5013,21 +5079,28 @@ export function App() {
                       <span className="input-group-text">
                         <i className="ri-price-tag-3-line" />
                       </span>
-                      <select className="form-select" value={manualBillingHeadId} onChange={(event) => setManualBillingHeadId(event.target.value)}>
-                        <option value="">Select head</option>
-                        {billingHeads.filter((head) => head.is_active).map((head) => <option key={head.id} value={head.id}>{head.head_name} - {head.head_type} - {money(head.fee_amount)}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                  {billingHeads.find((head) => head.id === Number(manualBillingHeadId))?.head_type === "Period" ? (
-                    <div className="col-xl-2 col-lg-2">
+	                      <select className="form-select" value={manualBillingHeadId} onChange={(event) => setManualBillingHeadId(event.target.value)}>
+	                        <option value="">Select head</option>
+	                        {manualBillingHeadOptions.map((head) => <option key={head.id} value={head.id}>{head.head_name} - {head.head_type} - {head.billing_mode} - {money(head.fee_amount)}</option>)}
+	                      </select>
+	                    </div>
+	                  </div>
+	                  {billingHeads.find((head) => head.id === Number(manualBillingHeadId))?.head_type === "Period" ? (
+	                    <div className="col-xl-2 col-lg-2">
                       <label className="form-label">Period</label>
-                      <input className="form-control" type="month" value={manualBillingPeriod} onChange={(event) => setManualBillingPeriod(event.target.value)} />
-                    </div>
-                  ) : null}
-                  <div className={billingHeads.find((head) => head.id === Number(manualBillingHeadId))?.head_type === "Period" ? "col-xl-3 col-lg-3" : "col-xl-5 col-lg-5"}>
-                    <button className="btn btn-info w-100" disabled={!manualBillingHeadId || !invoiceMemberId} onClick={handleAddManualBillingLine} type="button">Add To Grid</button>
-                  </div>
+	                      <input className="form-control" type="month" value={manualBillingPeriod} onChange={(event) => setManualBillingPeriod(event.target.value)} />
+	                    </div>
+	                  ) : null}
+	                  {billingHeads.find((head) => head.id === Number(manualBillingHeadId))?.head_type === "OneTime" &&
+	                  billingHeads.find((head) => head.id === Number(manualBillingHeadId))?.billing_mode === "Optional" ? (
+	                    <div className="col-xl-2 col-lg-2">
+	                      <label className="form-label">Fee</label>
+	                      <input className="form-control" type="number" value={manualBillingFee} onChange={(event) => setManualBillingFee(event.target.value)} />
+	                    </div>
+	                  ) : null}
+	                  <div className={billingHeads.find((head) => head.id === Number(manualBillingHeadId))?.head_type === "Period" ? "col-xl-3 col-lg-3" : "col-xl-3 col-lg-3"}>
+	                    <button className="btn btn-info w-100" disabled={!manualBillingHeadId || !invoiceMemberId} onClick={handleAddManualBillingLine} type="button">Add To Grid</button>
+	                  </div>
                 </div>
               </div>
 
@@ -6928,9 +7001,16 @@ export function App() {
         </div>
       </header>
 
-      <div className="page-content">
-        <div className="page-container">{renderCurrentPage()}</div>
-      </div>
+	      <div className="page-content">
+	        <div className="page-container">
+	          {message ? (
+	            <div className={`alert alert-${messageTone} border-0 mb-3`} role="alert">
+	              {message}
+	            </div>
+	          ) : null}
+	          {renderCurrentPage()}
+	        </div>
+	      </div>
       {renderSettingsPanel()}
       {renderPreviousBillsModal()}
       {renderInvoiceReportModal()}

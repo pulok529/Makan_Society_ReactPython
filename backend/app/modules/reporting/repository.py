@@ -25,7 +25,9 @@ class ReportingRepository:
         if category_id is not None:
             statement = statement.where(Member.category_id == category_id)
         if plot_no is not None and plot_no.strip():
-            statement = statement.where(Member.member_id_text.ilike(f"%{plot_no.strip()}%"))
+            statement = statement.where(
+                (Member.plot_no.ilike(f"%{plot_no.strip()}%")) | (Member.member_id_text.ilike(f"%{plot_no.strip()}%"))
+            )
         return list(self.db.scalars(statement))
 
     def list_categories(self) -> list[MemberCategory]:

@@ -17,6 +17,7 @@ class MemberRepository:
                     Member.full_name.ilike(pattern),
                     Member.member_code.ilike(pattern),
                     Member.cell_no.ilike(pattern),
+                    Member.plot_no.ilike(pattern),
                 )
             )
         return list(self.db.scalars(statement))

@@ -55,13 +55,17 @@ class BillingService:
         return [self._serialize_head(head) for head in self.repository.list_billing_heads()]
 
     def create_billing_head(self, payload: BillingHeadCreate, user: User) -> BillingHeadRead:
+        billing_mode = "Mandatory" if payload.head_type == "Period" else payload.billing_mode
         if payload.head_type == "Period" and not payload.effective_from_date:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Period heads require effective date")
         if payload.head_type == "OneTime" and (payload.effective_from_month or payload.effective_from_year):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OneTime heads do not use period input")
+        if billing_mode == "Mandatory" and payload.fee_amount <= 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mandatory heads require a fee amount")
         head = BillingHead(
             head_name=payload.head_name.strip(),
             head_type=payload.head_type,
+            billing_mode=billing_mode,
             fee_amount=payload.fee_amount,
             effective_from_month=payload.effective_from_month,
             effective_from_year=payload.effective_from_year,
@@ -77,10 +81,13 @@ class BillingService:
         old_head = self.repository.get_billing_head(head_id)
         if old_head is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Billing head not found")
+        billing_mode = "Mandatory" if payload.head_type == "Period" else payload.billing_mode
         if payload.head_type == "Period" and not payload.effective_from_date:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Period heads require effective date")
         if payload.head_type == "OneTime" and (payload.effective_from_month or payload.effective_from_year):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OneTime heads do not use period input")
+        if billing_mode == "Mandatory" and payload.fee_amount <= 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mandatory heads require a fee amount")
 
         old_mapping = self.repository.get_active_head_mapping(old_head.id)
         old_head.is_active = False
@@ -91,6 +98,7 @@ class BillingService:
         new_head = BillingHead(
             head_name=payload.head_name.strip(),
             head_type=payload.head_type,
+            billing_mode=billing_mode,
             fee_amount=payload.fee_amount,
             effective_from_month=payload.effective_from_month,
             effective_from_year=payload.effective_from_year,
@@ -198,12 +206,20 @@ class BillingService:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Period head requires period date")
             if head.head_type == "OneTime" and line.period_date is not None:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OneTime head cannot use period date")
+            if head.billing_mode == "Mandatory" and line.fee_amount <= 0:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mandatory head requires fee amount")
+            if head.billing_mode == "Optional" and head.head_type == "OneTime" and line.fee_amount <= 0:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Optional one-time head requires amount when billing")
             if line.receive_amount + line.discount_amount > line.fee_amount:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Receive amount plus discount cannot exceed fee")
             if line.period_date is not None:
                 paid, due = self.repository.get_period_payment_totals(payload.member_id, head.id, line.period_date)
                 if due <= 0 < paid and line.receive_amount + line.discount_amount >= line.fee_amount:
                     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This member/head/period is already fully paid")
+            elif head.billing_mode == "Mandatory":
+                paid, due = self.repository.get_one_time_payment_totals(payload.member_id, head.id)
+                if due <= 0 < paid and line.receive_amount + line.discount_amount >= line.fee_amount:
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This mandatory one-time head is already fully paid")
 
             mapping = self.repository.get_active_head_mapping(head.id)
             due_amount = max(line.fee_amount - line.receive_amount - line.discount_amount, 0)
@@ -553,6 +569,7 @@ class BillingService:
             head = BillingHead(
                 head_name="Monthly Subscription",
                 head_type="Period",
+                billing_mode="Mandatory",
                 fee_amount=500,
                 effective_from_month=1,
                 effective_from_year=2018,
@@ -578,6 +595,7 @@ class BillingService:
             id=head.id,
             head_name=head.head_name,
             head_type=head.head_type,
+            billing_mode=head.billing_mode,
             fee_amount=float(head.fee_amount),
             effective_from_month=head.effective_from_month,
             effective_from_year=head.effective_from_year,
@@ -613,37 +631,61 @@ class BillingService:
         today = date.today()
         rows: list[BillingDueLineRead] = []
         for head in self.repository.list_billing_heads(active_only=True):
-            if head.head_type != "Period":
-                continue
-            start = self._month_start(member.joined_on or date(2018, 1, 1))
-            start = max(start, date(2018, 1, 1))
-            if head.effective_from_date:
-                start = max(start, self._month_start(head.effective_from_date))
-            current = start
-            end = self._month_start(today)
-            while current <= end:
-                fee = self._period_fee(current, float(head.fee_amount))
-                paid, due = self.repository.get_period_payment_totals(member.id, head.id, current)
-                remaining = fee - paid
-                if due > 0:
-                    remaining = due
-                if remaining > 0:
-                    mapping = self.repository.get_active_head_mapping(head.id)
-                    rows.append(
-                        BillingDueLineRead(
-                            member_id=member.id,
-                            billing_head_id=head.id,
-                            head_name=head.head_name,
-                            head_type=head.head_type,
-                            period_date=current,
-                            period_display=self._period_display(current),
-                            fee_amount=fee,
-                            paid_amount=paid,
-                            due_amount=remaining,
-                            coa_id_snapshot=mapping.coa_id if mapping else None,
+            mapping = self.repository.get_active_head_mapping(head.id)
+            if head.head_type == "Period":
+                start = self._month_start(member.joined_on or date(2018, 1, 1))
+                start = max(start, date(2018, 1, 1))
+                if head.effective_from_date:
+                    start = max(start, self._month_start(head.effective_from_date))
+                current = start
+                end = self._month_start(today)
+                while current <= end:
+                    fee = self._period_fee(current, float(head.fee_amount))
+                    paid, due = self.repository.get_period_payment_totals(member.id, head.id, current)
+                    remaining = fee - paid
+                    if due > 0:
+                        remaining = due
+                    if remaining > 0:
+                        rows.append(
+                            BillingDueLineRead(
+                                member_id=member.id,
+                                billing_head_id=head.id,
+                                head_name=head.head_name,
+                                head_type=head.head_type,
+                                billing_mode=head.billing_mode,
+                                period_date=current,
+                                period_display=self._period_display(current),
+                                fee_amount=fee,
+                                paid_amount=paid,
+                                due_amount=remaining,
+                                coa_id_snapshot=mapping.coa_id if mapping else None,
+                            )
                         )
+                    current = self._next_month(current)
+                continue
+
+            if head.billing_mode != "Mandatory":
+                continue
+
+            fee = float(head.fee_amount)
+            paid, due = self.repository.get_one_time_payment_totals(member.id, head.id)
+            remaining = due if due > 0 else max(fee - paid, 0)
+            if remaining > 0:
+                rows.append(
+                    BillingDueLineRead(
+                        member_id=member.id,
+                        billing_head_id=head.id,
+                        head_name=head.head_name,
+                        head_type=head.head_type,
+                        billing_mode=head.billing_mode,
+                        period_date=None,
+                        period_display=None,
+                        fee_amount=fee,
+                        paid_amount=paid,
+                        due_amount=remaining,
+                        coa_id_snapshot=mapping.coa_id if mapping else None,
                     )
-                current = self._next_month(current)
+                )
         return rows
 
     @staticmethod
