@@ -804,6 +804,7 @@ export function App() {
   const [messageTone, setMessageTone] = useState<"info" | "success" | "danger" | "warning">("info");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(false);
+  const [isDashboardReady, setIsDashboardReady] = useState(false);
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
@@ -1315,23 +1316,72 @@ export function App() {
     if (!accessToken) return;
 
     setIsWorkspaceLoading(true);
+    if (!isDashboardReady) {
+      setMessage("Loading dashboard...");
+      setMessageTone("info");
+    }
     try {
       const [
         categoriesResult,
         packagesResult,
         membersResult,
-        periodsResult,
-        chargesResult,
         receiptsResult,
         dashboardResult,
         dueSummariesResult,
+        summaryResult,
+      ] = await Promise.all([
+        settleRequest<Category[]>("/api/categories", accessToken),
+        settleRequest<Package[]>("/api/packages", accessToken),
+        settleRequest<MemberListItem[]>("/api/members", accessToken),
+        settleRequest<Receipt[]>("/api/billing/receipts", accessToken),
+        settleRequest<BillingDashboard>("/api/billing/dashboard", accessToken),
+        settleRequest<BillingMemberSummary[]>("/api/billing/member-due-summary", accessToken),
+        settleRequest<AccountingSummary>("/api/accounting/summary", accessToken),
+      ]);
+
+      if (categoriesResult.ok) setCategories(categoriesResult.value);
+      if (packagesResult.ok) setPackages(packagesResult.value);
+      if (membersResult.ok) setMembers(membersResult.value);
+      if (receiptsResult.ok) setReceipts(receiptsResult.value);
+      if (dashboardResult.ok) setBillingDashboard(dashboardResult.value);
+      if (dueSummariesResult.ok) setMemberDueSummaries(dueSummariesResult.value);
+      if (summaryResult.ok) setAccountingSummary(summaryResult.value);
+
+      const availableMembers = membersResult.ok ? membersResult.value : members;
+      const memberIdToLoad = selectedMemberId ?? selectedMember?.id ?? null;
+      if (memberIdToLoad) {
+        const detail = await apiRequest<MemberDetail>(`/api/members/${memberIdToLoad}`, accessToken);
+        setSelectedMember(detail);
+      } else if (!selectedMemberId) {
+        setSelectedMember(null);
+      }
+
+      const coreFailedCount = [
+        categoriesResult,
+        packagesResult,
+        membersResult,
+        receiptsResult,
+        dashboardResult,
+        dueSummariesResult,
+        summaryResult,
+      ].filter((result) => !result.ok).length;
+
+      setIsDashboardReady(true);
+      setMessage(
+        coreFailedCount === 0
+          ? "Dashboard loaded. Loading the remaining sections in the background..."
+          : `Dashboard loaded. ${coreFailedCount} core section${coreFailedCount === 1 ? "" : "s"} could not be refreshed.`,
+      );
+
+      const [
+        periodsResult,
+        chargesResult,
         accountsResult,
         entriesResult,
         incomeEntriesResult,
         expenseEntriesResult,
         incomeVouchersResult,
         expenseVouchersResult,
-        summaryResult,
         templatesResult,
         messagesResult,
         attemptsResult,
@@ -1340,21 +1390,14 @@ export function App() {
         billingMappingsResult,
         invoicesResult,
       ] = await Promise.all([
-        settleRequest<Category[]>("/api/categories", accessToken),
-        settleRequest<Package[]>("/api/packages", accessToken),
-        settleRequest<MemberListItem[]>("/api/members", accessToken),
         settleRequest<BillingPeriod[]>("/api/billing/periods", accessToken),
         settleRequest<Charge[]>("/api/billing/charges", accessToken),
-        settleRequest<Receipt[]>("/api/billing/receipts", accessToken),
-        settleRequest<BillingDashboard>("/api/billing/dashboard", accessToken),
-        settleRequest<BillingMemberSummary[]>("/api/billing/member-due-summary", accessToken),
         settleRequest<Account[]>("/api/accounting/accounts", accessToken),
         settleRequest<AccountingEntry[]>("/api/accounting/entries", accessToken),
         settleRequest<AccountingMasterEntry[]>("/api/accounting/income", accessToken),
         settleRequest<AccountingMasterEntry[]>("/api/accounting/expense", accessToken),
         settleRequest<AccountingVoucher[]>("/api/accounting/vouchers/income", accessToken),
         settleRequest<AccountingVoucher[]>("/api/accounting/vouchers/expense", accessToken),
-        settleRequest<AccountingSummary>("/api/accounting/summary", accessToken),
         settleRequest<SmsTemplate[]>("/api/messaging/templates", accessToken),
         settleRequest<SmsMessage[]>("/api/messaging/messages", accessToken),
         settleRequest<SmsAttempt[]>("/api/messaging/attempts", accessToken),
@@ -1364,21 +1407,14 @@ export function App() {
         settleRequest<BillingInvoice[]>("/api/billing/invoices", accessToken),
       ]);
 
-      if (categoriesResult.ok) setCategories(categoriesResult.value);
-      if (packagesResult.ok) setPackages(packagesResult.value);
-      if (membersResult.ok) setMembers(membersResult.value);
       if (periodsResult.ok) setBillingPeriods(periodsResult.value);
       if (chargesResult.ok) setCharges(chargesResult.value);
-      if (receiptsResult.ok) setReceipts(receiptsResult.value);
-      if (dashboardResult.ok) setBillingDashboard(dashboardResult.value);
-      if (dueSummariesResult.ok) setMemberDueSummaries(dueSummariesResult.value);
       if (accountsResult.ok) setAccounts(accountsResult.value);
       if (entriesResult.ok) setAccountingEntries(entriesResult.value);
       if (incomeEntriesResult.ok) setIncomeMasterEntries(incomeEntriesResult.value);
       if (expenseEntriesResult.ok) setExpenseMasterEntries(expenseEntriesResult.value);
       if (incomeVouchersResult.ok) setIncomeVouchers(incomeVouchersResult.value);
       if (expenseVouchersResult.ok) setExpenseVouchers(expenseVouchersResult.value);
-      if (summaryResult.ok) setAccountingSummary(summaryResult.value);
       if (templatesResult.ok) setSmsTemplates(templatesResult.value);
       if (messagesResult.ok) setSmsMessages(messagesResult.value);
       if (attemptsResult.ok) setSmsAttempts(attemptsResult.value);
@@ -1401,31 +1437,22 @@ export function App() {
       if (billingMappingsResult.ok) setBillingHeadMappings(billingMappingsResult.value);
       if (invoicesResult.ok) setBillingInvoices(invoicesResult.value);
 
-      const availableMembers = membersResult.ok ? membersResult.value : members;
-      const memberIdToLoad = selectedMemberId ?? selectedMember?.id ?? availableMembers[0]?.id;
-      if (memberIdToLoad) {
-        const detail = await apiRequest<MemberDetail>(`/api/members/${memberIdToLoad}`, accessToken);
-        setSelectedMember(detail);
-      } else {
-        setSelectedMember(null);
-      }
-
       const failedCount = [
         categoriesResult,
         packagesResult,
         membersResult,
-        periodsResult,
-        chargesResult,
         receiptsResult,
         dashboardResult,
         dueSummariesResult,
+        summaryResult,
+        periodsResult,
+        chargesResult,
         accountsResult,
         entriesResult,
         incomeEntriesResult,
         expenseEntriesResult,
         incomeVouchersResult,
         expenseVouchersResult,
-        summaryResult,
         templatesResult,
         messagesResult,
         attemptsResult,
@@ -1653,6 +1680,7 @@ export function App() {
     localStorage.removeItem(refreshTokenKey);
     setShowUserMenu(false);
     setProfile(null);
+    setIsDashboardReady(false);
     setAuthState("guest");
     setMessage("Signed out.");
   }
@@ -3796,6 +3824,18 @@ export function App() {
   }
 
   function renderDashboard() {
+    if (!isDashboardReady && isWorkspaceLoading) {
+      return (
+        <div className="card">
+          <div className="card-body py-5 text-center">
+            <div className="spinner-border text-primary mb-3" role="status" aria-hidden="true" />
+            <h4 className="mb-2">Loading dashboard data...</h4>
+            <p className="text-muted mb-0">We&apos;re pulling the main society totals first so the software opens faster.</p>
+          </div>
+        </div>
+      );
+    }
+
     const operationValues = [
       categories.length,
       packages.length,
@@ -3808,6 +3848,13 @@ export function App() {
 
     return (
       <>
+        {isWorkspaceLoading ? (
+          <div className="alert alert-info border-0 d-flex align-items-center gap-2" role="alert">
+            <span className="spinner-border spinner-border-sm" aria-hidden="true" />
+            <span>Dashboard is ready. Remaining sections are still refreshing in the background.</span>
+          </div>
+        ) : null}
+
         <div className="row row-cols-xxl-4 row-cols-md-2 row-cols-1">
           <StatCard title="Total Members" value={String(members.length)} subtitle={`${activeMembers.length} active`} icon="ri-team-line" tone="primary" />
           <StatCard title="Total Collection" value={money(totalCollection)} subtitle={`${receipts.length} receipts`} icon="ri-wallet-3-line" tone="success" />
