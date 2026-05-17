@@ -14,7 +14,6 @@ from app.modules.members.schemas import (
     MemberUpdate,
 )
 from app.modules.members.service import MemberService
-from app.modules.packages.repository import PackageRepository
 
 router = APIRouter(prefix="/members", tags=["members"])
 
@@ -23,18 +22,17 @@ def _serialize_member_detail(member_id: int, db: Session) -> MemberDetailRead:
     service = MemberService(db)
     repository = MemberRepository(db)
     categories = {category.id: category for category in CategoryRepository(db).list_categories()}
-    packages = {package.id: package for package in PackageRepository(db).list_packages()}
 
     member = service.get_member(member_id)
     nominee = repository.get_nominee(member_id)
     assignments = repository.list_member_packages(member_id)
-    active_assignment = next((assignment for assignment in assignments if assignment.is_active), None)
 
     return MemberDetailRead(
         id=member.id,
         member_code=member.member_code,
         member_id_text=member.member_id_text,
         plot_no=member.plot_no,
+        plot_count=member.plot_count,
         full_name=member.full_name,
         father_name=member.father_name,
         mother_name=member.mother_name,
@@ -53,14 +51,11 @@ def _serialize_member_detail(member_id: int, db: Session) -> MemberDetailRead:
         entry_at=member.entry_at,
         nominee_name=nominee.nominee_name if nominee is not None else None,
         nominee_cell=nominee.nominee_cell if nominee is not None else None,
-        active_package_id=active_assignment.package_id if active_assignment is not None else None,
         packages=[
             MemberPackageAssignmentRead(
                 id=assignment.id,
                 package_id=assignment.package_id,
-                package_name=packages[assignment.package_id].name
-                if assignment.package_id in packages
-                else "Unknown",
+                package_name="Legacy Package",
                 assigned_on=assignment.assigned_on,
                 ended_on=assignment.ended_on,
                 is_active=assignment.is_active,
@@ -78,27 +73,21 @@ def list_members(
 ) -> list[MemberListItem]:
     service = MemberService(db)
     categories = {category.id: category for category in CategoryRepository(db).list_categories()}
-    packages = {package.id: package for package in PackageRepository(db).list_packages()}
-    repository = MemberRepository(db)
     items: list[MemberListItem] = []
 
     for member in service.list_members(search):
-        assignments = repository.list_member_packages(member.id)
-        active_assignment = next((assignment for assignment in assignments if assignment.is_active), None)
         items.append(
             MemberListItem(
                 id=member.id,
                 member_code=member.member_code,
                 full_name=member.full_name,
                 plot_no=member.plot_no,
+                plot_count=member.plot_count,
                 cell_no=member.cell_no,
                 category_id=member.category_id,
                 category_name=categories[member.category_id].name if member.category_id in categories else None,
                 joined_on=member.joined_on,
                 is_active=member.is_active,
-                active_package_name=packages[active_assignment.package_id].name
-                if active_assignment is not None and active_assignment.package_id in packages
-                else None,
             )
         )
 

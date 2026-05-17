@@ -45,18 +45,19 @@ type MemberListItem = {
   member_code: string;
   full_name: string;
   plot_no: string | null;
+  plot_count: number;
   cell_no: string | null;
   category_id: number | null;
   category_name: string | null;
   joined_on: string | null;
   is_active: boolean;
-  active_package_name: string | null;
 };
 
 type MemberInformationSummary = {
   member_code: string;
   full_name: string;
   plot_no: string | null;
+  plot_count: number;
   category_name: string | null;
   national_id: string | null;
   cell_no: string | null;
@@ -71,7 +72,6 @@ type MemberInformationSummary = {
   reference: string | null;
   nominee_name: string | null;
   nominee_cell: string | null;
-  active_package_name: string | null;
   total_collection_amount: number;
   total_due_amount: number;
 };
@@ -90,6 +90,7 @@ type MemberDetail = {
   member_code: string;
   member_id_text: string | null;
   plot_no: string | null;
+  plot_count: number;
   full_name: string;
   father_name: string | null;
   mother_name: string | null;
@@ -108,7 +109,6 @@ type MemberDetail = {
   entry_at: string;
   nominee_name: string | null;
   nominee_cell: string | null;
-  active_package_id: number | null;
   packages: MemberPackageAssignment[];
 };
 
@@ -223,6 +223,8 @@ type BillingDueLine = {
   billing_mode: "Mandatory" | "Optional";
   period_date: string | null;
   period_display: string | null;
+  plot_count: number;
+  base_fee_amount: number;
   fee_amount: number;
   paid_amount: number;
   due_amount: number;
@@ -489,7 +491,6 @@ type ThemeSettings = {
 const navItems: NavItem[] = [
   { key: "dashboard", label: "Dashboard", icon: "ri-dashboard-3-line", group: "Home" },
   { key: "categories", label: "Category Setup", icon: "ri-list-check-3", group: "Setup" },
-  { key: "packages", label: "Package Setup", icon: "ri-stack-line", group: "Setup" },
   { key: "members", label: "Member Registration", icon: "ri-team-line", group: "Operations" },
   { key: "billing-heads-view", label: "Billing Head", icon: "ri-price-tag-3-line", group: "Setup" },
   { key: "billing-mappings-view", label: "Billing Mapping", icon: "ri-node-tree", group: "Setup" },
@@ -861,6 +862,7 @@ export function App() {
   const [memberPermanentAddress, setMemberPermanentAddress] = useState("");
   const [memberNationalId, setMemberNationalId] = useState("");
   const [memberPlotNo, setMemberPlotNo] = useState("");
+  const [memberPlotCount, setMemberPlotCount] = useState("1");
   const [memberCategoryId, setMemberCategoryId] = useState("");
   const [memberClass, setMemberClass] = useState("");
   const [memberPackageId, setMemberPackageId] = useState("");
@@ -1089,7 +1091,7 @@ export function App() {
       members.map((member) => ({
         value: String(member.id),
         label: `${member.member_code} - ${member.full_name}`,
-        meta: [member.plot_no ? `Plot ${member.plot_no}` : null, member.cell_no, member.category_name, member.active_package_name].filter(Boolean).join(" | "),
+        meta: [member.plot_no ? `Plot ${member.plot_no}` : null, `Plots ${member.plot_count ?? 1}`, member.cell_no, member.category_name].filter(Boolean).join(" | "),
       })),
     [members],
   );
@@ -1739,9 +1741,9 @@ export function App() {
     setMemberPermanentAddress("");
     setMemberNationalId("");
     setMemberPlotNo("");
+    setMemberPlotCount("1");
     setMemberCategoryId("");
     setMemberClass("General");
-    setMemberPackageId("");
     setMemberIsActive(true);
     setNomineeName("");
     setNomineeCell("");
@@ -1768,9 +1770,9 @@ export function App() {
     setMemberPermanentAddress(detail.permanent_address ?? "");
     setMemberNationalId(detail.national_id ?? "");
     setMemberPlotNo(detail.plot_no ?? (detail.member_id_text ?? "").replace(/^Reg-/i, ""));
+    setMemberPlotCount(String(detail.plot_count ?? 1));
     setMemberCategoryId(detail.category_id ? String(detail.category_id) : "");
     setMemberClass(detail.member_class ?? "General");
-    setMemberPackageId(detail.active_package_id ? String(detail.active_package_id) : "");
     setMemberIsActive(detail.is_active);
     setNomineeName(detail.nominee_name ?? "");
     setNomineeCell(detail.nominee_cell ?? "");
@@ -1843,6 +1845,7 @@ export function App() {
       showError("Nominee phone number must contain digits only.");
       return;
     }
+    const normalizedPlotCount = Math.max(Number(memberPlotCount || 1), 1);
     setIsSubmitting(true);
     try {
       const wasEditing = editingMemberId !== null;
@@ -1850,6 +1853,7 @@ export function App() {
         member_code: memberCode,
         member_id_text: normalizedPlotNo ? `Reg-${normalizedPlotNo}` : null,
         plot_no: normalizedPlotNo || null,
+        plot_count: normalizedPlotCount,
         full_name: memberName,
         father_name: memberFatherName || null,
         mother_name: memberMotherName || null,
@@ -1862,16 +1866,6 @@ export function App() {
         member_class: memberClass || null,
         is_active: memberIsActive,
         nominee: nomineeName || normalizedNomineePhone ? { nominee_name: nomineeName || null, nominee_cell: normalizedNomineePhone || null } : null,
-        ...(editingMemberId
-          ? { package_id: memberPackageId ? Number(memberPackageId) : null }
-          : {
-              initial_package: {
-                package_id: Number(memberPackageId),
-                assigned_on: new Date().toISOString().slice(0, 10),
-                ended_on: null,
-                is_active: true,
-              },
-            }),
       };
       const saved = await apiRequest<MemberDetail>(editingMemberId ? `/api/members/${editingMemberId}` : "/api/members", accessToken, {
         method: editingMemberId ? "PUT" : "POST",
@@ -2987,6 +2981,7 @@ export function App() {
                     ["Phone", info.cell_no ?? "N/A"],
                     ["Email", info.email ?? "N/A"],
                     ["Member Class", info.member_class ?? "N/A"],
+                    ["Plot Count", String(info.plot_count ?? 1)],
                     ["Joined On", info.joined_on ? shortDate(info.joined_on) : "N/A"],
                     ["Status", info.is_active ? "Active" : "Inactive"],
                     ["Father Name", info.father_name ?? "N/A"],
@@ -2996,7 +2991,6 @@ export function App() {
                     ["Reference", info.reference ?? "N/A"],
                     ["Nominee Name", info.nominee_name ?? "N/A"],
                     ["Nominee Cell", info.nominee_cell ?? "N/A"],
-                    ["Active Package", info.active_package_name ?? "N/A"],
                     ["Total Collection", money(info.total_collection_amount)],
                     ["Total Due", money(info.total_due_amount)],
                   ].map(([label, value]) => (
@@ -3158,7 +3152,9 @@ export function App() {
       showError("Select a billing head first.");
       return;
     }
-    const feeAmount = head.head_type === "OneTime" && head.billing_mode === "Optional" ? Number(manualBillingFee || 0) : Number(head.fee_amount);
+    const plotCount = Math.max(Number(selectedInvoiceMember?.plot_count ?? 1), 1);
+    const baseFeeAmount = head.head_type === "OneTime" && head.billing_mode === "Optional" ? Number(manualBillingFee || 0) : Number(head.fee_amount);
+    const feeAmount = head.head_type === "Period" ? baseFeeAmount * plotCount : baseFeeAmount;
     if (feeAmount <= 0) {
       showError("Enter a valid fee amount.");
       return;
@@ -3175,6 +3171,8 @@ export function App() {
         billing_mode: head.billing_mode,
         period_date: periodDate,
         period_display: periodDisplay,
+        plot_count: plotCount,
+        base_fee_amount: baseFeeAmount,
         fee_amount: feeAmount,
         paid_amount: 0,
         due_amount: feeAmount,
@@ -3836,15 +3834,16 @@ export function App() {
       );
     }
 
+    const totalPlots = members.reduce((sum, member) => sum + Number(member.plot_count ?? 1), 0);
     const operationValues = [
       categories.length,
-      packages.length,
       members.length,
+      totalPlots,
       billingDashboard?.total_open_charges ?? 0,
       receipts.length,
       smsMessages.length,
     ];
-    const operationLabels = ["Cat", "Pkg", "Mem", "Due", "Rec", "SMS"];
+    const operationLabels = ["Cat", "Mem", "Plot", "Due", "Rec", "SMS"];
 
     return (
       <>
@@ -4412,20 +4411,20 @@ export function App() {
                           onChange={(event) => setNomineeCell(event.target.value.replace(/[^\d]/g, ""))}
                         />
                       </div>
-                      <div className="mb-3">
-                        <label className="form-label">Package</label>
-                        <select className="form-select" value={memberPackageId} onChange={(event) => setMemberPackageId(event.target.value)} required>
-                          <option value="">Select package</option>
-                          {packages.map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.package_code} - {item.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
 	                      <div className="mb-3">
 	                        <label className="form-label">Plot No</label>
 	                        <input className="form-control" value={memberPlotNo} onChange={(event) => setMemberPlotNo(event.target.value)} required />
+	                      </div>
+	                      <div className="mb-3">
+	                        <label className="form-label">Plot Count</label>
+	                        <input
+	                          className="form-control"
+	                          type="number"
+	                          min="1"
+	                          value={memberPlotCount}
+	                          onChange={(event) => setMemberPlotCount(event.target.value)}
+	                          required
+	                        />
 	                      </div>
 	                    </div>
                   </div>
@@ -4479,9 +4478,9 @@ export function App() {
 	                        <th>Code</th>
 	                        <th>Name</th>
 	                        <th>Plot No</th>
+	                        <th>Plot Count</th>
 	                        <th>Cell</th>
                         <th>Category</th>
-                        <th>Package</th>
                         <th>Status</th>
                         <th className="text-end">Action</th>
                       </tr>
@@ -4492,9 +4491,9 @@ export function App() {
 	                          <td>{member.member_code}</td>
 	                          <td>{member.full_name}</td>
 	                          <td>{member.plot_no ?? "N/A"}</td>
+	                          <td>{member.plot_count ?? 1}</td>
 	                          <td>{member.cell_no ?? "N/A"}</td>
                           <td>{member.category_name ?? "N/A"}</td>
-                          <td>{member.active_package_name ?? "None"}</td>
                           <td>{statusBadge(member.is_active)}</td>
                           <td className="text-end">
                             <button
@@ -4521,47 +4520,7 @@ export function App() {
         </div>
 
         <div className="row">
-          <div className="col-xl-4">
-            <div className="card">
-              <div className="card-header">
-                <h4 className="header-title">Assign Package</h4>
-              </div>
-              <div className="card-body">
-                <form onSubmit={handlePackageAssignmentSubmit}>
-                  <div className="mb-3">
-                    <label className="form-label">Member</label>
-                    <select className="form-select" value={assignMemberId} onChange={(event) => setAssignMemberId(event.target.value)} required>
-                      <option value="">Select member</option>
-                      {members.map((member) => (
-                        <option key={member.id} value={member.id}>
-                          {member.member_code} - {member.full_name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">Package</label>
-                    <select className="form-select" value={assignPackageId} onChange={(event) => setAssignPackageId(event.target.value)} required>
-                      <option value="">Select package</option>
-                      {packages.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.package_code} - {item.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label">Assigned On</label>
-                    <input className="form-control" type="date" value={assignDate} onChange={(event) => setAssignDate(event.target.value)} required />
-                  </div>
-                  <button className="btn btn-primary" disabled={isSubmitting} type="submit">
-                    Assign Package
-                  </button>
-                </form>
-              </div>
-            </div>
-          </div>
-          <div className="col-xl-8">
+          <div className="col-xl-12">
             <div className="card">
               <div className="card-header">
                 <h4 className="header-title">Member Detail</h4>
@@ -4583,8 +4542,9 @@ export function App() {
 	                        ["Cell", selectedMember.cell_no ?? "N/A"],
 	                        ["Email", selectedMember.email ?? "N/A"],
 	                        ["Plot No", selectedMember.plot_no ?? "N/A"],
+	                        ["Plot Count", String(selectedMember.plot_count ?? 1)],
 	                        ["Class", selectedMember.member_class ?? "N/A"],
-	                        ["Joined", shortDate(selectedMember.joined_on)],
+                        ["Joined", shortDate(selectedMember.joined_on)],
                         ["Nominee", selectedMember.nominee_name ?? "N/A"],
                         ["Nominee Cell", selectedMember.nominee_cell ?? "N/A"],
                       ].map(([label, value]) => (
@@ -4593,28 +4553,6 @@ export function App() {
                           <h5 className="fs-14 mt-1">{value}</h5>
                         </div>
                       ))}
-                    </div>
-                    <div className="table-responsive">
-                      <table className="table table-custom table-centered table-sm table-nowrap table-hover mb-0">
-                        <thead>
-                          <tr>
-                            <th>Package</th>
-                            <th>Assigned</th>
-                            <th>Ended</th>
-                            <th>Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {selectedMember.packages.map((item) => (
-                            <tr key={item.id}>
-                              <td>{item.package_name}</td>
-                              <td>{shortDate(item.assigned_on)}</td>
-                              <td>{shortDate(item.ended_on)}</td>
-                              <td>{statusBadge(item.is_active)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
                     </div>
                   </>
                 ) : (
@@ -5099,7 +5037,11 @@ export function App() {
 	                  <label className="form-label">Plot No</label>
 	                  <input className="form-control" readOnly value={selectedInvoiceMember?.plot_no ?? ""} />
 	                </div>
-	                <div className="col-xl-2 col-lg-2">
+	                <div className="col-xl-1 col-lg-1">
+	                  <label className="form-label">Plots</label>
+	                  <input className="form-control" readOnly value={String(selectedInvoiceMember?.plot_count ?? 1)} />
+	                </div>
+	                <div className="col-xl-1 col-lg-1">
 	                  <label className="form-label">Invoice Date</label>
 	                  <input className="form-control" type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} required />
 	                </div>
@@ -5179,6 +5121,8 @@ export function App() {
                       </th>
                       <th className="text-center">Head Name</th>
                       <th className="text-center">Period</th>
+                      <th className="text-center">Plot Count</th>
+                      <th className="text-center">Base Amount</th>
                       <th className="text-center">Fee Amount</th>
                       <th className="text-center">Receive Amount</th>
                       <th className="text-center">Due Amount</th>
@@ -5207,7 +5151,9 @@ export function App() {
                           </td>
                           <td className="text-center fw-semibold">{line.head_name}</td>
                           <td className="text-center"><span className="badge bg-secondary-subtle text-secondary">{line.period_display ?? "One Time"}</span></td>
-                          <td className="text-center">{money(line.due_amount)}</td>
+                          <td className="text-center">{line.plot_count ?? 1}</td>
+                          <td className="text-center">{money(line.base_fee_amount ?? line.fee_amount)}</td>
+                          <td className="text-center">{money(line.fee_amount)}</td>
                           <td className="text-center">
                             <input className="form-control form-control-sm billing-receive-input mx-auto" type="number" max={line.due_amount} value={invoiceReceipts[key] ?? "0"} onChange={(event) => setInvoiceReceipts((current) => ({ ...current, [key]: event.target.value }))} />
                           </td>
@@ -5219,7 +5165,7 @@ export function App() {
                   {billingDueLines.length > 0 ? (
                     <tfoot>
                       <tr>
-                        <th className="text-center" colSpan={3}>Total</th>
+                        <th className="text-center" colSpan={5}>Total</th>
                         <th className="text-center">{money(billingGridFeeTotal)}</th>
                         <th className="text-center">{money(billingGridReceiveTotal)}</th>
                         <th className="text-center">{money(billingGridDueTotal)}</th>

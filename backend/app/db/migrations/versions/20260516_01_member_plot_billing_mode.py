@@ -16,22 +16,32 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("members", sa.Column("plot_no", sa.String(length=100), nullable=True), schema="society")
-    op.create_index("ix_society_members_plot_no", "members", ["plot_no"], unique=False, schema="society")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    member_columns = {column["name"] for column in inspector.get_columns("members", schema="society")}
+    member_indexes = {index["name"] for index in inspector.get_indexes("members", schema="society")}
+    billing_head_columns = {column["name"] for column in inspector.get_columns("billing_heads", schema="billing")}
 
-    op.add_column(
-        "members",
-        sa.Column("entry_at", sa.DateTime(timezone=True), nullable=True, server_default=sa.text("CURRENT_TIMESTAMP")),
-        schema="society",
-    )
+    if "plot_no" not in member_columns:
+        op.add_column("members", sa.Column("plot_no", sa.String(length=100), nullable=True), schema="society")
+    if "ix_society_members_plot_no" not in member_indexes:
+        op.create_index("ix_society_members_plot_no", "members", ["plot_no"], unique=False, schema="society")
+
+    if "entry_at" not in member_columns:
+        op.add_column(
+            "members",
+            sa.Column("entry_at", sa.DateTime(timezone=True), nullable=True, server_default=sa.text("CURRENT_TIMESTAMP")),
+            schema="society",
+        )
     op.execute("UPDATE society.members SET entry_at = ISNULL(created_at, CURRENT_TIMESTAMP) WHERE entry_at IS NULL")
-    op.alter_column("members", "entry_at", nullable=False, schema="society")
+    op.alter_column("members", "entry_at", existing_type=sa.DateTime(timezone=True), nullable=False, schema="society")
 
-    op.add_column(
-        "billing_heads",
-        sa.Column("BillingMode", sa.String(length=20), nullable=False, server_default="Mandatory"),
-        schema="billing",
-    )
+    if "BillingMode" not in billing_head_columns:
+        op.add_column(
+            "billing_heads",
+            sa.Column("BillingMode", sa.String(length=20), nullable=False, server_default="Mandatory"),
+            schema="billing",
+        )
 
     op.execute(
         """

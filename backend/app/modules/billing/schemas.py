@@ -154,6 +154,8 @@ class BillingDueLineRead(BaseModel):
     billing_mode: str
     period_date: date | None
     period_display: str | None
+    plot_count: int
+    base_fee_amount: float
     fee_amount: float
     paid_amount: float
     due_amount: float

@@ -40,6 +40,7 @@ class MemberService:
             member_code=payload.member_code.strip(),
             member_id_text=payload.member_id_text.strip() if payload.member_id_text else None,
             plot_no=payload.plot_no.strip() if payload.plot_no else None,
+            plot_count=max(int(payload.plot_count or 1), 1),
             full_name=payload.full_name.strip(),
             father_name=payload.father_name.strip() if payload.father_name else None,
             mother_name=payload.mother_name.strip() if payload.mother_name else None,
@@ -69,9 +70,6 @@ class MemberService:
                     else None,
                 )
             )
-
-        if payload.initial_package is not None:
-            self.assign_package(member.id, payload.initial_package)
 
         self.db.commit()
         self.db.refresh(member)
@@ -108,6 +106,7 @@ class MemberService:
         member.member_code = payload.member_code.strip()
         member.member_id_text = payload.member_id_text.strip() if payload.member_id_text else None
         member.plot_no = payload.plot_no.strip() if payload.plot_no else None
+        member.plot_count = max(int(payload.plot_count or 1), 1)
         member.full_name = payload.full_name.strip()
         member.father_name = payload.father_name.strip() if payload.father_name else None
         member.mother_name = payload.mother_name.strip() if payload.mother_name else None
@@ -131,28 +130,6 @@ class MemberService:
                 self.repository.add_nominee(nominee)
             nominee.nominee_name = payload.nominee.nominee_name.strip() if payload.nominee.nominee_name else None
             nominee.nominee_cell = payload.nominee.nominee_cell.strip() if payload.nominee.nominee_cell else None
-
-        if payload.package_id is not None:
-            package = self.package_repository.get_by_id(payload.package_id)
-            if package is None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Package not found")
-            assignments = self.repository.list_member_packages(member_id)
-            active_assignments = [assignment for assignment in assignments if assignment.is_active]
-            current_active = next((assignment for assignment in active_assignments if assignment.package_id == payload.package_id), None)
-            if current_active is None:
-                assigned_on = payload.joined_on or member.joined_on or date.today()
-                for assignment in active_assignments:
-                    assignment.is_active = False
-                    assignment.ended_on = assigned_on
-                self.repository.add_member_package(
-                    MemberPackage(
-                        member_id=member_id,
-                        package_id=payload.package_id,
-                        assigned_on=assigned_on,
-                        ended_on=None,
-                        is_active=True,
-                    )
-                )
 
         self.db.commit()
         self.db.refresh(member)

@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class MemberPackageAssignmentCreate(BaseModel):
@@ -19,6 +19,7 @@ class MemberCreate(BaseModel):
     member_code: str
     member_id_text: str | None = None
     plot_no: str | None = None
+    plot_count: int = Field(default=1, ge=1)
     full_name: str
     father_name: str | None = None
     mother_name: str | None = None
@@ -33,13 +34,13 @@ class MemberCreate(BaseModel):
     joined_on: date | None = None
     is_active: bool = True
     nominee: MemberNomineePayload | None = None
-    initial_package: MemberPackageAssignmentCreate | None = None
 
 
 class MemberUpdate(BaseModel):
     member_code: str
     member_id_text: str | None = None
     plot_no: str | None = None
+    plot_count: int = Field(default=1, ge=1)
     full_name: str
     father_name: str | None = None
     mother_name: str | None = None
@@ -54,7 +55,6 @@ class MemberUpdate(BaseModel):
     joined_on: date | None = None
     is_active: bool = True
     nominee: MemberNomineePayload | None = None
-    package_id: int | None = None
 
 
 class MemberPackageAssignmentRead(BaseModel):
@@ -73,6 +73,7 @@ class MemberDetailRead(BaseModel):
     member_code: str
     member_id_text: str | None
     plot_no: str | None
+    plot_count: int
     full_name: str
     father_name: str | None
     mother_name: str | None
@@ -91,7 +92,6 @@ class MemberDetailRead(BaseModel):
     entry_at: datetime
     nominee_name: str | None
     nominee_cell: str | None
-    active_package_id: int | None
     packages: list[MemberPackageAssignmentRead]
 
 
@@ -100,9 +100,9 @@ class MemberListItem(BaseModel):
     member_code: str
     full_name: str
     plot_no: str | None
+    plot_count: int
     cell_no: str | None
     category_id: int | None
     category_name: str | None
     joined_on: date | None
     is_active: bool
-    active_package_name: str | None

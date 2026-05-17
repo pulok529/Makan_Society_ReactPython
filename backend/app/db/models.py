@@ -1,6 +1,6 @@
 from app.modules.accounting.models import Account, IncomeExpenseEntry
 from app.modules.auth.models import Permission, RefreshToken, Role, RolePermission, User, UserRole
-from app.modules.billing.models import BillingPeriod, Charge, ChargeItem, Receipt, ReceiptLine
+from app.modules.billing.models import BillingDueTracker, BillingPeriod, Charge, ChargeItem, Receipt, ReceiptLine
 from app.modules.categories.models import MemberCategory
 from app.modules.files.models import FileLink, FileObject
 from app.modules.members.models import Member, MemberNominee, MemberPackage, MemberStatusHistory
@@ -11,6 +11,7 @@ from app.modules.reporting.models import GeneratedReport, ReportProfile
 __all__ = [
     "Account",
     "BillingPeriod",
+    "BillingDueTracker",
     "Charge",
     "ChargeItem",
     "FileLink",

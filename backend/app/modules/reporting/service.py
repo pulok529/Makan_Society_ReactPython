@@ -387,7 +387,6 @@ class ReportingService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
 
         categories = {item.id: item for item in self.repository.list_categories()}
-        latest_active_package = self._latest_active_packages()
         nominee = self.repository.get_member_nominee(member.id)
         receipts = self.repository.list_receipts(
             member_id=filters.member_id,
@@ -437,6 +436,7 @@ class ReportingService:
                 member_code=member.member_code,
                 full_name=member.full_name,
                 plot_no=member.plot_no or member.member_id_text,
+                plot_count=max(int(getattr(member, "plot_count", 1) or 1), 1),
                 category_name=categories[member.category_id].name if member.category_id in categories else None,
                 national_id=member.national_id,
                 cell_no=member.cell_no,
@@ -451,7 +451,6 @@ class ReportingService:
                 reference=member.reference,
                 nominee_name=nominee.nominee_name if nominee is not None else None,
                 nominee_cell=nominee.nominee_cell if nominee is not None else None,
-                active_package_name=latest_active_package.get(member.id),
                 total_collection_amount=round(sum(item.amount for item in payment_history), 2),
                 total_due_amount=round(sum(item.due_amount for item in due_history), 2),
             ),
@@ -510,7 +509,6 @@ class ReportingService:
 
     def member_register(self, filters: ReportFilter) -> ReportEnvelope:
         categories = {item.id: item for item in self.repository.list_categories()}
-        latest_active_package = self._latest_active_packages()
         members = self.repository.list_members(member_id=filters.member_id, category_id=filters.category_id, plot_no=filters.plot_no)
         member_ids = {member.id for member in members}
         collection_totals = self._member_collection_totals(member_ids)
@@ -521,12 +519,12 @@ class ReportingService:
                 member_code=member.member_code,
                 full_name=member.full_name,
                 plot_no=member.plot_no or member.member_id_text,
+                plot_count=max(int(getattr(member, "plot_count", 1) or 1), 1),
                 category_name=categories[member.category_id].name if member.category_id in categories else None,
                 national_id=member.national_id,
                 cell_no=member.cell_no,
                 joined_on=member.joined_on,
                 is_active=member.is_active,
-                active_package_name=latest_active_package.get(member.id),
                 total_collection_amount=round(collection_totals.get(member.id, 0.0), 2),
                 total_due_amount=round(due_totals.get(member.id, 0.0), 2),
             )

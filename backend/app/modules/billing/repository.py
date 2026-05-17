@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.accounting.models import Account
 from app.modules.billing.models import (
+    BillingDueTracker,
     BillingHead,
     BillingHeadCoaMapping,
     BillingInvoice,
@@ -84,6 +85,10 @@ class BillingRepository:
             MemberPackage.assigned_on <= ends_on,
             (MemberPackage.ended_on.is_(None) | (MemberPackage.ended_on >= starts_on)),
         )
+        return list(self.db.scalars(statement))
+
+    def list_active_members(self) -> list[Member]:
+        statement = select(Member).where(Member.is_active == True).order_by(Member.member_code.asc(), Member.full_name.asc())  # noqa: E712
         return list(self.db.scalars(statement))
 
     def list_receipts(self, member_id: int | None = None) -> list[Receipt]:
@@ -264,3 +269,23 @@ class BillingRepository:
 
     def list_accounts(self) -> list[Account]:
         return list(self.db.scalars(select(Account).order_by(Account.code.asc())))
+
+    def get_due_tracker(self, member_id: int, head_id: int, period_date) -> BillingDueTracker | None:
+        statement = select(BillingDueTracker).where(
+            BillingDueTracker.member_id == member_id,
+            BillingDueTracker.billing_head_id == head_id,
+            BillingDueTracker.period_date == period_date,
+        )
+        return self.db.scalar(statement)
+
+    def add_due_tracker(self, due: BillingDueTracker) -> BillingDueTracker:
+        self.db.add(due)
+        self.db.flush()
+        self.db.refresh(due)
+        return due
+
+    def list_due_trackers(self, member_id: int | None = None) -> list[BillingDueTracker]:
+        statement = select(BillingDueTracker).order_by(BillingDueTracker.member_id.asc(), BillingDueTracker.period_date.asc(), BillingDueTracker.id.asc())
+        if member_id is not None:
+            statement = statement.where(BillingDueTracker.member_id == member_id)
+        return list(self.db.scalars(statement))

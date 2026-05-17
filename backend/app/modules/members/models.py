@@ -14,6 +14,7 @@ class Member(Base):
     member_code: Mapped[str] = mapped_column(String(50), unique=True, index=True)
     member_id_text: Mapped[str | None] = mapped_column(String(100))
     plot_no: Mapped[str | None] = mapped_column(String(100), index=True)
+    plot_count: Mapped[int] = mapped_column(default=1)
     full_name: Mapped[str] = mapped_column(String(200), index=True)
     father_name: Mapped[str | None] = mapped_column(String(200))
     mother_name: Mapped[str | None] = mapped_column(String(200))

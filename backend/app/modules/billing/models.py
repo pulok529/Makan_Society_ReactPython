@@ -165,6 +165,34 @@ class BillingInvoiceDetail(Base):
     created_by: Mapped[int | None] = mapped_column("CreatedBy", ForeignKey("auth.users.id"))
 
 
+class BillingDueTracker(Base):
+    __tablename__ = "billing_due_tracker"
+    __table_args__ = (
+        UniqueConstraint("MemberID", "BillingHeadID", "PeriodDate", name="uq_billing_due_tracker_member_head_period"),
+        Index("ix_billing_due_tracker_member_status", "MemberID", "Status"),
+        {"schema": "billing"},
+    )
+
+    id: Mapped[int] = mapped_column("DueID", primary_key=True, autoincrement=True)
+    member_id: Mapped[int] = mapped_column("MemberID", ForeignKey("society.members.id"))
+    billing_head_id: Mapped[int] = mapped_column("BillingHeadID", ForeignKey("billing.billing_heads.BillingHeadID"))
+    period_date: Mapped[date | None] = mapped_column("PeriodDate", Date)
+    period_display: Mapped[str | None] = mapped_column("PeriodDisplay", String(20))
+    head_name_snapshot: Mapped[str] = mapped_column("HeadNameSnapshot", String(150))
+    head_type: Mapped[str] = mapped_column("HeadType", String(20))
+    billing_mode: Mapped[str] = mapped_column("BillingMode", String(20))
+    plot_count_snapshot: Mapped[int] = mapped_column("PlotCountSnapshot")
+    base_fee_amount: Mapped[float] = mapped_column("BaseFeeAmount", Numeric(18, 2))
+    fee_amount: Mapped[float] = mapped_column("FeeAmount", Numeric(18, 2))
+    paid_amount: Mapped[float] = mapped_column("PaidAmount", Numeric(18, 2), default=0)
+    discount_amount: Mapped[float] = mapped_column("DiscountAmount", Numeric(18, 2), default=0)
+    due_amount: Mapped[float] = mapped_column("DueAmount", Numeric(18, 2), default=0)
+    status: Mapped[str] = mapped_column("Status", String(20), default="open")
+    last_invoice_id: Mapped[int | None] = mapped_column("LastInvoiceID", ForeignKey("billing.billing_invoices.InvoiceID"))
+    created_at: Mapped[datetime] = mapped_column("CreatedAt", DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column("UpdatedAt", DateTime(timezone=True), server_default=func.now())
+
+
 class BillingReportExport(Base):
     __tablename__ = "billing_report_exports"
     __table_args__ = {"schema": "billing"}

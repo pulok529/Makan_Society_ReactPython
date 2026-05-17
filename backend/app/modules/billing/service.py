@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.auth.models import User
 from app.modules.billing.models import (
+    BillingDueTracker,
     BillingHead,
     BillingHeadCoaMapping,
     BillingInvoice,
@@ -39,7 +40,6 @@ from app.modules.billing.schemas import (
     ReceiptRead,
 )
 from app.modules.members.repository import MemberRepository
-from app.modules.packages.repository import PackageRepository
 from app.modules.accounting.service import AccountingService
 
 
@@ -48,7 +48,6 @@ class BillingService:
         self.db = db
         self.repository = BillingRepository(db)
         self.member_repository = MemberRepository(db)
-        self.package_repository = PackageRepository(db)
 
     def list_billing_heads(self) -> list[BillingHeadRead]:
         self._ensure_default_billing_setup()
@@ -206,24 +205,29 @@ class BillingService:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Period head requires period date")
             if head.head_type == "OneTime" and line.period_date is not None:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OneTime head cannot use period date")
-            if head.billing_mode == "Mandatory" and line.fee_amount <= 0:
+            effective_fee_amount = float(line.fee_amount)
+            if head.head_type == "Period":
+                effective_fee_amount = self._period_fee(line.period_date, float(head.fee_amount)) * self._member_plot_count(member)
+            elif head.billing_mode == "Mandatory":
+                effective_fee_amount = float(head.fee_amount)
+            if head.billing_mode == "Mandatory" and effective_fee_amount <= 0:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mandatory head requires fee amount")
             if head.billing_mode == "Optional" and head.head_type == "OneTime" and line.fee_amount <= 0:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Optional one-time head requires amount when billing")
-            if line.receive_amount + line.discount_amount > line.fee_amount:
+            if line.receive_amount + line.discount_amount > effective_fee_amount:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Receive amount plus discount cannot exceed fee")
             if line.period_date is not None:
                 paid, due = self.repository.get_period_payment_totals(payload.member_id, head.id, line.period_date)
-                if due <= 0 < paid and line.receive_amount + line.discount_amount >= line.fee_amount:
+                if due <= 0 < paid and line.receive_amount + line.discount_amount >= effective_fee_amount:
                     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This member/head/period is already fully paid")
             elif head.billing_mode == "Mandatory":
                 paid, due = self.repository.get_one_time_payment_totals(payload.member_id, head.id)
-                if due <= 0 < paid and line.receive_amount + line.discount_amount >= line.fee_amount:
+                if due <= 0 < paid and line.receive_amount + line.discount_amount >= effective_fee_amount:
                     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This mandatory one-time head is already fully paid")
 
             mapping = self.repository.get_active_head_mapping(head.id)
-            due_amount = max(line.fee_amount - line.receive_amount - line.discount_amount, 0)
-            self.repository.add_invoice_detail(
+            due_amount = max(effective_fee_amount - line.receive_amount - line.discount_amount, 0)
+            detail = self.repository.add_invoice_detail(
                 BillingInvoiceDetail(
                     invoice_id=invoice.id,
                     member_id=payload.member_id,
@@ -232,7 +236,7 @@ class BillingService:
                     head_type=head.head_type,
                     period_date=line.period_date,
                     period_display=self._period_display(line.period_date) if line.period_date else None,
-                    fee_amount=line.fee_amount,
+                    fee_amount=effective_fee_amount,
                     receive_amount=line.receive_amount,
                     due_amount=due_amount,
                     discount_amount=line.discount_amount,
@@ -241,6 +245,7 @@ class BillingService:
                     created_by=user.id,
                 )
             )
+            self._upsert_due_tracker_for_invoice_detail(member, head, detail, invoice.id)
         self.db.commit()
         return self.serialize_invoice(invoice.id)
 
@@ -277,8 +282,79 @@ class BillingService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
         invoice.is_cancelled = True
         invoice.cancel_reason = payload.cancel_reason
+        self.sync_due_tracker_for_member(invoice.member_id)
         self.db.commit()
         return self.serialize_invoice(invoice_id)
+
+    def sync_due_tracker_for_member(self, member_id: int) -> list[BillingDueTracker]:
+        self._ensure_default_billing_setup()
+        member = self.member_repository.get_by_id(member_id)
+        if member is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+
+        due_lines = self._build_member_due_lines(member)
+        due_map: dict[tuple[int, date | None], BillingDueLineRead] = {
+            (line.billing_head_id, line.period_date): line for line in due_lines
+        }
+        existing_rows = self.repository.list_due_trackers(member_id=member_id)
+
+        for line in due_lines:
+            tracker = self.repository.get_due_tracker(member_id, line.billing_head_id, line.period_date)
+            if tracker is None:
+                tracker = BillingDueTracker(
+                    member_id=member_id,
+                    billing_head_id=line.billing_head_id,
+                    period_date=line.period_date,
+                    period_display=line.period_display,
+                    head_name_snapshot=line.head_name,
+                    head_type=line.head_type,
+                    billing_mode=line.billing_mode,
+                    plot_count_snapshot=line.plot_count,
+                    base_fee_amount=line.base_fee_amount,
+                    fee_amount=line.fee_amount,
+                    paid_amount=line.paid_amount,
+                    discount_amount=max(line.fee_amount - line.paid_amount - line.due_amount, 0),
+                    due_amount=line.due_amount,
+                    status="partial" if line.paid_amount > 0 else "open",
+                    last_invoice_id=None,
+                )
+                self.repository.add_due_tracker(tracker)
+            else:
+                tracker.period_display = line.period_display
+                tracker.head_name_snapshot = line.head_name
+                tracker.head_type = line.head_type
+                tracker.billing_mode = line.billing_mode
+                tracker.plot_count_snapshot = line.plot_count
+                tracker.base_fee_amount = line.base_fee_amount
+                tracker.fee_amount = line.fee_amount
+                tracker.paid_amount = line.paid_amount
+                tracker.discount_amount = max(line.fee_amount - line.paid_amount - line.due_amount, 0)
+                tracker.due_amount = line.due_amount
+                tracker.status = "partial" if line.paid_amount > 0 else "open"
+
+        for tracker in existing_rows:
+            if (tracker.billing_head_id, tracker.period_date) in due_map:
+                continue
+            if tracker.period_date is not None:
+                paid, due = self.repository.get_period_payment_totals(member_id, tracker.billing_head_id, tracker.period_date)
+            else:
+                paid, due = self.repository.get_one_time_payment_totals(member_id, tracker.billing_head_id)
+            tracker.paid_amount = paid
+            tracker.due_amount = due
+            tracker.discount_amount = max(float(tracker.fee_amount) - paid - due, 0)
+            tracker.status = "paid" if due <= 0 else ("partial" if paid > 0 else "open")
+
+        self.db.flush()
+        return self.repository.list_due_trackers(member_id=member_id)
+
+    def sync_due_tracker_for_all_members(self) -> int:
+        self._ensure_default_billing_setup()
+        processed = 0
+        for member in self.member_repository.list_members():
+            self.sync_due_tracker_for_member(member.id)
+            processed += 1
+        self.db.commit()
+        return processed
 
     def billing_report(self, report_type: str, member_id: int | None = None, from_date: date | None = None, to_date: date | None = None) -> BillingReportRead:
         rows: list[dict[str, str | int | float | None]] = []
@@ -337,22 +413,25 @@ class BillingService:
         return period
 
     def generate_period_charges(self, payload: BillingGenerationRequest) -> list[Charge]:
+        self._ensure_default_billing_setup()
         period = self.repository.get_period(payload.billing_period_id)
         if period is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Billing period not found")
         if period.is_closed:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Billing period is closed")
 
-        assignments = self.repository.list_active_member_packages_for_period(period.starts_on, period.ends_on)
-        packages = {package.id: package for package in self.package_repository.list_packages()}
-        grouped_assignments: dict[int, list] = defaultdict(list)
-        for assignment in assignments:
-            grouped_assignments[assignment.member_id].append(assignment)
+        period_heads = [
+            head
+            for head in self.repository.list_billing_heads(active_only=True)
+            if head.head_type == "Period" and self._head_is_effective_for_period(head, period.starts_on)
+        ]
+        if not period_heads:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No active period billing heads found")
 
         generated: list[Charge] = []
-        for member_id, member_assignments in grouped_assignments.items():
+        for member in self.repository.list_active_members():
             existing = self.repository.get_existing_member_charge(
-                member_id=member_id,
+                member_id=member.id,
                 billing_period_id=period.id,
                 charge_type=payload.charge_type,
             )
@@ -360,20 +439,21 @@ class BillingService:
                 continue
 
             total_amount = 0.0
-            item_rows: list[tuple[int | None, str, float]] = []
-            for assignment in member_assignments:
-                package = packages.get(assignment.package_id)
-                if package is None or not package.is_active:
+            item_rows: list[tuple[str, int, float, float]] = []
+            plot_count = self._member_plot_count(member)
+            for head in period_heads:
+                base_fee = self._period_fee(period.starts_on, float(head.fee_amount))
+                if base_fee <= 0:
                     continue
-                price = float(package.default_price)
-                total_amount += price
-                item_rows.append((package.id, package.name, price))
+                line_amount = base_fee * plot_count
+                total_amount += line_amount
+                item_rows.append((head.head_name, plot_count, base_fee, line_amount))
 
             if not item_rows:
                 continue
 
             charge = Charge(
-                member_id=member_id,
+                member_id=member.id,
                 billing_period_id=period.id,
                 charge_type=payload.charge_type,
                 status="open",
@@ -383,16 +463,16 @@ class BillingService:
                 due_amount=total_amount,
             )
             self.repository.add_charge(charge)
-            for package_id, package_name, price in item_rows:
+            for head_name, item_plot_count, base_fee, line_amount in item_rows:
                 self.repository.add_charge_item(
                     ChargeItem(
                         charge_id=charge.id,
-                        package_id=package_id,
-                        item_type="package",
-                        description=f"{package_name} charge for {period.period_name}",
-                        quantity=1,
-                        unit_amount=price,
-                        line_amount=price,
+                        package_id=None,
+                        item_type="period_head",
+                        description=f"{head_name} charge for {period.period_name} ({item_plot_count} plot x {base_fee:,.2f})",
+                        quantity=item_plot_count,
+                        unit_amount=base_fee,
+                        line_amount=line_amount,
                     )
                 )
             generated.append(charge)
@@ -403,7 +483,6 @@ class BillingService:
     def list_charges(self, billing_period_id: int | None = None, member_id: int | None = None) -> list[ChargeRead]:
         members = {member.id: member for member in self.member_repository.list_members()}
         periods = {period.id: period for period in self.repository.list_periods()}
-        packages = {package.id: package for package in self.package_repository.list_packages()}
         serialized: list[ChargeRead] = []
 
         for charge in self.repository.list_charges(billing_period_id=billing_period_id, member_id=member_id):
@@ -429,9 +508,7 @@ class BillingService:
                         ChargeItemRead(
                             id=item.id,
                             package_id=item.package_id,
-                            package_name=packages[item.package_id].name
-                            if item.package_id is not None and item.package_id in packages
-                            else None,
+                            package_name=None,
                             item_type=item.item_type,
                             description=item.description,
                             quantity=item.quantity,
@@ -630,6 +707,7 @@ class BillingService:
     def _build_member_due_lines(self, member) -> list[BillingDueLineRead]:
         today = date.today()
         rows: list[BillingDueLineRead] = []
+        plot_count = self._member_plot_count(member)
         for head in self.repository.list_billing_heads(active_only=True):
             mapping = self.repository.get_active_head_mapping(head.id)
             if head.head_type == "Period":
@@ -640,7 +718,8 @@ class BillingService:
                 current = start
                 end = self._month_start(today)
                 while current <= end:
-                    fee = self._period_fee(current, float(head.fee_amount))
+                    base_fee = self._period_fee(current, float(head.fee_amount))
+                    fee = base_fee * plot_count
                     paid, due = self.repository.get_period_payment_totals(member.id, head.id, current)
                     remaining = fee - paid
                     if due > 0:
@@ -655,6 +734,8 @@ class BillingService:
                                 billing_mode=head.billing_mode,
                                 period_date=current,
                                 period_display=self._period_display(current),
+                                plot_count=plot_count,
+                                base_fee_amount=base_fee,
                                 fee_amount=fee,
                                 paid_amount=paid,
                                 due_amount=remaining,
@@ -667,7 +748,8 @@ class BillingService:
             if head.billing_mode != "Mandatory":
                 continue
 
-            fee = float(head.fee_amount)
+            base_fee = float(head.fee_amount)
+            fee = base_fee
             paid, due = self.repository.get_one_time_payment_totals(member.id, head.id)
             remaining = due if due > 0 else max(fee - paid, 0)
             if remaining > 0:
@@ -680,6 +762,8 @@ class BillingService:
                         billing_mode=head.billing_mode,
                         period_date=None,
                         period_display=None,
+                        plot_count=plot_count,
+                        base_fee_amount=base_fee,
                         fee_amount=fee,
                         paid_amount=paid,
                         due_amount=remaining,
@@ -707,3 +791,52 @@ class BillingService:
     @staticmethod
     def _period_display(value: date) -> str:
         return f"{value.month:02d}-{value.year}"
+
+    @staticmethod
+    def _member_plot_count(member) -> int:
+        return max(int(getattr(member, "plot_count", 1) or 1), 1)
+
+    @staticmethod
+    def _head_is_effective_for_period(head: BillingHead, period_start: date) -> bool:
+        if head.effective_from_date is None:
+            return True
+        return BillingService._month_start(head.effective_from_date) <= BillingService._month_start(period_start)
+
+    def _upsert_due_tracker_for_invoice_detail(self, member, head: BillingHead, detail: BillingInvoiceDetail, invoice_id: int) -> None:
+        tracker = self.repository.get_due_tracker(member.id, head.id, detail.period_date)
+        plot_count = self._member_plot_count(member)
+        base_fee = float(detail.fee_amount) / plot_count if head.head_type == "Period" and plot_count > 0 else float(detail.fee_amount)
+        if tracker is None:
+            self.repository.add_due_tracker(
+                BillingDueTracker(
+                    member_id=member.id,
+                    billing_head_id=head.id,
+                    period_date=detail.period_date,
+                    period_display=detail.period_display,
+                    head_name_snapshot=head.head_name,
+                    head_type=head.head_type,
+                    billing_mode=head.billing_mode,
+                    plot_count_snapshot=plot_count,
+                    base_fee_amount=base_fee,
+                    fee_amount=float(detail.fee_amount),
+                    paid_amount=float(detail.receive_amount),
+                    discount_amount=float(detail.discount_amount),
+                    due_amount=float(detail.due_amount),
+                    status="paid" if float(detail.due_amount) <= 0 else ("partial" if float(detail.receive_amount) > 0 else "open"),
+                    last_invoice_id=invoice_id,
+                )
+            )
+            return
+
+        tracker.period_display = detail.period_display
+        tracker.head_name_snapshot = head.head_name
+        tracker.head_type = head.head_type
+        tracker.billing_mode = head.billing_mode
+        tracker.plot_count_snapshot = plot_count
+        tracker.base_fee_amount = base_fee
+        tracker.fee_amount = max(float(tracker.fee_amount), float(detail.fee_amount))
+        tracker.paid_amount = float(tracker.paid_amount) + float(detail.receive_amount)
+        tracker.discount_amount = float(tracker.discount_amount) + float(detail.discount_amount)
+        tracker.due_amount = max(float(tracker.fee_amount) - float(tracker.paid_amount) - float(tracker.discount_amount), 0)
+        tracker.status = "paid" if float(tracker.due_amount) <= 0 else ("partial" if float(tracker.paid_amount) > 0 else "open")
+        tracker.last_invoice_id = invoice_id
