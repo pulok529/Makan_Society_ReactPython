@@ -15,6 +15,10 @@
 - Updated older maintenance/cutover scripts so they follow the two-monthly-head plus registration-fee model.
 - Verified `pytest`, `npm run build`, and `GET /health` successfully after the billing rebuild.
 - Created a client-ready SQL Server backup: `backups/SocietyApp_client_ready_20260520_224458.bak`.
+- Reworked the client cutover migration so the local DB can carry forward legacy billing history instead of only preparing a fresh baseline.
+- Added `Legacy Pre-2018 Collection` to preserve older receipt history without inflating current monthly dues.
+- Fixed cutover seed data so optional one-time heads do not generate fake member dues.
+- Preserved `4` orphan legacy bill lines totaling `2,400.00` by creating synthetic receipts during import.
 
 ## 2026-05-19
 

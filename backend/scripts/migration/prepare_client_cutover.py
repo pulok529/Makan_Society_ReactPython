@@ -19,7 +19,15 @@ if str(BACKEND_DIR) not in sys.path:
 
 from app.db import models as _models  # noqa: F401
 from app.db.session import SessionLocal
-from app.modules.accounting.models import Account
+from app.modules.accounting.models import (
+    Account,
+    AccountingVoucher,
+    AccountingVoucherDetail,
+    ExpenseEntry,
+    IncomeEntry,
+    IncomeEntryDetail,
+    IncomeExpenseEntry,
+)
 from app.modules.auth.models import User
 from app.modules.billing.models import (
     BillingHead,
@@ -32,6 +40,7 @@ from app.modules.billing.models import (
     Receipt,
     ReceiptLine,
 )
+from app.modules.billing.service import BillingService
 from app.modules.members.models import Member
 
 
@@ -42,6 +51,7 @@ LEGACY_DATABASE = os.getenv("LEGACY_BILLING_DB") or os.getenv("LEGACY_MSSQL_DB")
 class HeadConfig:
     name: str
     head_type: str
+    billing_mode: str
     fee_amount: float
     effective_from_date: date | None
     effective_to_date: date | None
@@ -49,12 +59,13 @@ class HeadConfig:
 
 
 HEADS: list[HeadConfig] = [
-    HeadConfig("Monthly Subscription 2018-2022", "Period", 300.0, date(2018, 1, 1), date(2022, 12, 31), "1002"),
-    HeadConfig("Monthly Subscription 2023+", "Period", 500.0, date(2023, 1, 1), None, "1002"),
-    HeadConfig("Registration Fee", "OneTime", 1000.0, None, None, "1001"),
-    HeadConfig("Other Charges", "OneTime", 0.0, None, None, "1003"),
-    HeadConfig("Electric Service Bill", "OneTime", 20000.0, None, None, "1004"),
-    HeadConfig("Development Charge", "OneTime", 20000.0, None, None, "1005"),
+    HeadConfig("Monthly Subscription 2018-2022", "Period", "Mandatory", 300.0, date(2018, 1, 1), date(2022, 12, 31), "1002"),
+    HeadConfig("Monthly Subscription 2023+", "Period", "Mandatory", 500.0, date(2023, 1, 1), None, "1002"),
+    HeadConfig("Registration Fee", "OneTime", "Mandatory", 1000.0, None, None, "1001"),
+    HeadConfig("Legacy Pre-2018 Collection", "OneTime", "Optional", 0.0, None, None, "1002"),
+    HeadConfig("Other Charges", "OneTime", "Optional", 0.0, None, None, "1003"),
+    HeadConfig("Electric Service Bill", "OneTime", "Optional", 20000.0, None, None, "1004"),
+    HeadConfig("Development Charge", "OneTime", "Optional", 20000.0, None, None, "1005"),
 ]
 
 ACCOUNTS: list[dict[str, Any]] = [
@@ -246,6 +257,7 @@ def reset_operational_data(db) -> dict[str, int]:
         "DELETE FROM messaging.sms_messages",
         "DELETE FROM accounting.income_entry_details",
         "DELETE FROM accounting.accounting_voucher_details",
+        "DELETE FROM billing.billing_due_tracker",
         "DELETE FROM billing.billing_invoice_details",
         "DELETE FROM billing.receipt_lines",
         "DELETE FROM accounting.accounting_vouchers",
@@ -289,6 +301,7 @@ def seed_setup_data(db) -> dict[str, int]:
         head = BillingHead(
             head_name=head_config.name,
             head_type=head_config.head_type,
+            billing_mode=head_config.billing_mode,
             fee_amount=head_config.fee_amount,
             effective_from_month=head_config.effective_from_date.month if head_config.effective_from_date else None,
             effective_from_year=head_config.effective_from_date.year if head_config.effective_from_date else None,
@@ -370,6 +383,41 @@ def import_legacy_billing(db) -> dict[str, int]:
         db.add(receipt)
         db.flush()
         receipts_by_legacy[int(row["BillInfoMId"])] = receipt
+        receipt_created += 1
+
+    orphan_receipt_groups: dict[int, dict[str, Any]] = {}
+    for row in legacy_bill_lines:
+        legacy_receipt_id = int(row["BillInfoMId"]) if row.get("BillInfoMId") is not None else None
+        if legacy_receipt_id is None or legacy_receipt_id in receipts_by_legacy:
+            continue
+        group = orphan_receipt_groups.setdefault(
+            legacy_receipt_id,
+            {
+                "total_amount": 0.0,
+                "payment_date": (row.get("CollectionDate") or datetime.now(UTC)).date(),
+                "note_suffix": f"BillInfoMId={legacy_receipt_id}",
+            },
+        )
+        group["total_amount"] += float(row.get("CollectionAmt") or 0)
+        collection_date = (row.get("CollectionDate") or datetime.now(UTC)).date()
+        if collection_date < group["payment_date"]:
+            group["payment_date"] = collection_date
+
+    for legacy_receipt_id, group in orphan_receipt_groups.items():
+        receipt = Receipt(
+            receipt_no=f"LEGACY-MISSING-{legacy_receipt_id}"[:50],
+            member_id=None,
+            collected_by_user_id=None,
+            receipt_type="collection",
+            payment_date=group["payment_date"],
+            subtotal_amount=group["total_amount"],
+            discount_amount=0,
+            total_amount=group["total_amount"],
+            notes=f"Synthetic receipt for missing legacy master {group['note_suffix']}",
+        )
+        db.add(receipt)
+        db.flush()
+        receipts_by_legacy[legacy_receipt_id] = receipt
         receipt_created += 1
 
     periods_by_key: dict[tuple[int, int], BillingPeriod] = {}
@@ -461,6 +509,7 @@ def rebuild_invoice_history(db) -> dict[str, int]:
         heads["Monthly Subscription 2023+"],
     ]
     registration_head = heads["Registration Fee"]
+    legacy_pre_2018_head = heads["Legacy Pre-2018 Collection"]
     other_head = heads["Other Charges"]
 
     created_invoices = 0
@@ -469,6 +518,15 @@ def rebuild_invoice_history(db) -> dict[str, int]:
 
     for member in db.query(Member).order_by(Member.member_code).all():
         rows = _receipt_rows_for_member(db, member.id)
+        plot_count = max(int(getattr(member, "plot_count", 1) or 1), 1)
+        registration_paid_total = round(
+            sum(
+                float(row.get("line_amount") or 0)
+                for row in rows
+                if "reg" in ((_as_str(row.get("charge_type")) or "").lower())
+            ),
+            2,
+        )
         grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
         for row in rows:
             grouped[int(row["receipt_id"])].append(row)
@@ -485,10 +543,24 @@ def rebuild_invoice_history(db) -> dict[str, int]:
                 amount = float(row.get("line_amount") or 0)
                 period_date = _normalize_period_date(row.get("period_date"))
 
-                if "month" in charge_type and period_date is not None:
+                if "month" in charge_type and period_date is not None and period_date < date(2018, 1, 1):
+                    head = legacy_pre_2018_head
+                    mapping = mappings.get(head.id)
+                    detail_payloads.append(
+                        {
+                            "head": head,
+                            "coa_id": mapping.coa_id if mapping else None,
+                            "period_date": None,
+                            "period_display": f"Legacy {_period_display(period_date)}",
+                            "fee": amount,
+                            "received": amount,
+                            "due": 0.0,
+                        }
+                    )
+                elif "month" in charge_type and period_date is not None:
                     head = next((item for item in monthly_heads if _head_is_effective_for_period(item, period_date)), monthly_heads[-1])
                     mapping = mappings.get(head.id)
-                    fee = float(head.fee_amount)
+                    fee = float(head.fee_amount) * plot_count
                     received = amount
                     due = max(fee - received, 0)
                     detail_payloads.append(
@@ -511,9 +583,9 @@ def rebuild_invoice_history(db) -> dict[str, int]:
                             "coa_id": mapping.coa_id if mapping else None,
                             "period_date": None,
                             "period_display": None,
-                            "fee": amount,
+                            "fee": float(registration_head.fee_amount),
                             "received": amount,
-                            "due": 0.0,
+                            "due": max(float(registration_head.fee_amount) - amount, 0),
                         }
                     )
                 else:
@@ -582,13 +654,22 @@ def rebuild_invoice_history(db) -> dict[str, int]:
                 continue
             paid_by_period[period_date] += float(row.get("line_amount") or 0)
 
-        due_payloads: list[tuple[date, float]] = []
-        for row in _legacy_generated_monthly_rows(db, member.member_code):
+        due_payloads: list[tuple[BillingHead, date | None, float]] = []
+        legacy_generated_rows = _legacy_generated_monthly_rows(db, member.member_code)
+        for index, row in enumerate(legacy_generated_rows):
             period_date = _normalize_period_date(row["period_date"])
             if period_date is None:
                 continue
             monthly_head = next((item for item in monthly_heads if _head_is_effective_for_period(item, period_date)), monthly_heads[-1])
-            legacy_remaining = max(float(row["receivable_amount"] or 0) - paid_by_period.get(period_date, 0.0), 0)
+            receivable_amount = float(row["receivable_amount"] or 0)
+            monthly_receivable = receivable_amount
+            if index == 0:
+                monthly_receivable = max(receivable_amount - float(registration_head.fee_amount), 0)
+            legacy_remaining = max(monthly_receivable - paid_by_period.get(period_date, 0.0), 0)
+            if index == 0 and registration_paid_total < float(registration_head.fee_amount):
+                registration_due = round(float(registration_head.fee_amount) - registration_paid_total, 2)
+                if registration_due > 0:
+                    due_payloads.append((registration_head, None, registration_due))
             existing_due = _existing_period_due(db, member.id, monthly_head.id, period_date)
             adjustment_due = max(legacy_remaining - existing_due, 0)
             if adjustment_due > 0:
@@ -624,7 +705,7 @@ def rebuild_invoice_history(db) -> dict[str, int]:
                             head_name_snapshot=monthly_head.head_name,
                             head_type=monthly_head.head_type,
                             period_date=period_date,
-                            period_display=_period_display(period_date),
+                            period_display=_period_display(period_date) if period_date else None,
                             fee_amount=amount,
                             receive_amount=0,
                             due_amount=amount,
@@ -649,6 +730,227 @@ def rebuild_invoice_history(db) -> dict[str, int]:
     }
 
 
+def _next_voucher_no(db, voucher_type: str, voucher_date: date) -> str:
+    prefix = "RV" if voucher_type == "income" else "PV"
+    count = int(
+        db.execute(
+            text("SELECT COUNT(*) FROM accounting.accounting_vouchers WHERE VoucherType = :voucher_type"),
+            {"voucher_type": voucher_type},
+        ).scalar()
+        or 0
+    )
+    return f"{prefix}-{voucher_date:%Y%m%d}-{count + 1:05d}"
+
+
+def import_accounting_history(db) -> dict[str, int]:
+    accounts_by_id = {account.id: account for account in db.query(Account).all()}
+    invoice_rows = db.execute(
+        text(
+            """
+            SELECT
+                d.InvoiceID AS invoice_id,
+                i.InvoiceDate AS invoice_date,
+                i.InvoiceNo AS invoice_no,
+                d.COAIDSnapshot AS coa_id,
+                d.InvoiceDetailID AS detail_id,
+                d.ReceiveAmount AS receive_amount,
+                d.HeadNameSnapshot AS head_name
+            FROM billing.billing_invoice_details d
+            JOIN billing.billing_invoices i ON i.InvoiceID = d.InvoiceID
+            WHERE i.IsCancelled = 0
+              AND d.ReceiveAmount > 0
+            ORDER BY i.InvoiceDate, d.InvoiceID, d.InvoiceDetailID
+            """
+        )
+    ).mappings()
+
+    grouped_income: dict[tuple[int, int, date], list[dict[str, Any]]] = defaultdict(list)
+    for row in invoice_rows:
+        coa_id = row["coa_id"]
+        if coa_id is None:
+            continue
+        grouped_income[(int(row["invoice_id"]), int(coa_id), row["invoice_date"])].append(dict(row))
+
+    income_created = 0
+    voucher_created = 0
+    transfer_links_created = 0
+    entry_rows_created = 0
+
+    for (_invoice_id, coa_id, invoice_date), rows in grouped_income.items():
+        amount = round(sum(float(row["receive_amount"] or 0) for row in rows), 2)
+        if amount <= 0:
+            continue
+        account = accounts_by_id.get(coa_id)
+        remarks = f"Legacy billing collection {rows[0]['invoice_no']} - {rows[0]['head_name']}"
+        income = IncomeEntry(
+            income_date=invoice_date,
+            coa_id=coa_id,
+            amount=amount,
+            remarks=remarks,
+            created_by=None,
+        )
+        db.add(income)
+        db.flush()
+        income_created += 1
+
+        voucher = AccountingVoucher(
+            voucher_no=_next_voucher_no(db, "income", invoice_date),
+            voucher_type="income",
+            voucher_date=invoice_date,
+            total_amount=amount,
+            remarks=remarks,
+            created_by=None,
+        )
+        db.add(voucher)
+        db.flush()
+        db.add(
+            AccountingVoucherDetail(
+                voucher_id=voucher.id,
+                coa_id=coa_id,
+                amount=amount,
+                remarks=remarks,
+            )
+        )
+        voucher_created += 1
+
+        db.add(
+            IncomeExpenseEntry(
+                account_id=coa_id,
+                entry_type="income",
+                amount=amount,
+                remarks=remarks,
+            )
+        )
+        entry_rows_created += 1
+
+        for row in rows:
+            db.add(
+                IncomeEntryDetail(
+                    income_id=income.id,
+                    billing_detail_id=int(row["detail_id"]),
+                    amount=float(row["receive_amount"] or 0),
+                )
+            )
+            detail = db.get(BillingInvoiceDetail, int(row["detail_id"]))
+            if detail is not None:
+                detail.is_income_transferred = True
+                detail.income_voucher_id = voucher.id
+            transfer_links_created += 1
+
+    chart_accounts = {
+        int(row["ChartOfAccountId"]): _as_str(row.get("ChartOfAccount")) or f"Legacy COA {row['ChartOfAccountId']}"
+        for row in _fetch_all(db, "SELECT ChartOfAccountId, ChartOfAccount FROM dbo.tblChartOfAccount")
+        if row.get("ChartOfAccountId") is not None
+    }
+    legacy_expense_rows = _fetch_all(
+        db,
+        """
+        SELECT IncomeAndExpenseId, Type, EntryDate, COAId, Amount, Remark, IsActive
+        FROM dbo.tblIncomeAndExpense
+        WHERE IsActive = 1
+        ORDER BY EntryDate, IncomeAndExpenseId
+        """,
+    )
+
+    expense_created = 0
+    for row in legacy_expense_rows:
+        raw_type = (_as_str(row.get("Type")) or "").strip().lower()
+        entry_date = _normalize_period_date(row.get("EntryDate"))
+        amount = float(row.get("Amount") or 0)
+        if entry_date is None or amount <= 0:
+            continue
+
+        account_name = chart_accounts.get(int(row["COAId"])) if row.get("COAId") is not None else None
+        account = next(
+            (
+                item
+                for item in accounts_by_id.values()
+                if account_name and item.name.strip().lower() == account_name.strip().lower()
+            ),
+            None,
+        )
+        if account is None:
+            inferred_type = "expense" if "expense" in raw_type or raw_type.startswith("e") else "income"
+            account = Account(
+                code=f"LEGACY-COA-{row['COAId']}",
+                name=account_name or f"Legacy COA {row['COAId']}",
+                account_type=inferred_type,
+                is_active=True,
+            )
+            db.add(account)
+            db.flush()
+            accounts_by_id[account.id] = account
+
+        remarks = _as_str(row.get("Remark")) or f"Legacy {raw_type or 'entry'} import"
+        if "income" in raw_type or raw_type.startswith("i"):
+            income = IncomeEntry(
+                income_date=entry_date,
+                coa_id=account.id,
+                amount=amount,
+                remarks=remarks,
+                created_by=None,
+            )
+            db.add(income)
+            db.flush()
+            income_created += 1
+            voucher = AccountingVoucher(
+                voucher_no=_next_voucher_no(db, "income", entry_date),
+                voucher_type="income",
+                voucher_date=entry_date,
+                total_amount=amount,
+                remarks=remarks,
+                created_by=None,
+            )
+            db.add(voucher)
+            db.flush()
+            db.add(AccountingVoucherDetail(voucher_id=voucher.id, coa_id=account.id, amount=amount, remarks=remarks))
+            voucher_created += 1
+            db.add(IncomeExpenseEntry(account_id=account.id, entry_type="income", amount=amount, remarks=remarks))
+            entry_rows_created += 1
+        else:
+            expense = ExpenseEntry(
+                expense_date=entry_date,
+                coa_id=account.id,
+                amount=amount,
+                remarks=remarks,
+                created_by=None,
+            )
+            db.add(expense)
+            db.flush()
+            expense_created += 1
+            voucher = AccountingVoucher(
+                voucher_no=_next_voucher_no(db, "expense", entry_date),
+                voucher_type="expense",
+                voucher_date=entry_date,
+                total_amount=amount,
+                remarks=remarks,
+                created_by=None,
+            )
+            db.add(voucher)
+            db.flush()
+            db.add(AccountingVoucherDetail(voucher_id=voucher.id, coa_id=account.id, amount=amount, remarks=remarks))
+            voucher_created += 1
+            db.add(IncomeExpenseEntry(account_id=account.id, entry_type="expense", amount=amount, remarks=remarks))
+            entry_rows_created += 1
+
+    db.commit()
+    return {
+        "income_entries_created": income_created,
+        "expense_entries_created": expense_created,
+        "vouchers_created": voucher_created,
+        "income_expense_rows_created": entry_rows_created,
+        "transfer_links_created": transfer_links_created,
+    }
+
+
+def rebuild_due_tracker(db) -> dict[str, int]:
+    processed = BillingService(db).sync_due_tracker_for_all_members()
+    return {
+        "members_processed": processed,
+        "due_tracker_rows": int(db.execute(text("SELECT COUNT(*) FROM billing.billing_due_tracker")).scalar() or 0),
+    }
+
+
 def summarize(db) -> dict[str, int]:
     return {
         "members": int(db.execute(text("SELECT COUNT(*) FROM society.members")).scalar() or 0),
@@ -660,6 +962,10 @@ def summarize(db) -> dict[str, int]:
         "charges": int(db.execute(text("SELECT COUNT(*) FROM billing.charges")).scalar() or 0),
         "invoices": int(db.execute(text("SELECT COUNT(*) FROM billing.billing_invoices")).scalar() or 0),
         "invoice_details": int(db.execute(text("SELECT COUNT(*) FROM billing.billing_invoice_details")).scalar() or 0),
+        "due_tracker": int(db.execute(text("SELECT COUNT(*) FROM billing.billing_due_tracker")).scalar() or 0),
+        "income_entries": int(db.execute(text("SELECT COUNT(*) FROM accounting.income_entries")).scalar() or 0),
+        "expense_entries": int(db.execute(text("SELECT COUNT(*) FROM accounting.expense_entries")).scalar() or 0),
+        "vouchers": int(db.execute(text("SELECT COUNT(*) FROM accounting.accounting_vouchers")).scalar() or 0),
         "sms_templates": int(db.execute(text("SELECT COUNT(*) FROM messaging.sms_templates")).scalar() or 0),
         "sms_messages": int(db.execute(text("SELECT COUNT(*) FROM messaging.sms_messages")).scalar() or 0),
     }
@@ -696,6 +1002,12 @@ def main() -> None:
 
         invoice_stats = rebuild_invoice_history(db)
         print("invoice_rebuild " + " ".join(f"{key}={value}" for key, value in invoice_stats.items()))
+
+        accounting_stats = import_accounting_history(db)
+        print("accounting_import " + " ".join(f"{key}={value}" for key, value in accounting_stats.items()))
+
+        due_tracker_stats = rebuild_due_tracker(db)
+        print("due_tracker_rebuild " + " ".join(f"{key}={value}" for key, value in due_tracker_stats.items()))
 
         final_stats = summarize(db)
         print("final " + " ".join(f"{key}={value}" for key, value in final_stats.items()))

@@ -133,9 +133,9 @@ Migration applied status in the active local DB: confirmed through `20260520_01_
 - No migration-based data seed was detected.
 - First admin, admin role, and base permissions are created by `POST /api/auth/bootstrap-admin`.
 - Legacy migration scripts can move data from a legacy source into the normalized schema.
-- The active local billing baseline was reset and rebuilt on 2026-05-20 with a maintenance script instead of preserving imported legacy billing transactions.
+- The active local DB was first reset to a fresh baseline, then rebuilt into a history-inclusive carry-forward state on 2026-05-20.
 
-## Active Local Billing Baseline
+## Active Local Billing State
 
 - Legacy comparison source used on 2026-05-20: restored SQL Server database `SocietyLegacyInspect`.
 - Billing heads now present in the active local DB:
@@ -149,26 +149,30 @@ Migration applied status in the active local DB: confirmed through `20260520_01_
     - `EffectiveToDate = NULL`
   - `Registration Fee`
     - `FeeAmount = 1000`
-- After rebuild:
+  - `Legacy Pre-2018 Collection`
+    - optional carry-forward head for legacy receipt history before `2018-01-01`
+- After carry-forward rebuild:
   - `society.members.joined_on` null count: `0`
-  - `billing.receipts`: `0`
-  - `billing.charges`: `0`
-  - `billing.billing_invoices`: `0`
-  - `billing.billing_invoice_details` transferred to income: `0`
-  - `accounting.income_entries`: `0`
+  - `billing.receipts`: `358`
+  - `billing.receipt_lines`: `2,881`
+  - `billing.charges`: `2,881`
+  - `billing.billing_invoices`: `460`
+  - `billing.billing_invoice_details` transferred to income: `2,881`
+  - `accounting.income_entries`: `417`
   - `accounting.expense_entries`: `0`
-  - `accounting.accounting_vouchers`: `0`
-  - `accounting.income_expense_entries`: `0`
-- `billing.billing_due_tracker`: `14,806`
-- Due tracker breakdown:
-  - `Monthly Subscription 2018-2022`: `8,643` rows totaling `3,294,900.00`
-  - `Monthly Subscription 2023+`: `6,013` rows totaling `3,806,000.00`
-  - `Registration Fee`: `150` rows totaling `150,000.00`
-- Validation result after rebuild: `0` mismatches against the restored legacy billing rules.
+  - `accounting.accounting_vouchers`: `417`
+  - `accounting.income_expense_entries`: `417`
+- `billing.billing_due_tracker`: `12,617`
+- Carry-forward validation results:
+  - charge total matches legacy bill-line total: `1,036,200.00`
+  - accounting income total matches legacy bill-line total: `1,036,200.00`
+  - there are no fake due rows for optional one-time heads such as `Electric Service Bill` or `Development Charge`
+  - legacy `tblIncomeAndExpense` has no active rows, so migrated expense total remains `0`
+- Legacy data quality note:
+  - `tblBillInfo` contains `4` rows totaling `2,400.00` whose `BillInfoMId` does not exist in `tblBillInfoMaster`
+  - the cutover script creates synthetic receipts for those rows so imported history remains complete
 - Local validation checks after rebuild:
-  - `pytest`: passed
-  - `npm run build`: passed
-  - `GET http://localhost:8000/health`: `{\"status\":\"ok\"}`
+  - `python -m compileall backend/scripts/migration/prepare_client_cutover.py`: passed
 - Client-ready backup created:
   - `backups/SocietyApp_client_ready_20260520_224458.bak`
 - Backup logical file names:

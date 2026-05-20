@@ -20,6 +20,10 @@ Last updated: 2026-05-20
   - result: pre-repair mismatch count was `150` against the restored legacy SQL rules
 - 2026-05-20 note: the first version of `rebuild_billing_from_legacy.py` used an overcounting validator for late joiners; the validator was corrected and the final mismatch count is now `0`.
 - 2026-05-20 note: older maintenance/cutover scripts still assumed one `Monthly Subscription` head until they were updated to the two-head dated model.
+- 2026-05-20 carry-forward migration findings:
+  - the first monthly row in legacy `CustomerBillInfoMaster` can include the registration fee and must be split before rebuilding active dues
+  - optional one-time heads inherited the model default `Mandatory` billing mode until the cutover seed explicitly marked them optional
+  - legacy `tblBillInfo` contains `4` rows totaling `2,400.00` with no matching `tblBillInfoMaster` row; the migration now creates synthetic receipts for those rows
 
 ## Failed Commands
 

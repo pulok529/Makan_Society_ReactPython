@@ -43,6 +43,20 @@ Last updated: 2026-05-20
   - `GET /health` returned `ok`
 - Created a fresh local restore backup:
   - `backups/SocietyApp_client_ready_20260520_224458.bak`
+- Reworked the client cutover migration so it can carry forward legacy billing history instead of only producing a fresh baseline.
+- Added `Legacy Pre-2018 Collection` so pre-2018 receipt history stays visible without inflating the active due tracker.
+- Fixed carry-forward seed data so optional one-time heads do not generate fake dues for every member.
+- Preserved `4` orphan legacy bill lines totaling `2,400.00` by creating synthetic receipts during import.
+- Rebuilt the local carry-forward database successfully:
+  - receipts: `358`
+  - receipt lines: `2,881`
+  - charges: `2,881`
+  - invoices: `460`
+  - income entries: `417`
+  - expense entries: `0`
+  - vouchers: `417`
+  - due tracker rows: `12,617`
+  - charge total and accounting income total both match the legacy bill-line total: `1,036,200.00`
 - Existing app functionality detected from source:
   - Auth bootstrap/login/profile.
   - Category, package, member, billing, accounting, reporting, and messaging modules.
@@ -52,14 +66,14 @@ Last updated: 2026-05-20
 
 ## In-Progress Tasks
 
-- Legacy data migration readiness is present as scripts, but actual execution status is unknown.
+- History-inclusive client restore backup still needs to be created from the updated carry-forward DB.
 - Production deployment readiness exists as Docker/Jenkins assets, but target environment validation is unknown.
 - Documentation memory is now initialized and should be maintained after each meaningful task.
 - Hybrid local AI workflow is documented. LM Studio server still needs to be started before delegation.
 
 ## Pending Tasks
 
-- Run migration dry-run and reconciliation on a non-production database.
+- Run migration dry-run and reconciliation on a non-production database if the legacy snapshot changes again.
 - Confirm whether worker service needs real background job responsibilities.
 - Add or confirm user/role management requirements.
 - Add or confirm file upload/management requirements for member photos, signatures, and report logos.
@@ -76,7 +90,7 @@ Last updated: 2026-05-20
 
 ## Recommended Next Task
 
-Run a post-push smoke pass on the target environment:
+Create the history-inclusive client restore backup, then run a post-push smoke pass on the target environment:
 
 ```powershell
 docker compose up --build

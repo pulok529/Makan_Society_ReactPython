@@ -61,6 +61,22 @@ Reason:
 - The project still needs the chart of accounts and billing-head mappings in place before use.
 - Leaving transactional accounting tables empty avoids carrying forward migration/import noise into the client restore baseline.
 
+## 2026-05-20 - History-Inclusive Cutover Is Required When Client Reports Must Carry Forward
+
+Decision: When the goal is to preserve billing and income reports from the previous software, the preferred restore state is a carry-forward database instead of the earlier fresh baseline.
+
+Reason:
+
+- The user explicitly confirmed the software needs to carry forward the old history.
+- Client income reports depend on imported billing collections and accounting postings, not only on current due rules.
+- The legacy snapshot contains some pre-2018 and orphan receipt history that must be preserved carefully rather than dropped.
+
+Applied carry-forward rules:
+
+- Pre-2018 monthly receipt history is preserved under `Legacy Pre-2018 Collection` so it stays visible in income history without affecting the active 2018+ due tracker.
+- Legacy `tblBillInfo` rows without matching `tblBillInfoMaster` rows are preserved through synthetic receipts so imported charge and income totals stay complete.
+- Optional one-time heads such as `Electric Service Bill` and `Development Charge` must stay optional during cutover seeding so they do not auto-create fake dues.
+
 ## 2026-05-19 - Durable Project Memory
 
 Decision: This project will use `AGENTS.md`, `docs/PROJECT_STATE.md`, and `docs/TASKS.md` as durable project memory so new Codex sessions can continue without previous chat history.

@@ -164,29 +164,31 @@ Detected from source and existing documentation:
 - Schemas detected: `auth`, `society`, `billing`, `accounting`, `messaging`, `files`, `reporting`.
 - Seed status: first admin, admin role, and base permissions are created through the `/api/auth/bootstrap-admin` flow, not a migration seed.
 - Migration applied status in the active local DB: confirmed through `20260520_01_billing_head_effective_to`.
-- Active local billing baseline after 2026-05-20 rebuild:
+- Active local billing database after the 2026-05-20 carry-forward rebuild:
   - members with `joined_on IS NULL`: `0`
-  - billing receipts: `0`
-  - billing charges: `0`
-  - billing invoices: `0`
-  - transferred billing income details: `0`
-  - accounting income entries: `0`
+  - billing receipts: `358`
+  - billing receipt lines: `2,881`
+  - billing charges: `2,881`
+  - billing invoices: `460`
+  - transferred billing income details: `2,881`
+  - accounting income entries: `417`
   - accounting expense entries: `0`
-  - accounting vouchers: `0`
-  - accounting income/expense entries: `0`
-  - due tracker rows: `14,806`
-  - due tracker breakdown:
-    - `Monthly Subscription 2018-2022`: `8,643` rows totaling `3,294,900.00`
-    - `Monthly Subscription 2023+`: `6,013` rows totaling `3,806,000.00`
-    - `Registration Fee`: `150` rows totaling `150,000.00`
+  - accounting vouchers: `417`
+  - accounting income/expense entries: `417`
+  - due tracker rows: `12,617`
+  - carry-forward validation highlights:
+    - charge total matches legacy bill-line total: `1,036,200.00`
+    - accounting income total matches legacy bill-line total: `1,036,200.00`
+    - legacy `tblIncomeAndExpense` has no active rows in the restored snapshot, so expense totals remain `0`
+    - `4` legacy `tblBillInfo` rows totaling `2,400.00` have no matching `tblBillInfoMaster` row; the carry-forward script preserves them through synthetic receipts
 - Billing heads in the active local DB:
   - `Monthly Subscription 2018-2022` at `300`, effective `2018-01-01` to `2022-12-31`
   - `Monthly Subscription 2023+` at `500`, effective from `2023-01-01`
   - `Registration Fee` at `1000`
+  - `Legacy Pre-2018 Collection` as an optional carry-forward head for pre-2018 receipt history
 - Local validation checks completed on 2026-05-20:
-  - `pytest`: passed
-  - `npm run build`: passed
-  - `GET http://localhost:8000/health`: returned `{\"status\":\"ok\"}`
+  - `python -m compileall backend/scripts/migration/prepare_client_cutover.py`: passed
+  - carry-forward rebuild script completed successfully against `SocietyLegacyInspect`
 - Latest local client-ready backup:
   - `backups/SocietyApp_client_ready_20260520_224458.bak`
 - Current live data status for local billing baseline: fresh rebuilt state derived from the restored legacy rules. Do not expose real member data.
@@ -217,11 +219,11 @@ Detected from source and existing documentation:
 - Work mode rule: if the user says `work on hybrid`, use hybrid; if the user says `work on Codex fully` or `full Codex`, use full Codex; if no mode is given, ask before starting substantive work.
 - Billing now uses explicit date-ranged heads in the backend/local DB baseline instead of one generic monthly head with hardcoded fee switching.
 - The restored legacy SQL snapshot `SocietyLegacyInspect` is the reference used for 2026-05-20 billing validation and rebuild.
-- The fresh client-ready local baseline intentionally contains COA rows but no transferred billing income/expense activity yet.
+- The earlier fresh baseline backup is no longer the preferred client restore point when report history must be preserved.
 
 ## Next Tasks
 
-- Decide whether the frontend billing-head screen also needs `effective_to_date` editing support.
+- Create and verify the history-inclusive client restore backup from the current local DB.
 - Confirm migration dry-run and reconciliation results using non-production data.
 - Decide whether to add user/role management, file upload management, audit logs, billing reversal/adjustments, and dynamic navigation permissions.
 - Verify BulkSMSBD real provider behavior before production SMS sending.
@@ -236,5 +238,5 @@ Detected from source and existing documentation:
 - Default secrets in example/dev config must be rotated for production.
 - Production BulkSMSBD sending can spend credits; keep dry-run enabled until explicitly approved.
 - Local AI output is draft-only. Codex must verify it against the repository before applying it.
-- The active local billing database was intentionally reset on 2026-05-20, so imported legacy receipts/charges/accounting rows are no longer present there.
-- Restoring `backups/SocietyApp_client_ready_20260520_224458.bak` on the client server will restore the fresh baseline, not the earlier imported legacy transaction history.
+- The restored legacy snapshot contains `4` orphan bill lines totaling `2,400.00` without matching `tblBillInfoMaster` rows. The carry-forward migration preserves them using synthetic receipts.
+- Restoring `backups/SocietyApp_client_ready_20260520_224458.bak` on the client server will restore the older fresh baseline, not the current history-inclusive carry-forward state.
