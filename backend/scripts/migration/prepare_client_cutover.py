@@ -43,16 +43,18 @@ class HeadConfig:
     name: str
     head_type: str
     fee_amount: float
-    effective_date: date | None
+    effective_from_date: date | None
+    effective_to_date: date | None
     coa_code: str
 
 
 HEADS: list[HeadConfig] = [
-    HeadConfig("Monthly Subscription", "Period", 500.0, date(2018, 1, 1), "1002"),
-    HeadConfig("Registration Fee", "OneTime", 1000.0, None, "1001"),
-    HeadConfig("Other Charges", "OneTime", 0.0, None, "1003"),
-    HeadConfig("Electric Service Bill", "OneTime", 20000.0, None, "1004"),
-    HeadConfig("Development Charge", "OneTime", 20000.0, None, "1005"),
+    HeadConfig("Monthly Subscription 2018-2022", "Period", 300.0, date(2018, 1, 1), date(2022, 12, 31), "1002"),
+    HeadConfig("Monthly Subscription 2023+", "Period", 500.0, date(2023, 1, 1), None, "1002"),
+    HeadConfig("Registration Fee", "OneTime", 1000.0, None, None, "1001"),
+    HeadConfig("Other Charges", "OneTime", 0.0, None, None, "1003"),
+    HeadConfig("Electric Service Bill", "OneTime", 20000.0, None, None, "1004"),
+    HeadConfig("Development Charge", "OneTime", 20000.0, None, None, "1005"),
 ]
 
 ACCOUNTS: list[dict[str, Any]] = [
@@ -288,9 +290,10 @@ def seed_setup_data(db) -> dict[str, int]:
             head_name=head_config.name,
             head_type=head_config.head_type,
             fee_amount=head_config.fee_amount,
-            effective_from_month=head_config.effective_date.month if head_config.effective_date else None,
-            effective_from_year=head_config.effective_date.year if head_config.effective_date else None,
-            effective_from_date=head_config.effective_date,
+            effective_from_month=head_config.effective_from_date.month if head_config.effective_from_date else None,
+            effective_from_year=head_config.effective_from_date.year if head_config.effective_from_date else None,
+            effective_from_date=head_config.effective_from_date,
+            effective_to_date=head_config.effective_to_date,
             is_active=True,
             created_by=admin_user.id if admin_user else None,
         )
@@ -453,7 +456,10 @@ def import_legacy_billing(db) -> dict[str, int]:
 def rebuild_invoice_history(db) -> dict[str, int]:
     heads = {head.head_name: head for head in db.query(BillingHead).filter(BillingHead.is_active == True).all()}
     mappings = {mapping.billing_head_id: mapping for mapping in db.query(BillingHeadCoaMapping).filter(BillingHeadCoaMapping.is_active == True).all()}
-    monthly_head = heads["Monthly Subscription"]
+    monthly_heads = [
+        heads["Monthly Subscription 2018-2022"],
+        heads["Monthly Subscription 2023+"],
+    ]
     registration_head = heads["Registration Fee"]
     other_head = heads["Other Charges"]
 
@@ -480,9 +486,9 @@ def rebuild_invoice_history(db) -> dict[str, int]:
                 period_date = _normalize_period_date(row.get("period_date"))
 
                 if "month" in charge_type and period_date is not None:
-                    head = monthly_head
+                    head = next((item for item in monthly_heads if _head_is_effective_for_period(item, period_date)), monthly_heads[-1])
                     mapping = mappings.get(head.id)
-                    fee = _period_fee(period_date)
+                    fee = float(head.fee_amount)
                     received = amount
                     due = max(fee - received, 0)
                     detail_payloads.append(
@@ -581,25 +587,25 @@ def rebuild_invoice_history(db) -> dict[str, int]:
             period_date = _normalize_period_date(row["period_date"])
             if period_date is None:
                 continue
+            monthly_head = next((item for item in monthly_heads if _head_is_effective_for_period(item, period_date)), monthly_heads[-1])
             legacy_remaining = max(float(row["receivable_amount"] or 0) - paid_by_period.get(period_date, 0.0), 0)
             existing_due = _existing_period_due(db, member.id, monthly_head.id, period_date)
             adjustment_due = max(legacy_remaining - existing_due, 0)
             if adjustment_due > 0:
-                due_payloads.append((period_date, adjustment_due))
+                due_payloads.append((monthly_head, period_date, adjustment_due))
 
         if due_payloads:
             due_invoice_no = f"DUE-{member.member_code}"[:50]
             if db.query(BillingInvoice).filter(BillingInvoice.invoice_no == due_invoice_no).one_or_none() is None:
-                mapping = mappings.get(monthly_head.id)
                 invoice = BillingInvoice(
                     invoice_no=due_invoice_no,
                     member_id=member.id,
                     invoice_date=date.today(),
-                    subtotal_amount=sum(item[1] for item in due_payloads),
+                    subtotal_amount=sum(item[2] for item in due_payloads),
                     discount_amount=0,
-                    net_amount=sum(item[1] for item in due_payloads),
+                    net_amount=sum(item[2] for item in due_payloads),
                     total_receive_amount=0,
-                    total_due_amount=sum(item[1] for item in due_payloads),
+                    total_due_amount=sum(item[2] for item in due_payloads),
                     is_cancelled=False,
                     cancel_reason=None,
                     created_by=None,
@@ -608,7 +614,8 @@ def rebuild_invoice_history(db) -> dict[str, int]:
                 db.flush()
                 created_invoices += 1
 
-                for period_date, amount in due_payloads:
+                for monthly_head, period_date, amount in due_payloads:
+                    mapping = mappings.get(monthly_head.id)
                     db.add(
                         BillingInvoiceDetail(
                             invoice_id=invoice.id,
@@ -656,6 +663,14 @@ def summarize(db) -> dict[str, int]:
         "sms_templates": int(db.execute(text("SELECT COUNT(*) FROM messaging.sms_templates")).scalar() or 0),
         "sms_messages": int(db.execute(text("SELECT COUNT(*) FROM messaging.sms_messages")).scalar() or 0),
     }
+
+
+def _head_is_effective_for_period(head: BillingHead, period_date: date) -> bool:
+    if head.effective_from_date and head.effective_from_date > period_date:
+        return False
+    if getattr(head, "effective_to_date", None) and head.effective_to_date < period_date:
+        return False
+    return True
 
 
 def main() -> None:

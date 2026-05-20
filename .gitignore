@@ -9,3 +9,4 @@ frontend/tsconfig.tsbuildinfo
 client-deployment-output/
 client-deployment-output.zip
 society-modern-images.tar
+backups/*.bak

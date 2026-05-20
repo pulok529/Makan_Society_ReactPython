@@ -36,11 +36,30 @@ def _as_str(value: Any) -> str | None:
 def _as_date(value: Any) -> date | None:
     if value is None:
         return None
+    if isinstance(value, datetime):
+        return value.date()
     if isinstance(value, date):
         return value
     if hasattr(value, "date"):
         return value.date()
-    return None
+    text_value = str(value).strip()
+    if not text_value:
+        return None
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d", "%d %B, %Y", "%b %d %Y", "%b %d %Y %I:%M%p", "%b %d %Y %I:%M %p"):
+        try:
+            return datetime.strptime(text_value.replace(".", ""), fmt).date()
+        except ValueError:
+            continue
+    cleaned = text_value.replace(",", "").replace("  ", " ")
+    for fmt in ("%b %d %Y", "%B %d %Y"):
+        try:
+            return datetime.strptime(cleaned, fmt).date()
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(text_value).date()
+    except ValueError:
+        return None
 
 
 def _month_start(value: date) -> date:
@@ -57,6 +76,14 @@ def _period_fee(period_date: date) -> float:
     if period_date >= date(2023, 1, 1):
         return 500.0
     return 300.0
+
+
+def _head_is_effective_for_period(head: BillingHead, period_date: date) -> bool:
+    if head.effective_from_date and _month_start(head.effective_from_date) > _month_start(period_date):
+        return False
+    if getattr(head, "effective_to_date", None) and _month_start(head.effective_to_date) < _month_start(period_date):
+        return False
+    return True
 
 
 def sync_members(db) -> dict[str, Any]:
@@ -242,12 +269,16 @@ def generate_due_data(db) -> dict[str, Any]:
     db.execute(text("DELETE FROM billing.charges WHERE charge_type = 'monthly_due'"))
     db.flush()
 
-    monthly_head = db.query(BillingHead).filter(BillingHead.head_name == "Monthly Subscription").one()
-    mapping = (
-        db.query(BillingHeadCoaMapping)
-        .filter(BillingHeadCoaMapping.billing_head_id == monthly_head.id, BillingHeadCoaMapping.is_active == True)
-        .first()
-    )
+    heads = {head.head_name: head for head in db.query(BillingHead).filter(BillingHead.is_active == True).all()}
+    monthly_heads = [
+        heads["Monthly Subscription 2018-2022"],
+        heads["Monthly Subscription 2023+"],
+    ]
+    registration_head = heads["Registration Fee"]
+    mappings = {
+        mapping.billing_head_id: mapping
+        for mapping in db.query(BillingHeadCoaMapping).filter(BillingHeadCoaMapping.is_active == True).all()
+    }
 
     paid_rows = db.execute(
         text(
@@ -276,16 +307,35 @@ def generate_due_data(db) -> dict[str, Any]:
         if member_start > end_period:
             continue
 
-        detail_rows: list[tuple[BillingPeriod, float]] = []
+        detail_rows: list[tuple[BillingHead, BillingPeriod | None, float]] = []
         cursor = member_start
         while cursor <= end_period:
             period = periods_by_key[(cursor.year, cursor.month)]
-            fee = _period_fee(cursor)
+            monthly_head = next((item for item in monthly_heads if _head_is_effective_for_period(item, cursor)), monthly_heads[-1])
+            fee = float(monthly_head.fee_amount)
             paid_amount = paid_by_period.get((member.id, period.id), 0.0)
             due_amount = round(max(fee - paid_amount, 0.0), 2)
             if due_amount > 0:
-                detail_rows.append((period, due_amount))
+                detail_rows.append((monthly_head, period, due_amount))
             cursor = _next_month(cursor)
+
+        registration_paid, registration_due = 0.0, 0.0
+        existing_registration_due = db.execute(
+            text(
+                """
+                SELECT COALESCE(SUM(d.DueAmount), 0)
+                FROM billing.billing_invoice_details d
+                JOIN billing.billing_invoices i ON i.InvoiceID = d.InvoiceID
+                WHERE i.IsCancelled = 0
+                  AND d.MemberID = :member_id
+                  AND d.BillingHeadID = :billing_head_id
+                """
+            ),
+            {"member_id": member.id, "billing_head_id": registration_head.id},
+        ).scalar()
+        registration_due = max(float(registration_head.fee_amount) - registration_paid, float(existing_registration_due or 0))
+        if registration_due > 0:
+            detail_rows.insert(0, (registration_head, None, round(registration_due, 2)))
 
         if not detail_rows:
             continue
@@ -294,11 +344,11 @@ def generate_due_data(db) -> dict[str, Any]:
             invoice_no=f"DUE-{member.member_code}"[:50],
             member_id=member.id,
             invoice_date=end_period,
-            subtotal_amount=sum(amount for _, amount in detail_rows),
+            subtotal_amount=sum(amount for _, _, amount in detail_rows),
             discount_amount=0,
-            net_amount=sum(amount for _, amount in detail_rows),
+            net_amount=sum(amount for _, _, amount in detail_rows),
             total_receive_amount=0,
-            total_due_amount=sum(amount for _, amount in detail_rows),
+            total_due_amount=sum(amount for _, _, amount in detail_rows),
             is_cancelled=False,
             cancel_reason=None,
             created_by=None,
@@ -308,11 +358,12 @@ def generate_due_data(db) -> dict[str, Any]:
         due_invoices_created += 1
         due_members += 1
 
-        for period, due_amount in detail_rows:
+        for head, period, due_amount in detail_rows:
+            is_period_head = period is not None
             charge = Charge(
                 member_id=member.id,
-                billing_period_id=period.id,
-                charge_type="monthly_due",
+                billing_period_id=period.id if period is not None else None,
+                charge_type="monthly_due" if is_period_head else "reg_due",
                 status="open",
                 total_amount=due_amount,
                 discount_amount=0,
@@ -327,8 +378,8 @@ def generate_due_data(db) -> dict[str, Any]:
                 ChargeItem(
                     charge_id=charge.id,
                     package_id=None,
-                    item_type="monthly_due",
-                    description=f"Auto due for {period.period_name}",
+                    item_type="monthly_due" if is_period_head else "reg_due",
+                    description=f"Auto due for {period.period_name}" if period is not None else "Auto registration due",
                     quantity=1,
                     unit_amount=due_amount,
                     line_amount=due_amount,
@@ -338,16 +389,16 @@ def generate_due_data(db) -> dict[str, Any]:
                 BillingInvoiceDetail(
                     invoice_id=invoice.id,
                     member_id=member.id,
-                    billing_head_id=monthly_head.id,
-                    head_name_snapshot=monthly_head.head_name,
-                    head_type=monthly_head.head_type,
-                    period_date=period.starts_on,
-                    period_display=f"{period.month:02d}-{period.year}",
+                    billing_head_id=head.id,
+                    head_name_snapshot=head.head_name,
+                    head_type=head.head_type,
+                    period_date=period.starts_on if period is not None else None,
+                    period_display=f"{period.month:02d}-{period.year}" if period is not None else None,
                     fee_amount=due_amount,
                     receive_amount=0,
                     due_amount=due_amount,
                     discount_amount=0,
-                    coa_id_snapshot=mapping.coa_id if mapping else None,
+                    coa_id_snapshot=mappings[head.id].coa_id if head.id in mappings else None,
                     is_income_transferred=False,
                     created_by=None,
                 )

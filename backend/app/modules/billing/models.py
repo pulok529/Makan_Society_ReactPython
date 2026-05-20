@@ -93,6 +93,7 @@ class BillingHead(Base):
     effective_from_month: Mapped[int | None] = mapped_column("EffectiveFromMonth")
     effective_from_year: Mapped[int | None] = mapped_column("EffectiveFromYear")
     effective_from_date: Mapped[date | None] = mapped_column("EffectiveFromDate", Date)
+    effective_to_date: Mapped[date | None] = mapped_column("EffectiveToDate", Date)
     is_active: Mapped[bool] = mapped_column("IsActive", Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column("CreatedAt", DateTime(timezone=True), server_default=func.now())
     created_by: Mapped[int | None] = mapped_column("CreatedBy", ForeignKey("auth.users.id"))

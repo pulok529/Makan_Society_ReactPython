@@ -199,6 +199,7 @@ type BillingHead = {
   effective_from_month: number | null;
   effective_from_year: number | null;
   effective_from_date: string | null;
+  effective_to_date: string | null;
   is_active: boolean;
   created_at: string;
   created_by: number | null;
@@ -889,6 +890,7 @@ export function App() {
   const [billingHeadMode, setBillingHeadMode] = useState<"Mandatory" | "Optional">("Mandatory");
   const [billingHeadFee, setBillingHeadFee] = useState("500");
   const [billingHeadEffectiveDate, setBillingHeadEffectiveDate] = useState("2018-01-01");
+  const [billingHeadEffectiveToDate, setBillingHeadEffectiveToDate] = useState("");
   const [billingHeadPageMode, setBillingHeadPageMode] = useState<"view" | "entry">("view");
   const [editingBillingHeadId, setEditingBillingHeadId] = useState<number | null>(null);
   const [mappingHeadId, setMappingHeadId] = useState("");
@@ -2011,6 +2013,7 @@ export function App() {
           effective_from_month: billingHeadType === "Period" ? Number(billingHeadEffectiveDate.slice(5, 7)) : null,
           effective_from_year: billingHeadType === "Period" ? Number(billingHeadEffectiveDate.slice(0, 4)) : null,
           effective_from_date: billingHeadType === "Period" ? billingHeadEffectiveDate : null,
+          effective_to_date: billingHeadType === "Period" ? (billingHeadEffectiveToDate || null) : null,
           is_active: true,
         }),
       });
@@ -2019,6 +2022,7 @@ export function App() {
       setBillingHeadFee("500");
       setBillingHeadType("Period");
       setBillingHeadEffectiveDate("2018-01-01");
+      setBillingHeadEffectiveToDate("");
       setEditingBillingHeadId(null);
       setWorkspaceTab("billing-heads-view");
       await refreshBillingWorkspace();
@@ -4629,9 +4633,16 @@ export function App() {
 	                    </div>
 	                  </div>
                   {billingHeadType === "Period" ? (
-                    <div className="mb-3">
-                      <label className="form-label">Effective From</label>
-                      <input className="form-control" type="date" value={billingHeadEffectiveDate} onChange={(event) => setBillingHeadEffectiveDate(event.target.value)} required />
+                    <div className="row">
+                      <div className="col-md-6 mb-3">
+                        <label className="form-label">Effective From</label>
+                        <input className="form-control" type="date" value={billingHeadEffectiveDate} onChange={(event) => setBillingHeadEffectiveDate(event.target.value)} required />
+                      </div>
+                      <div className="col-md-6 mb-3">
+                        <label className="form-label">Effective To</label>
+                        <input className="form-control" type="date" value={billingHeadEffectiveToDate} onChange={(event) => setBillingHeadEffectiveToDate(event.target.value)} />
+                        <small className="text-muted">Leave empty if the head continues without an end date.</small>
+                      </div>
                     </div>
                   ) : null}
                   <button className="btn btn-primary" disabled={isSubmitting} type="submit">{editingBillingHeadId ? "Update As New Version" : "Save Head"}</button>
@@ -4656,6 +4667,7 @@ export function App() {
 	              setBillingHeadMode("Mandatory");
 	              setBillingHeadFee("500");
 	              setBillingHeadEffectiveDate("2018-01-01");
+                setBillingHeadEffectiveToDate("");
               setWorkspaceTab("billing-heads-entry");
             }}
             type="button"
@@ -4674,6 +4686,7 @@ export function App() {
 	                  <th>Mode</th>
 	                  <th>Fee</th>
                   <th>Effective From</th>
+                  <th>Effective To</th>
                   <th>Status</th>
                   <th className="text-end">Action</th>
                 </tr>
@@ -4686,6 +4699,7 @@ export function App() {
 	                    <td>{head.billing_mode}</td>
 	                    <td>{money(head.fee_amount)}</td>
                     <td>{shortDate(head.effective_from_date)}</td>
+                    <td>{shortDate(head.effective_to_date)}</td>
                     <td>{statusBadge(head.is_active)}</td>
                     <td className="text-end">
                       {head.is_active ? (
@@ -4698,6 +4712,7 @@ export function App() {
 	                            setBillingHeadMode(head.billing_mode);
 	                            setBillingHeadFee(String(head.fee_amount));
                             setBillingHeadEffectiveDate(head.effective_from_date ?? "2018-01-01");
+                            setBillingHeadEffectiveToDate(head.effective_to_date ?? "");
                             setWorkspaceTab("billing-heads-entry");
                           }}
                           type="button"

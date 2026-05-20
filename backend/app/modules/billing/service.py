@@ -55,12 +55,7 @@ class BillingService:
 
     def create_billing_head(self, payload: BillingHeadCreate, user: User) -> BillingHeadRead:
         billing_mode = "Mandatory" if payload.head_type == "Period" else payload.billing_mode
-        if payload.head_type == "Period" and not payload.effective_from_date:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Period heads require effective date")
-        if payload.head_type == "OneTime" and (payload.effective_from_month or payload.effective_from_year):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OneTime heads do not use period input")
-        if billing_mode == "Mandatory" and payload.fee_amount <= 0:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mandatory heads require a fee amount")
+        self._validate_billing_head_payload(payload, billing_mode)
         head = BillingHead(
             head_name=payload.head_name.strip(),
             head_type=payload.head_type,
@@ -69,6 +64,7 @@ class BillingService:
             effective_from_month=payload.effective_from_month,
             effective_from_year=payload.effective_from_year,
             effective_from_date=payload.effective_from_date,
+            effective_to_date=payload.effective_to_date,
             is_active=payload.is_active,
             created_by=user.id,
         )
@@ -81,12 +77,7 @@ class BillingService:
         if old_head is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Billing head not found")
         billing_mode = "Mandatory" if payload.head_type == "Period" else payload.billing_mode
-        if payload.head_type == "Period" and not payload.effective_from_date:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Period heads require effective date")
-        if payload.head_type == "OneTime" and (payload.effective_from_month or payload.effective_from_year):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OneTime heads do not use period input")
-        if billing_mode == "Mandatory" and payload.fee_amount <= 0:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mandatory heads require a fee amount")
+        self._validate_billing_head_payload(payload, billing_mode)
 
         old_mapping = self.repository.get_active_head_mapping(old_head.id)
         old_head.is_active = False
@@ -102,6 +93,7 @@ class BillingService:
             effective_from_month=payload.effective_from_month,
             effective_from_year=payload.effective_from_year,
             effective_from_date=payload.effective_from_date,
+            effective_to_date=payload.effective_to_date,
             is_active=True,
             created_by=user.id,
         )
@@ -207,7 +199,9 @@ class BillingService:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OneTime head cannot use period date")
             effective_fee_amount = float(line.fee_amount)
             if head.head_type == "Period":
-                effective_fee_amount = self._period_fee(line.period_date, float(head.fee_amount)) * self._member_plot_count(member)
+                if line.period_date is None or not self._head_is_effective_for_period(head, line.period_date):
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Billing head is not effective for the selected period")
+                effective_fee_amount = float(head.fee_amount) * self._member_plot_count(member)
             elif head.billing_mode == "Mandatory":
                 effective_fee_amount = float(head.fee_amount)
             if head.billing_mode == "Mandatory" and effective_fee_amount <= 0:
@@ -442,7 +436,7 @@ class BillingService:
             item_rows: list[tuple[str, int, float, float]] = []
             plot_count = self._member_plot_count(member)
             for head in period_heads:
-                base_fee = self._period_fee(period.starts_on, float(head.fee_amount))
+                base_fee = float(head.fee_amount)
                 if base_fee <= 0:
                     continue
                 line_amount = base_fee * plot_count
@@ -642,29 +636,80 @@ class BillingService:
 
     def _ensure_default_billing_setup(self) -> None:
         heads = self.repository.list_billing_heads()
-        if not heads:
-            head = BillingHead(
-                head_name="Monthly Subscription",
+        if heads:
+            return
+
+        from app.modules.accounting.models import Account
+
+        account_specs = {
+            "MONTHLY-FEE": "Monthly Fee Income",
+            "REGISTRATION-FEE": "Registration Fee Income",
+        }
+        accounts_by_code = {item.code: item for item in self.repository.list_accounts()}
+        for code, name in account_specs.items():
+            if code in accounts_by_code:
+                continue
+            account = Account(code=code, name=name, account_type="income", is_active=True)
+            self.db.add(account)
+            self.db.flush()
+            self.db.refresh(account)
+            accounts_by_code[code] = account
+
+        default_heads = [
+            BillingHead(
+                head_name="Monthly Subscription 2018-2022",
+                head_type="Period",
+                billing_mode="Mandatory",
+                fee_amount=300,
+                effective_from_month=1,
+                effective_from_year=2018,
+                effective_from_date=date(2018, 1, 1),
+                effective_to_date=date(2022, 12, 31),
+                is_active=True,
+                created_by=None,
+            ),
+            BillingHead(
+                head_name="Monthly Subscription 2023+",
                 head_type="Period",
                 billing_mode="Mandatory",
                 fee_amount=500,
                 effective_from_month=1,
-                effective_from_year=2018,
-                effective_from_date=date(2018, 1, 1),
+                effective_from_year=2023,
+                effective_from_date=date(2023, 1, 1),
+                effective_to_date=None,
                 is_active=True,
                 created_by=None,
-            )
+            ),
+            BillingHead(
+                head_name="Registration Fee",
+                head_type="OneTime",
+                billing_mode="Mandatory",
+                fee_amount=1000,
+                effective_from_month=None,
+                effective_from_year=None,
+                effective_from_date=None,
+                effective_to_date=None,
+                is_active=True,
+                created_by=None,
+            ),
+        ]
+        account_codes = {
+            "Monthly Subscription 2018-2022": "MONTHLY-FEE",
+            "Monthly Subscription 2023+": "MONTHLY-FEE",
+            "Registration Fee": "REGISTRATION-FEE",
+        }
+        for head in default_heads:
             self.repository.add_billing_head(head)
-            account = next((item for item in self.repository.list_accounts() if item.code == "MONTHLY-FEE"), None)
-            if account is None:
-                from app.modules.accounting.models import Account
-
-                account = Account(code="MONTHLY-FEE", name="Monthly Fee Income", account_type="income", is_active=True)
-                self.db.add(account)
-                self.db.flush()
-                self.db.refresh(account)
-            self.repository.add_head_mapping(BillingHeadCoaMapping(billing_head_id=head.id, coa_id=account.id, is_active=True, created_by=None))
-            self.db.commit()
+            self.db.flush()
+            self.repository.add_head_mapping(
+                BillingHeadCoaMapping(
+                    billing_head_id=head.id,
+                    coa_id=accounts_by_code[account_codes[head.head_name]].id,
+                    is_active=True,
+                    created_by=None,
+                )
+            )
+        self.db.commit()
 
     @staticmethod
     def _serialize_head(head: BillingHead) -> BillingHeadRead:
@@ -677,6 +722,7 @@ class BillingService:
             effective_from_month=head.effective_from_month,
             effective_from_year=head.effective_from_year,
             effective_from_date=head.effective_from_date,
+            effective_to_date=head.effective_to_date,
             is_active=head.is_active,
             created_at=head.created_at,
             created_by=head.created_by,
@@ -718,7 +764,10 @@ class BillingService:
                 current = start
                 end = self._month_start(today)
                 while current <= end:
-                    base_fee = self._period_fee(current, float(head.fee_amount))
+                    if not self._head_is_effective_for_period(head, current):
+                        current = self._next_month(current)
+                        continue
+                    base_fee = float(head.fee_amount)
                     fee = base_fee * plot_count
                     paid, due = self.repository.get_period_payment_totals(member.id, head.id, current)
                     remaining = fee - paid
@@ -773,14 +822,6 @@ class BillingService:
         return rows
 
     @staticmethod
-    def _period_fee(period_date: date, default_fee: float) -> float:
-        if date(2018, 1, 1) <= period_date <= date(2022, 12, 1):
-            return 300.0
-        if period_date >= date(2023, 1, 1):
-            return 500.0
-        return default_fee
-
-    @staticmethod
     def _month_start(value: date) -> date:
         return date(value.year, value.month, 1)
 
@@ -798,9 +839,24 @@ class BillingService:
 
     @staticmethod
     def _head_is_effective_for_period(head: BillingHead, period_start: date) -> bool:
-        if head.effective_from_date is None:
-            return True
-        return BillingService._month_start(head.effective_from_date) <= BillingService._month_start(period_start)
+        period_month = BillingService._month_start(period_start)
+        if head.effective_from_date is not None and BillingService._month_start(head.effective_from_date) > period_month:
+            return False
+        if head.effective_to_date is not None and BillingService._month_start(head.effective_to_date) < period_month:
+            return False
+        return True
+
+    @staticmethod
+    def _validate_billing_head_payload(payload: BillingHeadCreate, billing_mode: str) -> None:
+        if payload.head_type == "Period" and not payload.effective_from_date:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Period heads require effective date")
+        if payload.head_type == "Period" and payload.effective_to_date and payload.effective_to_date < payload.effective_from_date:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Effective to date cannot be earlier than effective from date")
+        if payload.head_type == "OneTime":
+            if payload.effective_from_month or payload.effective_from_year or payload.effective_from_date or payload.effective_to_date:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OneTime heads do not use period input")
+        if billing_mode == "Mandatory" and payload.fee_amount <= 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mandatory heads require a fee amount")
 
     def _upsert_due_tracker_for_invoice_detail(self, member, head: BillingHead, detail: BillingInvoiceDetail, invoice_id: int) -> None:
         tracker = self.repository.get_due_tracker(member.id, head.id, detail.period_date)

@@ -120,6 +120,7 @@ class BillingHeadCreate(BaseModel):
     effective_from_month: int | None = Field(default=None, ge=1, le=12)
     effective_from_year: int | None = Field(default=None, ge=1900, le=2100)
     effective_from_date: date | None = None
+    effective_to_date: date | None = None
     is_active: bool = True
 
 
