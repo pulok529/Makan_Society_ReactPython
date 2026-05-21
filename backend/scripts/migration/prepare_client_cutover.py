@@ -492,6 +492,30 @@ def import_legacy_billing(db) -> dict[str, int]:
                 )
             )
 
+    # Keep collection totals aligned with bill-line based income totals.
+    db.execute(
+        text(
+            """
+            WITH line_totals AS (
+                SELECT receipt_id, SUM(CAST(amount AS decimal(18,2))) AS line_total
+                FROM billing.receipt_lines
+                GROUP BY receipt_id
+            )
+            UPDATE r
+            SET
+                subtotal_amount = ISNULL(lt.line_total, 0),
+                total_amount = ISNULL(lt.line_total, 0),
+                discount_amount = 0
+            FROM billing.receipts r
+            LEFT JOIN line_totals lt ON lt.receipt_id = r.id
+            WHERE
+                ISNULL(CAST(r.total_amount AS decimal(18,2)), 0) <> ISNULL(lt.line_total, 0)
+                OR ISNULL(CAST(r.subtotal_amount AS decimal(18,2)), 0) <> ISNULL(lt.line_total, 0)
+                OR ISNULL(CAST(r.discount_amount AS decimal(18,2)), 0) <> 0
+            """
+        )
+    )
+
     db.commit()
     return {
         "legacy_receipts": len(legacy_receipts),
