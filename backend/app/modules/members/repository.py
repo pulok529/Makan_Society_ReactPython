@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, case, func, or_, select
+from sqlalchemy import Integer, and_, case, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.members.models import Member, MemberNominee, MemberPackage
@@ -9,7 +9,17 @@ class MemberRepository:
         self.db = db
 
     def list_members(self, search: str | None = None) -> list[Member]:
-        numeric_member_code = func.try_cast(Member.member_code, Integer)
+        numeric_member_code = case(
+            (
+                and_(
+                    Member.member_code.is_not(None),
+                    Member.member_code != "",
+                    Member.member_code.op("NOT LIKE")("%[^0-9]%"),
+                ),
+                cast(Member.member_code, Integer),
+            ),
+            else_=None,
+        )
         statement = select(Member).order_by(
             case((numeric_member_code.is_(None), 1), else_=0).asc(),
             numeric_member_code.asc(),
