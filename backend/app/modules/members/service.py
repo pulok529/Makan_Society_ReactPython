@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, date, datetime
 
 from fastapi import HTTPException, status
@@ -8,6 +9,20 @@ from app.modules.members.models import Member, MemberNominee, MemberPackage
 from app.modules.members.repository import MemberRepository
 from app.modules.members.schemas import MemberCreate, MemberPackageAssignmentCreate, MemberUpdate
 from app.modules.packages.repository import PackageRepository
+
+
+def _normalize_plot_no(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    normalized = re.sub(r"(?i)^unregistered", "Reg", normalized)
+    normalized = re.sub(r"(?i)^registered", "Reg", normalized)
+    normalized = re.sub(r"(?i)^(?:(?:un)?reg[\s\-_:]*)+", "", normalized).strip()
+    normalized = normalized.strip(" -:")
+    normalized = " ".join(normalized.split())
+    return f"Reg-{normalized}" if normalized else None
 
 
 class MemberService:
@@ -36,10 +51,11 @@ class MemberService:
         if payload.category_id is not None and self.category_repository.get_by_id(payload.category_id) is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
 
+        normalized_plot_no = _normalize_plot_no(payload.plot_no or payload.member_id_text)
         member = Member(
             member_code=payload.member_code.strip(),
-            member_id_text=payload.member_id_text.strip() if payload.member_id_text else None,
-            plot_no=payload.plot_no.strip() if payload.plot_no else None,
+            member_id_text=normalized_plot_no,
+            plot_no=normalized_plot_no,
             plot_count=max(int(payload.plot_count or 1), 1),
             full_name=payload.full_name.strip(),
             father_name=payload.father_name.strip() if payload.father_name else None,
@@ -103,9 +119,10 @@ class MemberService:
         if payload.category_id is not None and self.category_repository.get_by_id(payload.category_id) is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
 
+        normalized_plot_no = _normalize_plot_no(payload.plot_no or payload.member_id_text)
         member.member_code = payload.member_code.strip()
-        member.member_id_text = payload.member_id_text.strip() if payload.member_id_text else None
-        member.plot_no = payload.plot_no.strip() if payload.plot_no else None
+        member.member_id_text = normalized_plot_no
+        member.plot_no = normalized_plot_no
         member.plot_count = max(int(payload.plot_count or 1), 1)
         member.full_name = payload.full_name.strip()
         member.father_name = payload.father_name.strip() if payload.father_name else None

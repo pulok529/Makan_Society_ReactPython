@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-05-20
+Last updated: 2026-05-21
 
 ## Project Purpose
 
@@ -99,6 +99,7 @@ Detected from source and existing documentation:
 - Category setup.
 - Package setup.
 - Member registration, update, detail, and package assignment.
+- Member plot numbers now persist in normalized `Reg-...` format during create/update and the current local DB has been cleaned to that format.
 - Billing period setup, charge generation, receipts, billing heads, billing mappings, invoices, due tracker, and billing reports.
 - Accounting chart of accounts, income, expense, vouchers, income transfer pending, and summary views.
 - Reports for members, charges, collections, due, receipt detail, member statement, member information detail, HTML export, and XLSX export.
@@ -189,8 +190,29 @@ Detected from source and existing documentation:
 - Local validation checks completed on 2026-05-20:
   - `python -m compileall backend/scripts/migration/prepare_client_cutover.py`: passed
   - carry-forward rebuild script completed successfully against `SocietyLegacyInspect`
-- Latest local client-ready backup:
-  - `backups/SocietyApp_client_ready_20260520_224458.bak`
+- Latest local history-inclusive backup:
+  - `backups/SocietyApp_carryforward_20260520_232506.bak`
+- Current live accounting verification on 2026-05-20:
+  - `accounting.income_entries`: `417` rows totaling `1,036,200.00`
+  - `accounting.expense_entries`: `4` rows totaling `1,810.00`
+  - `accounting.income_expense_entries`: `417` `income` rows, `4` `expense` rows
+  - `accounting.accounting_vouchers`: `417` `income` vouchers, `1` `expense` voucher
+  - `accounting.accounting_voucher_details`: `417` rows totaling `1,036,200.00`
+  - restored legacy `tblIncomeAndExpense`: `0` active rows totaling `0.00`
+  - expense fix source: imported from backup database `InspectBackup_5` (restored from `SocietyApp_pre_client_cutover_20260508_151345.bak`) using idempotent markers
+- Current live preparation verification on 2026-05-21:
+  - billing/income rebuilt from legacy backup `Society_DB_backup_2026_05_02_000004_4236236.bak` restored as `SocietyLegacy_20260502_Source`
+  - `legacy tblBillInfoMaster`: `356` rows, `1,117,400.00`
+  - `current billing.receipts`: `358` rows, `1,119,800.00`
+  - `legacy tblBillInfo`: `2,881` rows, `1,036,200.00`
+  - `current billing.charges`: `2,881` rows, `1,036,200.00`
+  - `current accounting.income_entries`: `417` rows, `1,036,200.00`
+  - `current accounting income vouchers`: `417` rows, `1,036,200.00`
+  - expense imported from `C:\\Users\\Pulak\\Desktop\\Expenses_Sorted_Descending.csv`
+  - `current accounting.expense_entries`: `448` rows, `1,266,123.00`
+  - `current accounting expense vouchers`: `448` rows, `1,266,123.00`
+  - `current accounting.income_expense_entries` expense rows: `448`, `1,266,123.00`
+  - fresh prepared backup: `backups/SocietyApp_prepared_legacy_billing_expensecsv_20260521_032317.bak`
 - Current live data status for local billing baseline: fresh rebuilt state derived from the restored legacy rules. Do not expose real member data.
 
 ## Current API/Module Status
@@ -224,6 +246,7 @@ Detected from source and existing documentation:
 ## Next Tasks
 
 - Create and verify the history-inclusive client restore backup from the current local DB.
+- Confirm whether a newer legacy/database snapshot or CSV import source exists for expense history before taking the final client restore backup.
 - Confirm migration dry-run and reconciliation results using non-production data.
 - Decide whether to add user/role management, file upload management, audit logs, billing reversal/adjustments, and dynamic navigation permissions.
 - Verify BulkSMSBD real provider behavior before production SMS sending.

@@ -1768,7 +1768,7 @@ export function App() {
     setMemberPresentAddress(detail.present_address ?? "");
     setMemberPermanentAddress(detail.permanent_address ?? "");
     setMemberNationalId(detail.national_id ?? "");
-    setMemberPlotNo(detail.plot_no ?? (detail.member_id_text ?? "").replace(/^Reg-/i, ""));
+    setMemberPlotNo((detail.plot_no ?? detail.member_id_text ?? "").replace(/^Reg-/i, ""));
     setMemberPlotCount(String(detail.plot_count ?? 1));
     setMemberCategoryId(detail.category_id ? String(detail.category_id) : "");
     setMemberClass(detail.member_class ?? "General");
@@ -1833,7 +1833,7 @@ export function App() {
     event.preventDefault();
     const accessToken = token();
     if (!accessToken) return;
-    const normalizedPlotNo = memberPlotNo.trim().replace(/^Reg-/i, "");
+    const normalizedPlotNo = memberPlotNo.trim().replace(/^Reg[\s\-_:]*/i, "").trim();
     const normalizedPhone = memberCell.trim();
     const normalizedNomineePhone = nomineeCell.trim();
     if (normalizedPhone && !/^\d+$/.test(normalizedPhone)) {
@@ -1850,7 +1850,7 @@ export function App() {
       const wasEditing = editingMemberId !== null;
       const payload = {
         member_code: memberCode,
-        member_id_text: normalizedPlotNo ? `Reg-${normalizedPlotNo}` : null,
+        member_id_text: normalizedPlotNo || null,
         plot_no: normalizedPlotNo || null,
         plot_count: normalizedPlotCount,
         full_name: memberName,
@@ -4414,7 +4414,16 @@ export function App() {
                       </div>
 	                      <div className="mb-3">
 	                        <label className="form-label">Plot No</label>
-	                        <input className="form-control" value={memberPlotNo} onChange={(event) => setMemberPlotNo(event.target.value)} required />
+	                        <div className="input-group">
+	                          <span className="input-group-text">Reg-</span>
+	                          <input
+	                            className="form-control"
+	                            placeholder="Enter plot no"
+	                            value={memberPlotNo}
+	                            onChange={(event) => setMemberPlotNo(event.target.value.replace(/^Reg[\s\-_:]*/i, ""))}
+	                            required
+	                          />
+	                        </div>
 	                      </div>
 	                      <div className="mb-3">
 	                        <label className="form-label">Plot Count</label>

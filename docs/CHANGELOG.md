@@ -19,6 +19,21 @@
 - Added `Legacy Pre-2018 Collection` to preserve older receipt history without inflating current monthly dues.
 - Fixed cutover seed data so optional one-time heads do not generate fake member dues.
 - Preserved `4` orphan legacy bill lines totaling `2,400.00` by creating synthetic receipts during import.
+- Created and verified the history-inclusive backup: `backups/SocietyApp_carryforward_20260520_232506.bak`.
+- Verified live accounting state after the carry-forward rebuild: income history is present, but expense tables and expense vouchers are still `0` because the restored legacy `tblIncomeAndExpense` source is empty.
+- Imported expense records from backup database `InspectBackup_5` into current `SocietyApp` accounting tables using idempotent markers.
+- After expense import, `expense_entries`, `income_expense_entries` (expense), and expense vouchers are now populated in the active DB.
+
+## 2026-05-21
+
+- Fixed member plot-number save behavior so editing no longer strips the `Reg-` prefix into a bare value.
+- Normalized current `society.members.plot_no` and `member_id_text` values in the live local DB to the `Reg-...` format.
+- Restored legacy source backup `Society_DB_backup_2026_05_02_000004_4236236.bak` into `SocietyLegacy_20260502_Source` for billing baseline validation.
+- Re-ran client cutover preparation so current billing and income are aligned with the restored legacy source.
+- Imported expense and expense vouchers from `C:\\Users\\Pulak\\Desktop\\Expenses_Sorted_Descending.csv` with COA code mapping to current expense accounts.
+- Created and verified prepared restore backup: `backups/SocietyApp_prepared_legacy_billing_expensecsv_20260521_032317.bak`.
+- Re-imported CSV expenses in full-row mode (duplicates included) and excluded only the final footer/summary row with blank date/details/COA.
+- Current expense totals now match CSV transaction rows exactly: `466` rows totaling `1,303,367.00`.
 
 ## 2026-05-19
 

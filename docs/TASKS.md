@@ -57,16 +57,24 @@ Last updated: 2026-05-20
   - vouchers: `417`
   - due tracker rows: `12,617`
   - charge total and accounting income total both match the legacy bill-line total: `1,036,200.00`
+- Recovered expense history from backup database `InspectBackup_5` into the current `SocietyApp` DB:
+  - `accounting.expense_entries`: `4` rows totaling `1,810.00`
+  - `accounting.income_expense_entries` expense rows: `4` totaling `1,810.00`
+  - `accounting.accounting_vouchers` expense: `1` voucher totaling `1,544.00`
+  - `accounting.accounting_voucher_details` expense: `2` rows totaling `1,544.00`
 - Existing app functionality detected from source:
   - Auth bootstrap/login/profile.
   - Category, package, member, billing, accounting, reporting, and messaging modules.
   - SQL Server/Alembic schema migrations.
   - Docker Compose and Jenkins deployment assets.
   - Backend pytest tests for SMS and migration-step definitions.
+- Fixed member plot number normalization:
+  - member edit/create now saves `plot_no` and `member_id_text` in `Reg-...` format
+  - cleaned existing local member rows from variants like `Registered-*`, `RegReg-*`, and `UnReg-*`
 
 ## In-Progress Tasks
 
-- History-inclusive client restore backup still needs to be created from the updated carry-forward DB.
+- History-inclusive backup exists; create a fresh post-expense-fix backup before client restore.
 - Production deployment readiness exists as Docker/Jenkins assets, but target environment validation is unknown.
 - Documentation memory is now initialized and should be maintained after each meaningful task.
 - Hybrid local AI workflow is documented. LM Studio server still needs to be started before delegation.
@@ -74,6 +82,7 @@ Last updated: 2026-05-20
 ## Pending Tasks
 
 - Run migration dry-run and reconciliation on a non-production database if the legacy snapshot changes again.
+- If client expense history is required, locate the real expense source because the current restored legacy snapshot and current DB both show `0` expense rows.
 - Confirm whether worker service needs real background job responsibilities.
 - Add or confirm user/role management requirements.
 - Add or confirm file upload/management requirements for member photos, signatures, and report logos.
@@ -90,7 +99,7 @@ Last updated: 2026-05-20
 
 ## Recommended Next Task
 
-Create the history-inclusive client restore backup, then run a post-push smoke pass on the target environment:
+Confirm whether the client expects expense history in the restore. If yes, find/import the correct expense source first; otherwise use the verified history-inclusive backup and run a post-push smoke pass on the target environment:
 
 ```powershell
 docker compose up --build
