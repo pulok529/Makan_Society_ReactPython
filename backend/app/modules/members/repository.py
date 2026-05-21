@@ -1,4 +1,4 @@
-from sqlalchemy import or_, select
+from sqlalchemy import Integer, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.members.models import Member, MemberNominee, MemberPackage
@@ -9,7 +9,13 @@ class MemberRepository:
         self.db = db
 
     def list_members(self, search: str | None = None) -> list[Member]:
-        statement = select(Member).order_by(Member.member_code.asc(), Member.full_name.asc())
+        numeric_member_code = func.try_cast(Member.member_code, Integer)
+        statement = select(Member).order_by(
+            case((numeric_member_code.is_(None), 1), else_=0).asc(),
+            numeric_member_code.asc(),
+            Member.member_code.asc(),
+            Member.full_name.asc(),
+        )
         if search:
             pattern = f"%{search.strip()}%"
             statement = statement.where(

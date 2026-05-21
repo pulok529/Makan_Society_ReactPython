@@ -1114,15 +1114,12 @@ export function App() {
         .filter((item) => item.receive > 0),
     [billingDueLines, invoiceReceipts],
   );
-  const billingGridFeeTotal = useMemo(() => billingDueLines.reduce((sum, line) => sum + Number(line.due_amount || 0), 0), [billingDueLines]);
+  const billingGridFeeTotal = useMemo(() => billingDueLines.reduce((sum, line) => sum + Number(line.fee_amount || 0), 0), [billingDueLines]);
   const billingGridReceiveTotal = useMemo(
     () => billingDueLines.reduce((sum, line, index) => sum + Number(invoiceReceipts[billingLineKey(line, index)] ?? 0), 0),
     [billingDueLines, invoiceReceipts],
   );
-  const billingGridDueTotal = useMemo(
-    () => billingDueLines.reduce((sum, line, index) => sum + Math.max(Number(line.due_amount) - Number(invoiceReceipts[billingLineKey(line, index)] ?? 0), 0), 0),
-    [billingDueLines, invoiceReceipts],
-  );
+  const billingGridDueTotal = useMemo(() => billingDueLines.reduce((sum, line) => sum + Number(line.due_amount || 0), 0), [billingDueLines]);
   const billingAllRowsChecked = billingDueLines.length > 0 && billingDueLines.every((line, index) => Number(invoiceReceipts[billingLineKey(line, index)] ?? 0) > 0);
   const billingSubtotal = useMemo(() => billingSelectedLines.reduce((sum, item) => sum + item.receive, 0), [billingSelectedLines]);
   const billingReceiveTotal = useMemo(
@@ -5172,7 +5169,7 @@ export function App() {
                           <td className="text-center">
                             <input className="form-control form-control-sm billing-receive-input mx-auto" type="number" max={line.due_amount} value={invoiceReceipts[key] ?? "0"} onChange={(event) => setInvoiceReceipts((current) => ({ ...current, [key]: event.target.value }))} />
                           </td>
-                          <td className="text-center">{money(Math.max(line.due_amount - receive, 0))}</td>
+                          <td className="text-center">{money(line.due_amount)}</td>
                         </tr>
                       );
                     })}
