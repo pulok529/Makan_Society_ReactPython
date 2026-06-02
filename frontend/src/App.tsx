@@ -896,6 +896,8 @@ export function App() {
   const [memberPackageId, setMemberPackageId] = useState("");
   const [memberIsActive, setMemberIsActive] = useState(true);
   const memberTableRef = useRef<HTMLTableElement | null>(null);
+  const entryVoucherTableRef = useRef<HTMLTableElement | null>(null);
+  const entryMasterTableRef = useRef<HTMLTableElement | null>(null);
   const [memberPageMode, setMemberPageMode] = useState<"view" | "entry">("view");
   const [editingMemberId, setEditingMemberId] = useState<number | null>(null);
   const [nomineeName, setNomineeName] = useState("");
@@ -955,7 +957,6 @@ export function App() {
   const [entryAmount, setEntryAmount] = useState("");
   const [entryRemarks, setEntryRemarks] = useState("");
   const [entryMappedIncomeAmount, setEntryMappedIncomeAmount] = useState<number | null>(null);
-  const [entrySearch, setEntrySearch] = useState("");
   const [pendingEntries, setPendingEntries] = useState<{ account_id: number; account_label: string; amount: number; remarks: string | null }[]>([]);
   const [reportType, setReportType] = useState("due-members");
   const [reportMemberId, setReportMemberId] = useState("");
@@ -1360,6 +1361,46 @@ export function App() {
       }
     };
   }, [members, workspaceTab]);
+
+  useEffect(() => {
+    if (workspaceTab !== "income-view" && workspaceTab !== "expense-view") return;
+    const jq = (window as Window & { $?: any; jQuery?: any }).jQuery ?? (window as Window & { $?: any; jQuery?: any }).$;
+    if (!jq?.fn?.DataTable) return;
+
+    const tables = [entryVoucherTableRef.current, entryMasterTableRef.current].filter(Boolean) as HTMLTableElement[];
+    tables.forEach((tableElement) => {
+      if (jq.fn.DataTable.isDataTable(tableElement)) {
+        jq(tableElement).DataTable().destroy();
+      }
+      jq(tableElement).DataTable({
+        pageLength: 10,
+        lengthMenu: [10, 25, 50, 100],
+        lengthChange: true,
+        searching: true,
+        ordering: true,
+        autoWidth: false,
+        scrollY: "340px",
+        scrollCollapse: true,
+        language: {
+          paginate: {
+            previous: "<i class='ri-arrow-left-s-line'>",
+            next: "<i class='ri-arrow-right-s-line'>",
+          },
+        },
+        drawCallback() {
+          jq(".dataTables_paginate > .pagination").addClass("pagination-rounded");
+        },
+      });
+    });
+
+    return () => {
+      tables.forEach((tableElement) => {
+        if (jq?.fn?.DataTable && jq.fn.DataTable.isDataTable(tableElement)) {
+          jq(tableElement).DataTable().destroy();
+        }
+      });
+    };
+  }, [accountingEntries, expenseEntries, incomeEntries, workspaceTab]);
 
   useEffect(() => {
     if (workspaceTab !== "income-entry") return;
@@ -5621,22 +5662,10 @@ export function App() {
     const masterEntries = entryType === "income" ? incomeMasterEntries : expenseMasterEntries;
     const amountLabel = entryType === "income" ? "Collection" : "Expense";
     const headLabel = entryType === "income" ? "Income Head" : "Expense Head";
-    const filteredVouchers = vouchers.filter((entry) => {
-      const needle = entrySearch.trim().toLowerCase();
-      if (!needle) return true;
-      return `${entry.voucher_no} ${entry.total_amount} ${entry.remarks ?? ""} ${shortDate(entry.voucher_date)}`.toLowerCase().includes(needle);
-    });
-    const filteredMasterEntries = masterEntries.filter((entry) => {
-      const needle = entrySearch.trim().toLowerCase();
-      if (!needle) return true;
-      const entryDate = entryType === "income" ? entry.income_date : entry.expense_date;
-      const entryNo = `${entryType === "income" ? "INC" : "EXP"}-${entry.id}`;
-      return `${entryNo} ${entry.coa_name ?? ""} ${entry.amount} ${entry.remarks ?? ""} ${shortDate(entryDate)}`.toLowerCase().includes(needle);
-    });
     const label = entryType === "income" ? "Receive" : "Payment";
     const showVoucherRegister = vouchers.length > 0;
-    const voucherTotal = filteredVouchers.reduce((sum, entry) => sum + Number(entry.total_amount || 0), 0);
-    const masterTotal = filteredMasterEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+    const voucherTotal = vouchers.reduce((sum, entry) => sum + Number(entry.total_amount || 0), 0);
+    const masterTotal = masterEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
     return (
       <>
           <div className="row row-cols-md-3 row-cols-1">
@@ -5651,7 +5680,6 @@ export function App() {
                 className="btn btn-primary"
                 onClick={() => {
                   setPendingEntries([]);
-                  setEntrySearch("");
                   setWorkspaceTab(entryType === "income" ? "income-entry" : "expense-entry");
                 }}
                 type="button"
@@ -5660,24 +5688,11 @@ export function App() {
                 Add {label} Voucher
               </button>
             </div>
-            <div className="card-body border-bottom">
-              <div className="input-group">
-                <span className="input-group-text">
-                  <i className="ri-search-line" />
-                </span>
-                <input
-                  className="form-control"
-                  placeholder={`Search ${label.toLowerCase()} vouchers`}
-                  value={entrySearch}
-                  onChange={(event) => setEntrySearch(event.target.value)}
-                />
-              </div>
-            </div>
             <div className="card-body p-0">
               <div className="table-responsive">
                 {showVoucherRegister ? (
                   <>
-                    <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+                    <table ref={entryVoucherTableRef} className="table table-custom table-centered table-nowrap table-hover mb-0">
                       <thead>
                         <tr>
                           <th>{label} Voucher</th>
@@ -5688,7 +5703,7 @@ export function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredVouchers.map((entry) => (
+                        {vouchers.map((entry) => (
                           <tr key={entry.id}>
                             <td className="fw-semibold">{entry.voucher_no}</td>
                             <td>{shortDate(entry.voucher_date)}</td>
@@ -5707,7 +5722,7 @@ export function App() {
                           </tr>
                         ))}
                       </tbody>
-                      {filteredVouchers.length > 0 ? (
+                      {vouchers.length > 0 ? (
                         <tfoot>
                           <tr>
                             <th>Total</th>
@@ -5719,11 +5734,11 @@ export function App() {
                         </tfoot>
                       ) : null}
                     </table>
-                    {filteredVouchers.length === 0 ? <EmptyState label={`No ${label.toLowerCase()} voucher found`} /> : null}
+                    {vouchers.length === 0 ? <EmptyState label={`No ${label.toLowerCase()} voucher found`} /> : null}
                   </>
                 ) : (
                   <>
-                    <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+                    <table ref={entryMasterTableRef} className="table table-custom table-centered table-nowrap table-hover mb-0">
                       <thead>
                         <tr>
                           <th>{label} Entry</th>
@@ -5734,7 +5749,7 @@ export function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredMasterEntries.map((entry) => {
+                        {masterEntries.map((entry) => {
                           const entryDate = entryType === "income" ? entry.income_date : entry.expense_date;
                           return (
                             <tr key={entry.id}>
@@ -5747,7 +5762,7 @@ export function App() {
                           );
                         })}
                       </tbody>
-                      {filteredMasterEntries.length > 0 ? (
+                      {masterEntries.length > 0 ? (
                         <tfoot>
                           <tr>
                             <th>Total</th>
@@ -5759,7 +5774,7 @@ export function App() {
                         </tfoot>
                       ) : null}
                     </table>
-                    {filteredMasterEntries.length === 0 ? <EmptyState label={`No ${label.toLowerCase()} entry found`} /> : null}
+                    {masterEntries.length === 0 ? <EmptyState label={`No ${label.toLowerCase()} entry found`} /> : null}
                   </>
                 )}
               </div>
