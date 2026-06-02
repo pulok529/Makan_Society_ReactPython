@@ -122,10 +122,11 @@ def get_summary(
 @router.get("/income-transfer-pending", response_model=list[IncomeTransferPendingRead])
 def pending_income_transfers(
     coa_id: int | None = None,
+    as_of_date: date | None = None,
     _: object = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[IncomeTransferPendingRead]:
-    return AccountingService(db).pending_income_transfers(coa_id=coa_id)
+    return AccountingService(db).pending_income_transfers(coa_id=coa_id, as_of_date=as_of_date)
 
 
 @router.get("/income", response_model=list[IncomeEntryRead])

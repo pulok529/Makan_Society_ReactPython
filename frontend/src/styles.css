@@ -4,6 +4,10 @@ body,
   min-height: 100%;
 }
 
+:root {
+  --highdmin-sidenav-width: 252px;
+}
+
 html[data-menu-color="brand"] .sidenav-menu .side-nav-link {
   border: 0;
   width: 100%;
@@ -47,6 +51,15 @@ html[data-menu-color="light"] .sidenav-menu .sidenav-user {
 
 .clickable-row {
   cursor: pointer;
+}
+
+.member-search-box {
+  min-width: 320px;
+  max-width: 480px;
+}
+
+.member-search-box .form-control {
+  min-width: 160px;
 }
 
 .topbar-link {

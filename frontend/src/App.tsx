@@ -586,7 +586,34 @@ function money(value: number | null | undefined) {
 
 function shortDate(value: string | null | undefined) {
   if (!value) return "Not set";
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch;
+    return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString();
+  }
   return new Date(value).toLocaleDateString();
+}
+
+function invoiceStatus(invoice: { is_cancelled: boolean; total_due_amount: number; total_receive_amount: number }) {
+  if (invoice.is_cancelled) return "Cancelled";
+  if (Number(invoice.total_due_amount) <= 0) return "Paid";
+  if (Number(invoice.total_receive_amount) > 0) return "Partial";
+  return "Due";
+}
+
+function invoiceStatusBadgeClass(status: string) {
+  if (status === "Cancelled") return "badge bg-secondary-subtle text-secondary";
+  if (status === "Paid") return "badge bg-success-subtle text-success";
+  if (status === "Partial") return "badge bg-warning-subtle text-warning";
+  return "badge bg-danger-subtle text-danger";
+}
+
+function chargeHeadSummary(charge: Charge) {
+  const parts = charge.items
+    .map((item) => item.description?.trim() || item.package_name?.trim() || item.item_type?.trim())
+    .filter((value): value is string => Boolean(value));
+  if (parts.length > 0) return parts.join(", ");
+  return charge.charge_type;
 }
 
 function pageTitle(tab: WorkspaceTab) {
@@ -868,6 +895,8 @@ export function App() {
   const [memberClass, setMemberClass] = useState("");
   const [memberPackageId, setMemberPackageId] = useState("");
   const [memberIsActive, setMemberIsActive] = useState(true);
+  const [memberSearchInput, setMemberSearchInput] = useState("");
+  const [memberSearch, setMemberSearch] = useState("");
   const [memberPageMode, setMemberPageMode] = useState<"view" | "entry">("view");
   const [editingMemberId, setEditingMemberId] = useState<number | null>(null);
   const [nomineeName, setNomineeName] = useState("");
@@ -1015,6 +1044,14 @@ export function App() {
   }
 
   const activeMembers = useMemo(() => members.filter((member) => member.is_active), [members]);
+  const filteredMembers = useMemo(() => {
+    const needle = memberSearch.trim().toLowerCase();
+    if (!needle) return members;
+    return members.filter((member) => {
+      const haystack = `${member.member_code} ${member.full_name} ${member.plot_no ?? ""} ${member.cell_no ?? ""} ${member.category_name ?? ""}`.toLowerCase();
+      return haystack.includes(needle);
+    });
+  }, [memberSearch, members]);
   const deferredMenuSearch = useDeferredValue(menuSearch);
   const filteredMenuItems = useMemo(() => {
     const needle = deferredMenuSearch.trim().toLowerCase();
@@ -1156,20 +1193,26 @@ export function App() {
   const filteredRegisterCharges = useMemo(() => {
     const search = billingRegisterSearch.trim().toLowerCase();
     const rows = charges.filter((charge) =>
-      !search || `${charge.member_name} ${charge.member_code} ${charge.billing_period_name ?? ""} ${charge.status}`.toLowerCase().includes(search),
+      !search || `${charge.member_name} ${charge.member_code} ${charge.billing_period_name ?? ""} ${chargeHeadSummary(charge)} ${charge.status} ${shortDate(charge.created_at)}`.toLowerCase().includes(search),
     );
     return [...rows].sort((a, b) => {
       const direction = billingRegisterSort.direction === "asc" ? 1 : -1;
       const valueA =
         billingRegisterSort.key === "member" ? a.member_name :
+        billingRegisterSort.key === "date" ? a.created_at :
         billingRegisterSort.key === "period" ? a.billing_period_name ?? "" :
+        billingRegisterSort.key === "head" ? chargeHeadSummary(a) :
         billingRegisterSort.key === "net" ? a.net_amount :
+        billingRegisterSort.key === "paid" ? Math.max(Number(a.net_amount || 0) - Number(a.due_amount || 0), 0) :
         billingRegisterSort.key === "due" ? a.due_amount :
         a.id;
       const valueB =
         billingRegisterSort.key === "member" ? b.member_name :
+        billingRegisterSort.key === "date" ? b.created_at :
         billingRegisterSort.key === "period" ? b.billing_period_name ?? "" :
+        billingRegisterSort.key === "head" ? chargeHeadSummary(b) :
         billingRegisterSort.key === "net" ? b.net_amount :
+        billingRegisterSort.key === "paid" ? Math.max(Number(b.net_amount || 0) - Number(b.due_amount || 0), 0) :
         billingRegisterSort.key === "due" ? b.due_amount :
         b.id;
       return String(valueA).localeCompare(String(valueB), undefined, { numeric: true }) * direction;
@@ -1291,6 +1334,15 @@ export function App() {
     }
     setSmsSelectedMemberIds((current) => current.filter((id) => smsEligibleMembers.some((member) => member.id === id)));
   }, [smsEligibleMembers, smsMemberId, smsTargetMode]);
+
+  useEffect(() => {
+    if (workspaceTab !== "income-entry") return;
+    if (!entryAccountId) {
+      setEntryMappedIncomeAmount(null);
+      return;
+    }
+    void loadMappedIncomeAmount(entryAccountId, entryDate, false);
+  }, [entryAccountId, entryDate, workspaceTab]);
 
   useEffect(() => {
     if (reportType !== "member-statement" && reportType !== "member-information-detail") {
@@ -3328,35 +3380,43 @@ export function App() {
     setMessage(`${entryType === "income" ? "Income" : "Expense"} line added to list.`);
   }
 
-  async function handleEntryAccountChange(value: string, entryType: "income" | "expense") {
-    setEntryAccountId(value);
-    setEntryMappedIncomeAmount(null);
-
-    if (entryType !== "income" || !value) {
-      return;
-    }
-
+  async function loadMappedIncomeAmount(coaId: string, asOfDate: string, shouldApplyDefaultRemarks: boolean) {
     const accessToken = token();
     if (!accessToken) return;
 
     try {
       const pending = await apiRequest<IncomeTransferPendingItem[]>(
-        `/api/accounting/income-transfer-pending?coa_id=${value}`,
+        `/api/accounting/income-transfer-pending?coa_id=${coaId}&as_of_date=${asOfDate}`,
         accessToken,
       );
       const total = pending.reduce((sum, item) => sum + Number(item.amount), 0);
       if (total > 0) {
         setEntryAmount(total.toFixed(2));
         setEntryMappedIncomeAmount(total);
-        if (!entryRemarks.trim()) {
+        if (shouldApplyDefaultRemarks && !entryRemarks.trim()) {
           setEntryRemarks("Mapped billing collection transfer");
         }
       } else {
         setEntryAmount("");
+        setEntryMappedIncomeAmount(null);
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to load mapped billing total");
     }
+  }
+
+  async function handleEntryAccountChange(value: string, entryType: "income" | "expense") {
+    setEntryAccountId(value);
+    setEntryMappedIncomeAmount(null);
+
+    if (entryType !== "income" || !value) {
+      if (entryType !== "income") {
+        setEntryAmount("");
+      }
+      return;
+    }
+
+    await loadMappedIncomeAmount(value, entryDate, true);
   }
 
   async function handleSavePendingEntries(entryType: "income" | "expense") {
@@ -4470,10 +4530,42 @@ export function App() {
         <div className="row">
           <div className="col-12">
             <div className="card">
-              <div className="card-header d-flex justify-content-between align-items-center">
+              <div className="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
                 <h4 className="header-title">Member Register</h4>
-                <div className="d-flex align-items-center gap-2">
-                  <span className="badge bg-primary-subtle text-primary">{members.length} records</span>
+                <div className="d-flex align-items-center gap-2 flex-wrap">
+                  <span className="badge bg-primary-subtle text-primary">{filteredMembers.length} records</span>
+                  <div className="input-group input-group-sm member-search-box">
+                    <span className="input-group-text">
+                      <i className="ri-search-line" />
+                    </span>
+                    <input
+                      className="form-control"
+                      placeholder="Search members"
+                      value={memberSearchInput}
+                      onChange={(event) => setMemberSearchInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          setMemberSearch(memberSearchInput.trim());
+                        }
+                      }}
+                    />
+                    <button className="btn btn-outline-primary" onClick={() => setMemberSearch(memberSearchInput.trim())} type="button">
+                      Search
+                    </button>
+                    {memberSearch || memberSearchInput ? (
+                      <button
+                        className="btn btn-outline-secondary"
+                        onClick={() => {
+                          setMemberSearch("");
+                          setMemberSearchInput("");
+                        }}
+                        type="button"
+                      >
+                        Clear
+                      </button>
+                    ) : null}
+                  </div>
                   <button className="btn btn-primary btn-sm" onClick={() => void startMemberEntry()} type="button">
                     <i className="ri-add-line me-1" />
                     Add Member
@@ -4496,7 +4588,7 @@ export function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {members.map((member) => (
+                      {filteredMembers.map((member) => (
 	                        <tr className="clickable-row" key={member.id} onClick={() => void handleMemberSelect(member.id)}>
 	                          <td>{member.member_code}</td>
 	                          <td>{member.full_name}</td>
@@ -4810,7 +4902,7 @@ export function App() {
 
   function renderInvoiceReport(invoice: BillingInvoice) {
     const member = members.find((item) => item.id === invoice.member_id);
-    const paidStatus = invoice.total_due_amount <= 0 ? "Paid" : invoice.total_receive_amount > 0 ? "Partial" : "Due";
+    const paidStatus = invoiceStatus(invoice);
     return (
       <div className="invoice-report-sheet">
         <div className="invoice-report-header">
@@ -4823,7 +4915,7 @@ export function App() {
               <div className="text-muted">Makan Society</div>
             </div>
             <div className="text-end">
-            <span className={invoice.total_due_amount <= 0 ? "badge bg-success-subtle text-success" : "badge bg-warning-subtle text-warning"}>
+            <span className={invoiceStatusBadgeClass(paidStatus)}>
               {paidStatus}
             </span>
             <h3 className="invoice-report-title">Invoice</h3>
@@ -4967,8 +5059,8 @@ export function App() {
                           <td className="text-end">{money(invoice.total_receive_amount)}</td>
                           <td className="text-end">{money(invoice.total_due_amount)}</td>
                           <td>
-                            <span className={invoice.total_due_amount <= 0 ? "badge bg-success-subtle text-success" : "badge bg-warning-subtle text-warning"}>
-                              {invoice.total_due_amount <= 0 ? "Paid" : invoice.total_receive_amount > 0 ? "Partial" : "Due"}
+                            <span className={invoiceStatusBadgeClass(invoiceStatus(invoice))}>
+                              {invoiceStatus(invoice)}
                             </span>
                           </td>
                           <td className="text-end">
@@ -5225,6 +5317,12 @@ export function App() {
     const totalPages = Math.max(Math.ceil(rows.length / pageSize), 1);
     const page = Math.min(billingRegisterPage, totalPages);
     const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize);
+    const chargePageRows = pagedRows as Charge[];
+    const receiptPageRows = pagedRows as Receipt[];
+    const chargesTotalNet = filteredRegisterCharges.reduce((sum, charge) => sum + Number(charge.net_amount || 0), 0);
+    const chargesTotalPaid = filteredRegisterCharges.reduce((sum, charge) => sum + Math.max(Number(charge.net_amount || 0) - Number(charge.due_amount || 0), 0), 0);
+    const chargesTotalDue = filteredRegisterCharges.reduce((sum, charge) => sum + Number(charge.due_amount || 0), 0);
+    const receiptsTotal = filteredRegisterReceipts.reduce((sum, receipt) => sum + Number(receipt.total_amount || 0), 0);
     function sortButton(key: string, label: string) {
       const active = billingRegisterSort.key === key;
       return (
@@ -5291,23 +5389,46 @@ export function App() {
                 <thead>
                   <tr>
                     <th>{sortButton("member", "Member")}</th>
+                    <th>{sortButton("date", "Date")}</th>
                     <th>{sortButton("period", "Period")}</th>
+                    <th>{sortButton("head", "Expense Head")}</th>
                     <th>{sortButton("net", "Net")}</th>
+                    <th>{sortButton("paid", "Paid")}</th>
                     <th>{sortButton("due", "Due")}</th>
                     <th>{sortButton("status", "Status")}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(pagedRows as Charge[]).map((charge) => (
+                  {chargePageRows.map((charge) => (
                     <tr key={charge.id}>
-                      <td>{charge.member_name}</td>
+                      <td>
+                        <div className="fw-semibold">{charge.member_name}</div>
+                        <div className="text-muted fs-12">{charge.member_code}</div>
+                      </td>
+                      <td>{shortDate(charge.created_at)}</td>
                       <td>{charge.billing_period_name ?? "N/A"}</td>
+                      <td>{chargeHeadSummary(charge)}</td>
                       <td>{money(charge.net_amount)}</td>
+                      <td>{money(Math.max(Number(charge.net_amount || 0) - Number(charge.due_amount || 0), 0))}</td>
                       <td className={charge.due_amount > 0 ? "text-danger" : "text-success"}>{money(charge.due_amount)}</td>
                       <td>{charge.status}</td>
                     </tr>
                   ))}
                 </tbody>
+                {filteredRegisterCharges.length > 0 ? (
+                  <tfoot>
+                    <tr>
+                      <th>Total</th>
+                      <th></th>
+                      <th></th>
+                      <th></th>
+                      <th className="text-end">{money(chargesTotalNet)}</th>
+                      <th className="text-end">{money(chargesTotalPaid)}</th>
+                      <th className="text-end">{money(chargesTotalDue)}</th>
+                      <th></th>
+                    </tr>
+                  </tfoot>
+                ) : null}
               </table>
               {rows.length === 0 ? <EmptyState label="No charges found" /> : null}
             </div>
@@ -5323,7 +5444,7 @@ export function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(pagedRows as Receipt[]).map((receipt) => (
+                  {receiptPageRows.map((receipt) => (
                     <tr key={receipt.id}>
                       <td>{receipt.receipt_no}</td>
                       <td>{receipt.member_name ?? "N/A"}</td>
@@ -5332,6 +5453,16 @@ export function App() {
                     </tr>
                   ))}
                 </tbody>
+                {filteredRegisterReceipts.length > 0 ? (
+                  <tfoot>
+                    <tr>
+                      <th>Total</th>
+                      <th></th>
+                      <th></th>
+                      <th className="text-end">{money(receiptsTotal)}</th>
+                    </tr>
+                  </tfoot>
+                ) : null}
               </table>
               {rows.length === 0 ? <EmptyState label="No receipts found" /> : null}
             </div>
@@ -5470,6 +5601,8 @@ export function App() {
   function renderEntryView(entryType: "income" | "expense") {
     const vouchers = entryType === "income" ? incomeVouchers : expenseVouchers;
     const masterEntries = entryType === "income" ? incomeMasterEntries : expenseMasterEntries;
+    const amountLabel = entryType === "income" ? "Collection" : "Expense";
+    const headLabel = entryType === "income" ? "Income Head" : "Expense Head";
     const filteredVouchers = vouchers.filter((entry) => {
       const needle = entrySearch.trim().toLowerCase();
       if (!needle) return true;
@@ -5484,6 +5617,8 @@ export function App() {
     });
     const label = entryType === "income" ? "Receive" : "Payment";
     const showVoucherRegister = vouchers.length > 0;
+    const voucherTotal = filteredVouchers.reduce((sum, entry) => sum + Number(entry.total_amount || 0), 0);
+    const masterTotal = filteredMasterEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
     return (
       <>
           <div className="row row-cols-md-3 row-cols-1">
@@ -5529,13 +5664,13 @@ export function App() {
                         <tr>
                           <th>{label} Voucher</th>
                           <th>Date</th>
-                          <th>Amount</th>
+                          <th>{amountLabel}</th>
                           <th>Lines</th>
                           <th className="text-end">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredVouchers.slice(0, entrySearch ? filteredVouchers.length : 20).map((entry) => (
+                        {filteredVouchers.map((entry) => (
                           <tr key={entry.id}>
                             <td className="fw-semibold">{entry.voucher_no}</td>
                             <td>{shortDate(entry.voucher_date)}</td>
@@ -5554,6 +5689,17 @@ export function App() {
                           </tr>
                         ))}
                       </tbody>
+                      {filteredVouchers.length > 0 ? (
+                        <tfoot>
+                          <tr>
+                            <th>Total</th>
+                            <th></th>
+                            <th className="text-end">{money(voucherTotal)}</th>
+                            <th></th>
+                            <th></th>
+                          </tr>
+                        </tfoot>
+                      ) : null}
                     </table>
                     {filteredVouchers.length === 0 ? <EmptyState label={`No ${label.toLowerCase()} voucher found`} /> : null}
                   </>
@@ -5564,13 +5710,13 @@ export function App() {
                         <tr>
                           <th>{label} Entry</th>
                           <th>Date</th>
-                          <th>COA</th>
-                          <th>Amount</th>
+                          <th>{headLabel}</th>
+                          <th>{amountLabel}</th>
                           <th>Remarks</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredMasterEntries.slice(0, entrySearch ? filteredMasterEntries.length : 20).map((entry) => {
+                        {filteredMasterEntries.map((entry) => {
                           const entryDate = entryType === "income" ? entry.income_date : entry.expense_date;
                           return (
                             <tr key={entry.id}>
@@ -5583,6 +5729,17 @@ export function App() {
                           );
                         })}
                       </tbody>
+                      {filteredMasterEntries.length > 0 ? (
+                        <tfoot>
+                          <tr>
+                            <th>Total</th>
+                            <th></th>
+                            <th></th>
+                            <th className="text-end">{money(masterTotal)}</th>
+                            <th></th>
+                          </tr>
+                        </tfoot>
+                      ) : null}
                     </table>
                     {filteredMasterEntries.length === 0 ? <EmptyState label={`No ${label.toLowerCase()} entry found`} /> : null}
                   </>

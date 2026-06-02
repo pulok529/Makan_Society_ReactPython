@@ -143,7 +143,7 @@ class AccountingService:
             )
         )
 
-    def pending_income_transfers(self, coa_id: int | None = None) -> list[IncomeTransferPendingRead]:
+    def pending_income_transfers(self, coa_id: int | None = None, as_of_date: date | None = None) -> list[IncomeTransferPendingRead]:
         return [
             IncomeTransferPendingRead(
                 billing_detail_id=detail.id,
@@ -154,7 +154,7 @@ class AccountingService:
                 head_name=detail.head_name_snapshot,
                 period_display=detail.period_display,
             )
-            for detail, invoice, member in self.repository.list_pending_income_transfers(coa_id=coa_id)
+            for detail, invoice, member in self.repository.list_pending_income_transfers(coa_id=coa_id, as_of_date=as_of_date)
         ]
 
     def _next_voucher_no(self, voucher_type: str, voucher_date: date) -> str:
@@ -194,7 +194,7 @@ class AccountingService:
         account = self.repository.get_account(payload.coa_id)
         if account is None or account.account_type not in {"income", "both", "income_expense"}:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Income COA is required")
-        pending = self.repository.list_pending_income_transfers(coa_id=payload.coa_id)
+        pending = self.repository.list_pending_income_transfers(coa_id=payload.coa_id, as_of_date=payload.income_date)
         remaining = payload.amount
         income = IncomeEntry(
             income_date=payload.income_date,
@@ -289,7 +289,7 @@ class AccountingService:
                 requested_by_coa[line.coa_id] += float(line.amount)
 
             for coa_id, requested_total in requested_by_coa.items():
-                pending = self.repository.list_pending_income_transfers(coa_id=coa_id)
+                pending = self.repository.list_pending_income_transfers(coa_id=coa_id, as_of_date=payload.voucher_date)
                 pending_by_coa[coa_id] = pending
                 pending_total = round(sum(float(detail.receive_amount) for detail, _invoice, _member in pending), 2)
                 if pending_total > 0 and round(requested_total, 2) != pending_total:

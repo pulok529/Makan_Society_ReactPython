@@ -1,3 +1,5 @@
+from datetime import date
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -61,7 +63,7 @@ class AccountingRepository:
         expense = float(self.db.scalar(expense_statement) or 0)
         return income, expense
 
-    def list_pending_income_transfers(self, coa_id: int | None = None):
+    def list_pending_income_transfers(self, coa_id: int | None = None, as_of_date: date | None = None):
         statement = (
             select(BillingInvoiceDetail, BillingInvoice, Member)
             .join(BillingInvoice, BillingInvoice.id == BillingInvoiceDetail.invoice_id)
@@ -75,6 +77,8 @@ class AccountingRepository:
         )
         if coa_id is not None:
             statement = statement.where(BillingInvoiceDetail.coa_id_snapshot == coa_id)
+        if as_of_date is not None:
+            statement = statement.where(BillingInvoice.invoice_date <= as_of_date)
         return list(self.db.execute(statement).all())
 
     def add_income(self, income: IncomeEntry) -> IncomeEntry:
