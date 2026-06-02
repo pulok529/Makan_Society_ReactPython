@@ -896,8 +896,6 @@ export function App() {
   const [memberPackageId, setMemberPackageId] = useState("");
   const [memberIsActive, setMemberIsActive] = useState(true);
   const memberTableRef = useRef<HTMLTableElement | null>(null);
-  const entryVoucherTableRef = useRef<HTMLTableElement | null>(null);
-  const entryMasterTableRef = useRef<HTMLTableElement | null>(null);
   const [memberPageMode, setMemberPageMode] = useState<"view" | "entry">("view");
   const [editingMemberId, setEditingMemberId] = useState<number | null>(null);
   const [nomineeName, setNomineeName] = useState("");
@@ -1333,74 +1331,42 @@ export function App() {
     const jq = (window as Window & { $?: any; jQuery?: any }).jQuery ?? (window as Window & { $?: any; jQuery?: any }).$;
     if (!tableElement || !jq?.fn?.DataTable) return;
 
-    if (jq.fn.DataTable.isDataTable(tableElement)) {
-      jq(tableElement).DataTable().destroy();
-    }
-
-    jq(tableElement).DataTable({
-      pageLength: 25,
-      lengthMenu: [10, 25, 50, 100],
-      lengthChange: true,
-      searching: true,
-      ordering: true,
-      autoWidth: false,
-      language: {
-        paginate: {
-          previous: "<i class='ri-arrow-left-s-line'>",
-          next: "<i class='ri-arrow-right-s-line'>",
-        },
-      },
-      drawCallback() {
-        jq(".dataTables_paginate > .pagination").addClass("pagination-rounded");
-      },
-    });
+    const timer = window.setTimeout(() => {
+      try {
+        jq(tableElement).DataTable({
+          destroy: true,
+          pageLength: 25,
+          lengthMenu: [10, 25, 50, 100],
+          lengthChange: true,
+          searching: true,
+          ordering: true,
+          autoWidth: false,
+          language: {
+            paginate: {
+              previous: "<i class='ri-arrow-left-s-line'>",
+              next: "<i class='ri-arrow-right-s-line'>",
+            },
+          },
+          drawCallback() {
+            jq(".dataTables_paginate > .pagination").addClass("pagination-rounded");
+          },
+        });
+      } catch (error) {
+        console.error("Failed to initialize member DataTable", error);
+      }
+    }, 0);
 
     return () => {
-      if (tableElement && jq?.fn?.DataTable && jq.fn.DataTable.isDataTable(tableElement)) {
-        jq(tableElement).DataTable().destroy();
+      window.clearTimeout(timer);
+      try {
+        if (tableElement && jq?.fn?.DataTable && jq.fn.DataTable.isDataTable(tableElement)) {
+          jq(tableElement).DataTable().destroy();
+        }
+      } catch {
+        // Ignore teardown errors during tab switches.
       }
     };
   }, [members, workspaceTab]);
-
-  useEffect(() => {
-    if (workspaceTab !== "income-view" && workspaceTab !== "expense-view") return;
-    const jq = (window as Window & { $?: any; jQuery?: any }).jQuery ?? (window as Window & { $?: any; jQuery?: any }).$;
-    if (!jq?.fn?.DataTable) return;
-
-    const tables = [entryVoucherTableRef.current, entryMasterTableRef.current].filter(Boolean) as HTMLTableElement[];
-    tables.forEach((tableElement) => {
-      if (jq.fn.DataTable.isDataTable(tableElement)) {
-        jq(tableElement).DataTable().destroy();
-      }
-      jq(tableElement).DataTable({
-        pageLength: 10,
-        lengthMenu: [10, 25, 50, 100],
-        lengthChange: true,
-        searching: true,
-        ordering: true,
-        autoWidth: false,
-        scrollY: "340px",
-        scrollCollapse: true,
-        language: {
-          paginate: {
-            previous: "<i class='ri-arrow-left-s-line'>",
-            next: "<i class='ri-arrow-right-s-line'>",
-          },
-        },
-        drawCallback() {
-          jq(".dataTables_paginate > .pagination").addClass("pagination-rounded");
-        },
-      });
-    });
-
-    return () => {
-      tables.forEach((tableElement) => {
-        if (jq?.fn?.DataTable && jq.fn.DataTable.isDataTable(tableElement)) {
-          jq(tableElement).DataTable().destroy();
-        }
-      });
-    };
-  }, [accountingEntries, expenseEntries, incomeEntries, workspaceTab]);
 
   useEffect(() => {
     if (workspaceTab !== "income-entry") return;
@@ -5689,10 +5655,10 @@ export function App() {
               </button>
             </div>
             <div className="card-body p-0">
-              <div className="table-responsive">
+              <div className="table-responsive accounting-grid-shell">
                 {showVoucherRegister ? (
                   <>
-                    <table ref={entryVoucherTableRef} className="table table-custom table-centered table-nowrap table-hover mb-0">
+                    <table className="table table-custom table-centered table-nowrap table-hover mb-0 accounting-grid-table">
                       <thead>
                         <tr>
                           <th>{label} Voucher</th>
@@ -5738,7 +5704,7 @@ export function App() {
                   </>
                 ) : (
                   <>
-                    <table ref={entryMasterTableRef} className="table table-custom table-centered table-nowrap table-hover mb-0">
+                    <table className="table table-custom table-centered table-nowrap table-hover mb-0 accounting-grid-table">
                       <thead>
                         <tr>
                           <th>{label} Entry</th>

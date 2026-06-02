@@ -114,6 +114,18 @@ html[data-menu-color="light"] .sidenav-menu .sidenav-user {
   overflow: auto;
 }
 
+.accounting-grid-shell {
+  max-height: 360px;
+  overflow: auto;
+}
+
+.accounting-grid-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--ct-secondary-bg);
+}
+
 .billing-register-table thead th {
   position: sticky;
   top: 0;
