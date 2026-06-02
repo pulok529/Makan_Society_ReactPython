@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, ReactNode, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { getSmsBalance, sendTestSms, SmsBalanceResult } from "./api/sms";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -895,8 +895,7 @@ export function App() {
   const [memberClass, setMemberClass] = useState("");
   const [memberPackageId, setMemberPackageId] = useState("");
   const [memberIsActive, setMemberIsActive] = useState(true);
-  const [memberSearchInput, setMemberSearchInput] = useState("");
-  const [memberSearch, setMemberSearch] = useState("");
+  const memberTableRef = useRef<HTMLTableElement | null>(null);
   const [memberPageMode, setMemberPageMode] = useState<"view" | "entry">("view");
   const [editingMemberId, setEditingMemberId] = useState<number | null>(null);
   const [nomineeName, setNomineeName] = useState("");
@@ -1044,14 +1043,6 @@ export function App() {
   }
 
   const activeMembers = useMemo(() => members.filter((member) => member.is_active), [members]);
-  const filteredMembers = useMemo(() => {
-    const needle = memberSearch.trim().toLowerCase();
-    if (!needle) return members;
-    return members.filter((member) => {
-      const haystack = `${member.member_code} ${member.full_name} ${member.plot_no ?? ""} ${member.cell_no ?? ""} ${member.category_name ?? ""}`.toLowerCase();
-      return haystack.includes(needle);
-    });
-  }, [memberSearch, members]);
   const deferredMenuSearch = useDeferredValue(menuSearch);
   const filteredMenuItems = useMemo(() => {
     const needle = deferredMenuSearch.trim().toLowerCase();
@@ -1334,6 +1325,41 @@ export function App() {
     }
     setSmsSelectedMemberIds((current) => current.filter((id) => smsEligibleMembers.some((member) => member.id === id)));
   }, [smsEligibleMembers, smsMemberId, smsTargetMode]);
+
+  useEffect(() => {
+    if (workspaceTab !== "members") return;
+    const tableElement = memberTableRef.current;
+    const jq = (window as Window & { $?: any; jQuery?: any }).jQuery ?? (window as Window & { $?: any; jQuery?: any }).$;
+    if (!tableElement || !jq?.fn?.DataTable) return;
+
+    if (jq.fn.DataTable.isDataTable(tableElement)) {
+      jq(tableElement).DataTable().destroy();
+    }
+
+    jq(tableElement).DataTable({
+      pageLength: 25,
+      lengthMenu: [10, 25, 50, 100],
+      lengthChange: true,
+      searching: true,
+      ordering: true,
+      autoWidth: false,
+      language: {
+        paginate: {
+          previous: "<i class='ri-arrow-left-s-line'>",
+          next: "<i class='ri-arrow-right-s-line'>",
+        },
+      },
+      drawCallback() {
+        jq(".dataTables_paginate > .pagination").addClass("pagination-rounded");
+      },
+    });
+
+    return () => {
+      if (tableElement && jq?.fn?.DataTable && jq.fn.DataTable.isDataTable(tableElement)) {
+        jq(tableElement).DataTable().destroy();
+      }
+    };
+  }, [members, workspaceTab]);
 
   useEffect(() => {
     if (workspaceTab !== "income-entry") return;
@@ -4533,39 +4559,7 @@ export function App() {
               <div className="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
                 <h4 className="header-title">Member Register</h4>
                 <div className="d-flex align-items-center gap-2 flex-wrap">
-                  <span className="badge bg-primary-subtle text-primary">{filteredMembers.length} records</span>
-                  <div className="input-group input-group-sm member-search-box">
-                    <span className="input-group-text">
-                      <i className="ri-search-line" />
-                    </span>
-                    <input
-                      className="form-control"
-                      placeholder="Search members"
-                      value={memberSearchInput}
-                      onChange={(event) => setMemberSearchInput(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          setMemberSearch(memberSearchInput.trim());
-                        }
-                      }}
-                    />
-                    <button className="btn btn-outline-primary" onClick={() => setMemberSearch(memberSearchInput.trim())} type="button">
-                      Search
-                    </button>
-                    {memberSearch || memberSearchInput ? (
-                      <button
-                        className="btn btn-outline-secondary"
-                        onClick={() => {
-                          setMemberSearch("");
-                          setMemberSearchInput("");
-                        }}
-                        type="button"
-                      >
-                        Clear
-                      </button>
-                    ) : null}
-                  </div>
+                  <span className="badge bg-primary-subtle text-primary">{members.length} records</span>
                   <button className="btn btn-primary btn-sm" onClick={() => void startMemberEntry()} type="button">
                     <i className="ri-add-line me-1" />
                     Add Member
@@ -4574,7 +4568,7 @@ export function App() {
               </div>
               <div className="card-body p-0">
                 <div className="table-responsive">
-                  <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+                  <table ref={memberTableRef} className="table table-custom table-centered table-nowrap table-hover mb-0" id="member-datatable">
                     <thead>
 	                      <tr>
 	                        <th>Code</th>
@@ -4588,7 +4582,7 @@ export function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredMembers.map((member) => (
+                      {members.map((member) => (
 	                        <tr className="clickable-row" key={member.id} onClick={() => void handleMemberSelect(member.id)}>
 	                          <td>{member.member_code}</td>
 	                          <td>{member.full_name}</td>
