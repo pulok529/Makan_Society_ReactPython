@@ -5122,8 +5122,12 @@ export function App() {
               </div>
             ) : null}
             <form onSubmit={handleInvoiceSubmit}>
-	              <div className="row g-3 align-items-end">
-	                <div className="col-xl-5 col-lg-5">
+              <div className="row g-3 align-items-end">
+                <div className="col-xl-2 col-lg-3">
+                  <label className="form-label">Invoice Date</label>
+                  <input className="form-control" type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} required />
+                </div>
+                <div className="col-xl-4 col-lg-5">
                   <SearchableDropdown
                     isOpen={invoiceMemberDropdownOpen}
                     label="Member"
@@ -5137,32 +5141,52 @@ export function App() {
                     options={memberDropdownOptions}
                     placeholder="Search member by code, name, or number"
                     search={invoiceMemberSearch}
-	                    value={invoiceMemberId}
-	                  />
-	                </div>
-	                <div className="col-xl-2 col-lg-2">
-	                  <label className="form-label">Plot No</label>
-	                  <input className="form-control" readOnly value={selectedInvoiceMember?.plot_no ?? ""} />
-	                </div>
-	                <div className="col-xl-1 col-lg-1">
-	                  <label className="form-label">Plots</label>
-	                  <input className="form-control" readOnly value={String(selectedInvoiceMember?.plot_count ?? 1)} />
-	                </div>
-	                <div className="col-xl-1 col-lg-1">
-	                  <label className="form-label">Invoice Date</label>
-	                  <input className="form-control" type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} required />
-	                </div>
-	                <div className="col-xl-1 col-lg-1">
-	                  <button className="btn btn-outline-info w-100" disabled={!invoiceMemberId || isSubmitting} onClick={() => void handleLoadMemberDues()} type="button">
-	                    <i className="ri-search-eye-line me-1" />
-	                    View Due
-	                  </button>
-	                </div>
-	                <div className="col-xl-2 col-lg-2">
-	                  <button className="btn btn-secondary w-100" disabled={!invoiceMemberId} onClick={() => setShowPreviousBills(true)} type="button">
-                    <i className="ri-file-list-2-line me-1" />
-                    Previous Bill
-                  </button>
+                    value={invoiceMemberId}
+                  />
+                </div>
+              </div>
+
+              <div className="card border mt-3">
+                <div className="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                  <h5 className="header-title mb-0">Member Details</h5>
+                  <div className="d-flex gap-2">
+                    <button className="btn btn-outline-info" disabled={!invoiceMemberId || isSubmitting} onClick={() => void handleLoadMemberDues()} type="button">
+                      <i className="ri-search-eye-line me-1" />
+                      View Due
+                    </button>
+                    <button className="btn btn-secondary" disabled={!invoiceMemberId} onClick={() => setShowPreviousBills(true)} type="button">
+                      <i className="ri-file-list-2-line me-1" />
+                      Previous Bill
+                    </button>
+                  </div>
+                </div>
+                <div className="card-body">
+                  {selectedInvoiceMember ? (
+                    <div className="row g-3">
+                      <div className="col-lg-4 col-md-6">
+                        <div className="text-muted fs-13">Member</div>
+                        <div className="fw-semibold">{selectedInvoiceMember.member_code} - {selectedInvoiceMember.full_name}</div>
+                      </div>
+                      <div className="col-lg-2 col-md-6">
+                        <div className="text-muted fs-13">Plot No</div>
+                        <div className="fw-semibold">{selectedInvoiceMember.plot_no ?? "N/A"}</div>
+                      </div>
+                      <div className="col-lg-2 col-md-6">
+                        <div className="text-muted fs-13">Plots</div>
+                        <div className="fw-semibold">{selectedInvoiceMember.plot_count ?? 1}</div>
+                      </div>
+                      <div className="col-lg-2 col-md-6">
+                        <div className="text-muted fs-13">Phone</div>
+                        <div className="fw-semibold">{selectedInvoiceMember.cell_no ?? "N/A"}</div>
+                      </div>
+                      <div className="col-lg-2 col-md-6">
+                        <div className="text-muted fs-13">Category</div>
+                        <div className="fw-semibold">{selectedInvoiceMember.category_name ?? "N/A"}</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-muted">Select a member to view billing details.</div>
+                  )}
                 </div>
               </div>
 
