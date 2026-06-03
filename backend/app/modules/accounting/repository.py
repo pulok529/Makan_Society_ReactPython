@@ -159,7 +159,7 @@ class AccountingRepository:
             summary = (
                 select(
                     AccountingVoucherDetail.voucher_id.label("voucher_id"),
-                    func.string_agg(Account.name, literal(", ")).label("head_name"),
+                    func.string_agg(Account.name, literal(", ", String(10))).label("head_name"),
                     func.count(AccountingVoucherDetail.id).label("line_count"),
                 )
                 .join(Account, Account.id == AccountingVoucherDetail.coa_id)
