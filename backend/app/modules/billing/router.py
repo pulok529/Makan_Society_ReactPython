@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
@@ -86,19 +88,33 @@ def generate_period_charges(
 def list_charges(
     billing_period_id: int | None = Query(default=None),
     member_id: int | None = Query(default=None),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    due_only: bool = Query(default=False),
+    limit: int | None = Query(default=None, ge=1, le=500),
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[ChargeRead]:
-    return BillingService(db).list_charges(billing_period_id=billing_period_id, member_id=member_id)
+    return BillingService(db).list_charges(
+        billing_period_id=billing_period_id,
+        member_id=member_id,
+        from_date=from_date,
+        to_date=to_date,
+        due_only=due_only,
+        limit=limit,
+    )
 
 
 @router.get("/receipts", response_model=list[ReceiptRead])
 def list_receipts(
     member_id: int | None = Query(default=None),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    limit: int | None = Query(default=None, ge=1, le=500),
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[ReceiptRead]:
-    return BillingService(db).list_receipts(member_id=member_id)
+    return BillingService(db).list_receipts(member_id=member_id, from_date=from_date, to_date=to_date, limit=limit)
 
 
 @router.post(
@@ -185,10 +201,90 @@ def preview_member_dues(
 @router.get("/invoices", response_model=list[BillingInvoiceRead])
 def list_invoices(
     member_id: int | None = Query(default=None),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    limit: int | None = Query(default=None, ge=1, le=500),
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[BillingInvoiceRead]:
-    return BillingService(db).list_invoices(member_id=member_id)
+    return BillingService(db).list_invoices(member_id=member_id, from_date=from_date, to_date=to_date, limit=limit)
+
+
+@router.get("/tables/charges")
+def billing_charge_table(
+    draw: int = Query(default=1, ge=0),
+    start: int = Query(default=0, ge=0),
+    length: int = Query(default=25, ge=1, le=200),
+    search_value: str = Query(default=""),
+    order_key: str = Query(default="date"),
+    order_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    return BillingService(db).billing_charge_table(
+        draw=draw,
+        start=start,
+        length=length,
+        search=search_value,
+        order_key=order_key,
+        order_dir=order_dir,
+        from_date=from_date,
+        to_date=to_date,
+    )
+
+
+@router.get("/tables/receipts")
+def billing_receipt_table(
+    draw: int = Query(default=1, ge=0),
+    start: int = Query(default=0, ge=0),
+    length: int = Query(default=25, ge=1, le=200),
+    search_value: str = Query(default=""),
+    order_key: str = Query(default="date"),
+    order_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    return BillingService(db).billing_receipt_table(
+        draw=draw,
+        start=start,
+        length=length,
+        search=search_value,
+        order_key=order_key,
+        order_dir=order_dir,
+        from_date=from_date,
+        to_date=to_date,
+    )
+
+
+@router.get("/tables/invoices")
+def billing_invoice_table(
+    draw: int = Query(default=1, ge=0),
+    start: int = Query(default=0, ge=0),
+    length: int = Query(default=25, ge=1, le=200),
+    search_value: str = Query(default=""),
+    order_key: str = Query(default="date"),
+    order_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
+    member_id: int | None = Query(default=None),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    return BillingService(db).billing_invoice_table(
+        draw=draw,
+        start=start,
+        length=length,
+        search=search_value,
+        order_key=order_key,
+        order_dir=order_dir,
+        member_id=member_id,
+        from_date=from_date,
+        to_date=to_date,
+    )
 
 
 @router.post(
@@ -237,8 +333,6 @@ def billing_report(
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> BillingReportRead:
-    from datetime import date
-
     parsed_from = date.fromisoformat(from_date) if from_date else None
     parsed_to = date.fromisoformat(to_date) if to_date else None
     return BillingService(db).billing_report(report_type, member_id=member_id, from_date=parsed_from, to_date=parsed_to)

@@ -78,7 +78,7 @@ class AccountingService:
                 detail="Account has entries. Make it inactive instead.",
             ) from exc
 
-    def list_entries(self) -> list[IncomeExpenseEntryRead]:
+    def list_entries(self, from_date: date | None = None, to_date: date | None = None) -> list[IncomeExpenseEntryRead]:
         accounts = {account.id: account for account in self.repository.list_accounts()}
         return [
             IncomeExpenseEntryRead(
@@ -90,7 +90,7 @@ class AccountingService:
                 remarks=item.remarks,
                 created_at=item.created_at,
             )
-            for item in self.repository.list_entries()
+            for item in self.repository.list_entries(from_date=from_date, to_date=to_date)
         ]
 
     def create_entry(self, payload: IncomeExpenseEntryCreate) -> IncomeExpenseEntryRead:
@@ -272,6 +272,37 @@ class AccountingService:
 
     def list_vouchers(self, voucher_type: str) -> list[AccountingVoucherRead]:
         return [self._serialize_voucher(item) for item in self.repository.list_vouchers(voucher_type)]
+
+    def get_voucher(self, voucher_id: int) -> AccountingVoucherRead:
+        voucher = self.repository.get_voucher(voucher_id)
+        if voucher is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voucher not found")
+        return self._serialize_voucher(voucher)
+
+    def voucher_table(
+        self,
+        *,
+        voucher_type: str,
+        draw: int,
+        start: int,
+        length: int,
+        search: str,
+        order_key: str,
+        order_dir: str,
+        from_date: date | None,
+        to_date: date | None,
+    ) -> dict[str, object]:
+        total, filtered, rows, totals, mode = self.repository.paged_voucher_register(
+            voucher_type=voucher_type,
+            from_date=from_date,
+            to_date=to_date,
+            search=search,
+            order_key=order_key,
+            order_dir=order_dir,
+            start=start,
+            length=length,
+        )
+        return {"draw": draw, "recordsTotal": total, "recordsFiltered": filtered, "data": rows, "totals": totals, "mode": mode}
 
     def create_voucher(self, voucher_type: str, payload: AccountingVoucherCreate, created_by: int | None = None) -> AccountingVoucherRead:
         if voucher_type not in {"income", "expense"}:

@@ -179,6 +179,7 @@ type BillingDashboard = {
   total_due_amount: number;
   total_open_charges: number;
   total_receipts: number;
+  total_collection_amount: number;
 };
 
 type BillingMemberSummary = {
@@ -309,6 +310,64 @@ type AccountingVoucher = {
     amount: number;
     remarks: string | null;
   }[];
+};
+
+type DataTableTotals = Record<string, number>;
+
+type DataTableResponse<T> = {
+  draw: number;
+  recordsTotal: number;
+  recordsFiltered: number;
+  data: T[];
+  totals?: DataTableTotals;
+  mode?: string;
+};
+
+type BillingChargeTableRow = {
+  id: number;
+  member_name: string;
+  member_code: string;
+  plot_no: string | null;
+  created_at: string;
+  billing_period_name: string | null;
+  head_summary: string;
+  net_amount: number;
+  paid_amount: number;
+  due_amount: number;
+  status: string;
+};
+
+type BillingReceiptTableRow = {
+  id: number;
+  receipt_no: string;
+  member_name: string | null;
+  member_code: string | null;
+  plot_no: string | null;
+  payment_date: string;
+  total_amount: number;
+  notes: string | null;
+};
+
+type BillingInvoiceTableRow = {
+  id: number;
+  invoice_no: string;
+  invoice_date: string;
+  subtotal_amount: number;
+  discount_amount: number;
+  total_receive_amount: number;
+  total_due_amount: number;
+  status: string;
+};
+
+type AccountingTransactionTableRow = {
+  id: number;
+  reference_no: string;
+  transaction_date: string;
+  head_name: string;
+  amount: number;
+  remarks: string | null;
+  line_count: number;
+  is_voucher: boolean;
 };
 
 type IncomeTransferPendingItem = {
@@ -563,6 +622,16 @@ async function settleRequest<T>(path: string, accessToken: string, init?: Reques
   }
 }
 
+function getJQuery() {
+  return (window as Window & { $?: any; jQuery?: any }).jQuery ?? (window as Window & { $?: any; jQuery?: any }).$;
+}
+
+function reloadDataTable(tableElement: HTMLTableElement | null) {
+  const jq = getJQuery();
+  if (!tableElement || !jq?.fn?.DataTable || !jq.fn.DataTable.isDataTable(tableElement)) return;
+  jq(tableElement).DataTable().ajax.reload(null, false);
+}
+
 function fileNameFromDisposition(header: string | null, fallback: string) {
   if (!header) return fallback;
   const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
@@ -592,6 +661,38 @@ function shortDate(value: string | null | undefined) {
     return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString();
   }
   return new Date(value).toLocaleDateString();
+}
+
+function dateKey(value: string | null | undefined) {
+  if (!value) return "";
+  const dateOnlyMatch = /^(\d{4}-\d{2}-\d{2})/.exec(value);
+  if (dateOnlyMatch) return dateOnlyMatch[1];
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isWithinDateRange(value: string | null | undefined, fromDate: string, toDate: string) {
+  const key = dateKey(value);
+  if (!key) return false;
+  if (!fromDate && !toDate) return true;
+  if (fromDate && !toDate) return key === fromDate;
+  if (!fromDate && toDate) return key === toDate;
+  const start = fromDate <= toDate ? fromDate : toDate;
+  const end = fromDate <= toDate ? toDate : fromDate;
+  return key >= start && key <= end;
+}
+
+function currentMonthRange() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const firstDay = `${year}-${month}-01`;
+  const lastDay = new Date(year, now.getMonth() + 1, 0).toISOString().slice(0, 10);
+  return { from: firstDay, to: lastDay };
 }
 
 function invoiceStatus(invoice: { is_cancelled: boolean; total_due_amount: number; total_receive_amount: number }) {
@@ -821,6 +922,7 @@ function SearchableDropdown({
 }
 
 export function App() {
+  const defaultMonthRange = currentMonthRange();
   const [authState, setAuthState] = useState<AuthState>("checking");
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("dashboard");
@@ -896,6 +998,10 @@ export function App() {
   const [memberPackageId, setMemberPackageId] = useState("");
   const [memberIsActive, setMemberIsActive] = useState(true);
   const memberTableRef = useRef<HTMLTableElement | null>(null);
+  const billingRegisterTableRef = useRef<HTMLTableElement | null>(null);
+  const previousBillsTableRef = useRef<HTMLTableElement | null>(null);
+  const incomeTableRef = useRef<HTMLTableElement | null>(null);
+  const expenseTableRef = useRef<HTMLTableElement | null>(null);
   const [memberPageMode, setMemberPageMode] = useState<"view" | "entry">("view");
   const [editingMemberId, setEditingMemberId] = useState<number | null>(null);
   const [nomineeName, setNomineeName] = useState("");
@@ -935,14 +1041,16 @@ export function App() {
   const [showInvoiceReport, setShowInvoiceReport] = useState(false);
   const [showReportViewer, setShowReportViewer] = useState(false);
   const [showPreviousBills, setShowPreviousBills] = useState(false);
+  const [previousBillsFromDate, setPreviousBillsFromDate] = useState(defaultMonthRange.from);
+  const [previousBillsToDate, setPreviousBillsToDate] = useState(defaultMonthRange.to);
+  const [previousBillsTotals, setPreviousBillsTotals] = useState<DataTableTotals>({});
   const [manualBillingHeadId, setManualBillingHeadId] = useState("");
   const [manualBillingPeriod, setManualBillingPeriod] = useState(new Date().toISOString().slice(0, 7));
   const [manualBillingFee, setManualBillingFee] = useState("");
   const [billingRegisterTab, setBillingRegisterTab] = useState<"charges" | "receipts">("charges");
-  const [billingRegisterSearch, setBillingRegisterSearch] = useState("");
-  const [billingRegisterPageSize, setBillingRegisterPageSize] = useState("25");
-  const [billingRegisterPage, setBillingRegisterPage] = useState(1);
-  const [billingRegisterSort, setBillingRegisterSort] = useState<{ key: string; direction: "asc" | "desc" }>({ key: "date", direction: "desc" });
+  const [billingRegisterFromDate, setBillingRegisterFromDate] = useState(defaultMonthRange.from);
+  const [billingRegisterToDate, setBillingRegisterToDate] = useState(defaultMonthRange.to);
+  const [billingRegisterTotals, setBillingRegisterTotals] = useState<DataTableTotals>({});
   const [accountCode, setAccountCode] = useState("");
   const [accountName, setAccountName] = useState("");
   const [accountType, setAccountType] = useState("income");
@@ -951,6 +1059,10 @@ export function App() {
   const [entryAccountSearch, setEntryAccountSearch] = useState("");
   const [entryAccountDropdownOpen, setEntryAccountDropdownOpen] = useState(false);
   const [entryDate, setEntryDate] = useState(new Date().toISOString().slice(0, 10));
+  const [entryFromDate, setEntryFromDate] = useState(defaultMonthRange.from);
+  const [entryToDate, setEntryToDate] = useState(defaultMonthRange.to);
+  const [entryTableTotals, setEntryTableTotals] = useState<Record<"income" | "expense", DataTableTotals>>({ income: {}, expense: {} });
+  const [entryTableMode, setEntryTableMode] = useState<Record<"income" | "expense", string>>({ income: "voucher", expense: "voucher" });
   const [entryVoucherRemarks, setEntryVoucherRemarks] = useState("");
   const [entryAmount, setEntryAmount] = useState("");
   const [entryRemarks, setEntryRemarks] = useState("");
@@ -1075,10 +1187,7 @@ export function App() {
       ),
     [openCharges, selectedReceiptMemberId],
   );
-  const totalCollection = useMemo(
-    () => receipts.reduce((total, receipt) => total + Number(receipt.total_amount), 0),
-    [receipts],
-  );
+  const totalCollection = billingDashboard?.total_collection_amount ?? 0;
   const dueByMemberId = useMemo(() => {
     const map = new Map<number, BillingMemberSummary>();
     memberDueSummaries.forEach((item) => map.set(item.member_id, item));
@@ -1167,67 +1276,12 @@ export function App() {
     () => members.find((member) => member.id === Number(invoiceMemberId)),
     [invoiceMemberId, members],
   );
-  const selectedMemberInvoices = useMemo(
-    () =>
-      billingInvoices
-        .filter((invoice) => invoice.member_id === Number(invoiceMemberId))
-        .sort((a, b) => `${b.invoice_date}-${b.id}`.localeCompare(`${a.invoice_date}-${a.id}`)),
-    [billingInvoices, invoiceMemberId],
-  );
   const todayKey = new Date().toISOString().slice(0, 10);
   const todayInvoices = useMemo(() => billingInvoices.filter((invoice) => invoice.invoice_date === todayKey && !invoice.is_cancelled), [billingInvoices, todayKey]);
   const todayCollectionAmount = useMemo(() => todayInvoices.reduce((sum, invoice) => sum + Number(invoice.total_receive_amount || 0), 0), [todayInvoices]);
   const todayDueAmount = useMemo(() => todayInvoices.reduce((sum, invoice) => sum + Number(invoice.total_due_amount || 0), 0), [todayInvoices]);
   const todayCollectedMembers = useMemo(() => new Set(todayInvoices.filter((invoice) => invoice.total_receive_amount > 0).map((invoice) => invoice.member_id)).size, [todayInvoices]);
   const todayDiscountAmount = useMemo(() => todayInvoices.reduce((sum, invoice) => sum + Number(invoice.discount_amount || 0), 0), [todayInvoices]);
-  const filteredRegisterCharges = useMemo(() => {
-    const search = billingRegisterSearch.trim().toLowerCase();
-    const rows = charges.filter((charge) =>
-      !search || `${charge.member_name} ${charge.member_code} ${charge.billing_period_name ?? ""} ${chargeHeadSummary(charge)} ${charge.status} ${shortDate(charge.created_at)}`.toLowerCase().includes(search),
-    );
-    return [...rows].sort((a, b) => {
-      const direction = billingRegisterSort.direction === "asc" ? 1 : -1;
-      const valueA =
-        billingRegisterSort.key === "member" ? a.member_name :
-        billingRegisterSort.key === "date" ? a.created_at :
-        billingRegisterSort.key === "period" ? a.billing_period_name ?? "" :
-        billingRegisterSort.key === "head" ? chargeHeadSummary(a) :
-        billingRegisterSort.key === "net" ? a.net_amount :
-        billingRegisterSort.key === "paid" ? Math.max(Number(a.net_amount || 0) - Number(a.due_amount || 0), 0) :
-        billingRegisterSort.key === "due" ? a.due_amount :
-        a.id;
-      const valueB =
-        billingRegisterSort.key === "member" ? b.member_name :
-        billingRegisterSort.key === "date" ? b.created_at :
-        billingRegisterSort.key === "period" ? b.billing_period_name ?? "" :
-        billingRegisterSort.key === "head" ? chargeHeadSummary(b) :
-        billingRegisterSort.key === "net" ? b.net_amount :
-        billingRegisterSort.key === "paid" ? Math.max(Number(b.net_amount || 0) - Number(b.due_amount || 0), 0) :
-        billingRegisterSort.key === "due" ? b.due_amount :
-        b.id;
-      return String(valueA).localeCompare(String(valueB), undefined, { numeric: true }) * direction;
-    });
-  }, [billingRegisterSearch, billingRegisterSort, charges]);
-  const filteredRegisterReceipts = useMemo(() => {
-    const search = billingRegisterSearch.trim().toLowerCase();
-    const rows = receipts.filter((receipt) =>
-      !search || `${receipt.receipt_no} ${receipt.member_name ?? ""} ${receipt.payment_date} ${receipt.total_amount}`.toLowerCase().includes(search),
-    );
-    return [...rows].sort((a, b) => {
-      const direction = billingRegisterSort.direction === "asc" ? 1 : -1;
-      const valueA =
-        billingRegisterSort.key === "receipt" ? a.receipt_no :
-        billingRegisterSort.key === "member" ? a.member_name ?? "" :
-        billingRegisterSort.key === "total" ? a.total_amount :
-        a.payment_date;
-      const valueB =
-        billingRegisterSort.key === "receipt" ? b.receipt_no :
-        billingRegisterSort.key === "member" ? b.member_name ?? "" :
-        billingRegisterSort.key === "total" ? b.total_amount :
-        b.payment_date;
-      return String(valueA).localeCompare(String(valueB), undefined, { numeric: true }) * direction;
-    });
-  }, [billingRegisterSearch, billingRegisterSort, receipts]);
   const reportQueryString = useMemo(() => {
     const params = new URLSearchParams();
     if (reportFromDate) params.set("from_date", reportFromDate);
@@ -1328,7 +1382,7 @@ export function App() {
   useEffect(() => {
     if (workspaceTab !== "members") return;
     const tableElement = memberTableRef.current;
-    const jq = (window as Window & { $?: any; jQuery?: any }).jQuery ?? (window as Window & { $?: any; jQuery?: any }).$;
+    const jq = getJQuery();
     if (!tableElement || !jq?.fn?.DataTable) return;
 
     const timer = window.setTimeout(() => {
@@ -1369,6 +1423,318 @@ export function App() {
   }, [members, workspaceTab]);
 
   useEffect(() => {
+    if (workspaceTab !== "billing-registers") return;
+    const tableElement = billingRegisterTableRef.current;
+    const jq = getJQuery();
+    if (!tableElement || !jq?.fn?.DataTable) return;
+    const isChargeTable = billingRegisterTab === "charges";
+    const orderKeys = isChargeTable
+      ? ["member", "date", "period", "head", "net", "paid", "due", "status"]
+      : ["receipt", "member", "plot", "date", "total"];
+    const timer = window.setTimeout(() => {
+      try {
+        jq(tableElement).DataTable({
+          destroy: true,
+          processing: true,
+          serverSide: true,
+          pageLength: 25,
+          searchDelay: 500,
+          lengthChange: true,
+          ajax: async (request: any, callback: (payload: any) => void) => {
+            const accessToken = token();
+            if (!accessToken) {
+              callback({ draw: request.draw ?? 1, recordsTotal: 0, recordsFiltered: 0, data: [] });
+              return;
+            }
+            const order = request.order?.[0];
+            const params = new URLSearchParams({
+              draw: String(request.draw ?? 1),
+              start: String(request.start ?? 0),
+              length: String(request.length ?? 25),
+              search_value: request.search?.value ?? "",
+              order_key: orderKeys[order?.column ?? 1] ?? "date",
+              order_dir: order?.dir ?? "desc",
+              from_date: billingRegisterFromDate,
+              to_date: billingRegisterToDate,
+            });
+            try {
+              const payload = await apiRequest<DataTableResponse<BillingChargeTableRow | BillingReceiptTableRow>>(
+                `/api/billing/tables/${isChargeTable ? "charges" : "receipts"}?${params.toString()}`,
+                accessToken,
+              );
+              setBillingRegisterTotals(payload.totals ?? {});
+              callback(payload);
+            } catch (error) {
+              console.error("Unable to load billing register", error);
+              setBillingRegisterTotals({});
+              callback({ draw: request.draw ?? 1, recordsTotal: 0, recordsFiltered: 0, data: [] });
+            }
+          },
+          columns: isChargeTable
+            ? [
+                {
+                  data: null,
+                  render: (_: unknown, __: unknown, row: BillingChargeTableRow) =>
+                    `<div class="fw-semibold">${row.member_name}</div><div class="text-muted fs-12">${row.member_code}${row.plot_no ? ` | Plot ${row.plot_no}` : ""}</div>`,
+                },
+                { data: "created_at", render: (value: string) => shortDate(value) },
+                { data: "billing_period_name", defaultContent: "N/A" },
+                { data: "head_summary", defaultContent: "-" },
+                { data: "net_amount", className: "text-end", render: (value: number) => money(value) },
+                { data: "paid_amount", className: "text-end", render: (value: number) => money(value) },
+                { data: "due_amount", className: "text-end", render: (value: number) => money(value) },
+                { data: "status" },
+              ]
+            : [
+                { data: "receipt_no" },
+                {
+                  data: null,
+                  render: (_: unknown, __: unknown, row: BillingReceiptTableRow) =>
+                    `${row.member_name ?? "N/A"}${row.plot_no ? `<div class="text-muted fs-12">Plot ${row.plot_no}</div>` : ""}`,
+                },
+                { data: "plot_no", defaultContent: "N/A" },
+                { data: "payment_date", render: (value: string) => shortDate(value) },
+                { data: "total_amount", className: "text-end", render: (value: number) => money(value) },
+              ],
+          order: [[1, "desc"]],
+          language: {
+            paginate: {
+              previous: "<i class='ri-arrow-left-s-line'>",
+              next: "<i class='ri-arrow-right-s-line'>",
+            },
+          },
+          drawCallback() {
+            jq(".dataTables_paginate > .pagination").addClass("pagination-rounded");
+          },
+        });
+      } catch (error) {
+        console.error("Failed to initialize billing register DataTable", error);
+      }
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+      try {
+        if (tableElement && jq?.fn?.DataTable && jq.fn.DataTable.isDataTable(tableElement)) {
+          jq(tableElement).DataTable().destroy();
+        }
+      } catch {
+        // Ignore teardown errors while switching tabs.
+      }
+    };
+  }, [billingRegisterFromDate, billingRegisterTab, billingRegisterToDate, workspaceTab]);
+
+  useEffect(() => {
+    if (!showPreviousBills || !invoiceMemberId) return;
+    const tableElement = previousBillsTableRef.current;
+    const jq = getJQuery();
+    if (!tableElement || !jq?.fn?.DataTable) return;
+    const orderKeys = ["invoice", "date", "subtotal", "discount", "received", "due", "status", "action"];
+    const clickHandler = (event: Event) => {
+      const target = event.target as HTMLElement;
+      const actionButton = target.closest<HTMLButtonElement>("button[data-invoice-action]");
+      if (!actionButton) return;
+      const invoiceId = Number(actionButton.dataset.invoiceId || 0);
+      if (!invoiceId) return;
+      if (actionButton.dataset.invoiceAction === "view") {
+        void openInvoiceReportById(invoiceId);
+      } else {
+        void printInvoiceById(invoiceId);
+      }
+    };
+    tableElement.addEventListener("click", clickHandler);
+    const timer = window.setTimeout(() => {
+      try {
+        jq(tableElement).DataTable({
+          destroy: true,
+          processing: true,
+          serverSide: true,
+          pageLength: 25,
+          searchDelay: 500,
+          ajax: async (request: any, callback: (payload: any) => void) => {
+            const accessToken = token();
+            if (!accessToken) {
+              callback({ draw: request.draw ?? 1, recordsTotal: 0, recordsFiltered: 0, data: [] });
+              return;
+            }
+            const order = request.order?.[0];
+            const params = new URLSearchParams({
+              draw: String(request.draw ?? 1),
+              start: String(request.start ?? 0),
+              length: String(request.length ?? 25),
+              search_value: request.search?.value ?? "",
+              order_key: orderKeys[order?.column ?? 1] ?? "date",
+              order_dir: order?.dir ?? "desc",
+              member_id: invoiceMemberId,
+              from_date: previousBillsFromDate,
+              to_date: previousBillsToDate,
+            });
+            try {
+              const payload = await apiRequest<DataTableResponse<BillingInvoiceTableRow>>(`/api/billing/tables/invoices?${params.toString()}`, accessToken);
+              setPreviousBillsTotals(payload.totals ?? {});
+              callback(payload);
+            } catch (error) {
+              console.error("Unable to load previous bills", error);
+              setPreviousBillsTotals({});
+              callback({ draw: request.draw ?? 1, recordsTotal: 0, recordsFiltered: 0, data: [] });
+            }
+          },
+          columns: [
+            { data: "invoice_no" },
+            { data: "invoice_date", render: (value: string) => shortDate(value) },
+            { data: "subtotal_amount", className: "text-end", render: (value: number) => money(value) },
+            { data: "discount_amount", className: "text-end", render: (value: number) => money(value) },
+            { data: "total_receive_amount", className: "text-end", render: (value: number) => money(value) },
+            { data: "total_due_amount", className: "text-end", render: (value: number) => money(value) },
+            {
+              data: "status",
+              render: (value: string) => `<span class="${invoiceStatusBadgeClass(value)}">${value}</span>`,
+            },
+            {
+              data: null,
+              orderable: false,
+              searchable: false,
+              className: "text-end",
+              render: (_: unknown, __: unknown, row: BillingInvoiceTableRow) =>
+                `<div class="d-inline-flex gap-1">
+                  <button class="btn btn-sm btn-soft-info" type="button" data-invoice-action="view" data-invoice-id="${row.id}"><i class="ri-eye-line me-1"></i>View</button>
+                  <button class="btn btn-sm btn-soft-primary" type="button" data-invoice-action="print" data-invoice-id="${row.id}"><i class="ri-printer-line me-1"></i>Print</button>
+                </div>`,
+            },
+          ],
+          order: [[1, "desc"]],
+          language: {
+            paginate: {
+              previous: "<i class='ri-arrow-left-s-line'>",
+              next: "<i class='ri-arrow-right-s-line'>",
+            },
+          },
+          drawCallback() {
+            jq(".dataTables_paginate > .pagination").addClass("pagination-rounded");
+          },
+        });
+      } catch (error) {
+        console.error("Failed to initialize previous bills DataTable", error);
+      }
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      tableElement.removeEventListener("click", clickHandler);
+      try {
+        if (tableElement && jq?.fn?.DataTable && jq.fn.DataTable.isDataTable(tableElement)) {
+          jq(tableElement).DataTable().destroy();
+        }
+      } catch {
+        // Ignore teardown errors while closing the modal.
+      }
+    };
+  }, [invoiceMemberId, previousBillsFromDate, previousBillsToDate, showPreviousBills]);
+
+  useEffect(() => {
+    const tableElement = workspaceTab === "income-view" ? incomeTableRef.current : workspaceTab === "expense-view" ? expenseTableRef.current : null;
+    const entryType: "income" | "expense" | null = workspaceTab === "income-view" ? "income" : workspaceTab === "expense-view" ? "expense" : null;
+    const jq = getJQuery();
+    if (!tableElement || !entryType || !jq?.fn?.DataTable) return;
+    const orderKeys = ["reference", "date", "head", "amount", "remarks", "lines", "actions"];
+    const clickHandler = (event: Event) => {
+      const target = event.target as HTMLElement;
+      const actionButton = target.closest<HTMLButtonElement>("button[data-voucher-action]");
+      if (!actionButton) return;
+      const voucherId = Number(actionButton.dataset.voucherId || 0);
+      if (!voucherId) return;
+      if (actionButton.dataset.voucherAction === "view") {
+        void openVoucherReportById(voucherId);
+      } else {
+        void printVoucherById(voucherId);
+      }
+    };
+    tableElement.addEventListener("click", clickHandler);
+    const timer = window.setTimeout(() => {
+      try {
+        jq(tableElement).DataTable({
+          destroy: true,
+          processing: true,
+          serverSide: true,
+          pageLength: 25,
+          searchDelay: 500,
+          ajax: async (request: any, callback: (payload: any) => void) => {
+            const accessToken = token();
+            if (!accessToken) {
+              callback({ draw: request.draw ?? 1, recordsTotal: 0, recordsFiltered: 0, data: [] });
+              return;
+            }
+            const order = request.order?.[0];
+            const params = new URLSearchParams({
+              draw: String(request.draw ?? 1),
+              start: String(request.start ?? 0),
+              length: String(request.length ?? 25),
+              search_value: request.search?.value ?? "",
+              order_key: orderKeys[order?.column ?? 1] ?? "date",
+              order_dir: order?.dir ?? "desc",
+              from_date: entryFromDate,
+              to_date: entryToDate,
+            });
+            try {
+              const payload = await apiRequest<DataTableResponse<AccountingTransactionTableRow>>(`/api/accounting/tables/${entryType}?${params.toString()}`, accessToken);
+              setEntryTableTotals((current) => ({ ...current, [entryType]: payload.totals ?? {} }));
+              setEntryTableMode((current) => ({ ...current, [entryType]: payload.mode ?? "voucher" }));
+              callback(payload);
+            } catch (error) {
+              console.error(`Unable to load ${entryType} table`, error);
+              setEntryTableTotals((current) => ({ ...current, [entryType]: {} }));
+              callback({ draw: request.draw ?? 1, recordsTotal: 0, recordsFiltered: 0, data: [] });
+            }
+          },
+          columns: [
+            { data: "reference_no" },
+            { data: "transaction_date", render: (value: string) => shortDate(value) },
+            { data: "head_name", defaultContent: "-" },
+            { data: "amount", className: "text-end", render: (value: number) => money(value) },
+            { data: "remarks", defaultContent: "-" },
+            { data: "line_count", className: "text-center" },
+            {
+              data: null,
+              orderable: false,
+              searchable: false,
+              className: "text-end",
+              render: (_: unknown, __: unknown, row: AccountingTransactionTableRow) =>
+                row.is_voucher
+                  ? `<div class="d-inline-flex gap-1">
+                      <button class="btn btn-sm btn-soft-info" type="button" data-voucher-action="view" data-voucher-id="${row.id}"><i class="ri-file-text-line me-1"></i>View Report</button>
+                      <button class="btn btn-sm btn-soft-primary" type="button" data-voucher-action="print" data-voucher-id="${row.id}"><i class="ri-printer-line me-1"></i>Print</button>
+                    </div>`
+                  : "-",
+            },
+          ],
+          order: [[1, "desc"]],
+          language: {
+            paginate: {
+              previous: "<i class='ri-arrow-left-s-line'>",
+              next: "<i class='ri-arrow-right-s-line'>",
+            },
+          },
+          drawCallback() {
+            jq(".dataTables_paginate > .pagination").addClass("pagination-rounded");
+          },
+        });
+      } catch (error) {
+        console.error(`Failed to initialize ${entryType} DataTable`, error);
+      }
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      tableElement.removeEventListener("click", clickHandler);
+      try {
+        if (tableElement && jq?.fn?.DataTable && jq.fn.DataTable.isDataTable(tableElement)) {
+          jq(tableElement).DataTable().destroy();
+        }
+      } catch {
+        // Ignore teardown errors while switching accounting views.
+      }
+    };
+  }, [entryFromDate, entryToDate, workspaceTab]);
+
+  useEffect(() => {
     if (workspaceTab !== "income-entry") return;
     if (!entryAccountId) {
       setEntryMappedIncomeAmount(null);
@@ -1376,6 +1742,17 @@ export function App() {
     }
     void loadMappedIncomeAmount(entryAccountId, entryDate, false);
   }, [entryAccountId, entryDate, workspaceTab]);
+
+  useEffect(() => {
+    const accessToken = token();
+    if (!accessToken || !receiptMemberId) {
+      setCharges([]);
+      return;
+    }
+    apiRequest<Charge[]>(`/api/billing/charges?member_id=${receiptMemberId}&due_only=true`, accessToken)
+      .then((nextCharges) => setCharges(nextCharges))
+      .catch(() => setCharges([]));
+  }, [receiptMemberId]);
 
   useEffect(() => {
     if (reportType !== "member-statement" && reportType !== "member-information-detail") {
@@ -1400,6 +1777,15 @@ export function App() {
   async function loadWorkspace(selectedMemberId?: number) {
     const accessToken = token();
     if (!accessToken) return;
+    const currentYear = new Date().getFullYear();
+    const receiptRange = new URLSearchParams({
+      from_date: `${currentYear}-01-01`,
+      to_date: `${currentYear}-12-31`,
+    }).toString();
+    const invoiceRange = new URLSearchParams({
+      from_date: defaultMonthRange.from,
+      to_date: defaultMonthRange.to,
+    }).toString();
 
     setIsWorkspaceLoading(true);
     if (!isDashboardReady) {
@@ -1419,7 +1805,7 @@ export function App() {
         settleRequest<Category[]>("/api/categories", accessToken),
         settleRequest<Package[]>("/api/packages", accessToken),
         settleRequest<MemberListItem[]>("/api/members", accessToken),
-        settleRequest<Receipt[]>("/api/billing/receipts", accessToken),
+        settleRequest<Receipt[]>(`/api/billing/receipts?${receiptRange}`, accessToken),
         settleRequest<BillingDashboard>("/api/billing/dashboard", accessToken),
         settleRequest<BillingMemberSummary[]>("/api/billing/member-due-summary", accessToken),
         settleRequest<AccountingSummary>("/api/accounting/summary", accessToken),
@@ -1461,13 +1847,8 @@ export function App() {
 
       const [
         periodsResult,
-        chargesResult,
         accountsResult,
         entriesResult,
-        incomeEntriesResult,
-        expenseEntriesResult,
-        incomeVouchersResult,
-        expenseVouchersResult,
         templatesResult,
         messagesResult,
         attemptsResult,
@@ -1477,30 +1858,25 @@ export function App() {
         invoicesResult,
       ] = await Promise.all([
         settleRequest<BillingPeriod[]>("/api/billing/periods", accessToken),
-        settleRequest<Charge[]>("/api/billing/charges", accessToken),
         settleRequest<Account[]>("/api/accounting/accounts", accessToken),
-        settleRequest<AccountingEntry[]>("/api/accounting/entries", accessToken),
-        settleRequest<AccountingMasterEntry[]>("/api/accounting/income", accessToken),
-        settleRequest<AccountingMasterEntry[]>("/api/accounting/expense", accessToken),
-        settleRequest<AccountingVoucher[]>("/api/accounting/vouchers/income", accessToken),
-        settleRequest<AccountingVoucher[]>("/api/accounting/vouchers/expense", accessToken),
+        settleRequest<AccountingEntry[]>(`/api/accounting/entries?${receiptRange}`, accessToken),
         settleRequest<SmsTemplate[]>("/api/messaging/templates", accessToken),
         settleRequest<SmsMessage[]>("/api/messaging/messages", accessToken),
         settleRequest<SmsAttempt[]>("/api/messaging/attempts", accessToken),
         settleRequest<SmsIntegrationStatus>("/api/messaging/status", accessToken),
         settleRequest<BillingHead[]>("/api/billing/heads", accessToken),
         settleRequest<BillingHeadMapping[]>("/api/billing/head-mappings", accessToken),
-        settleRequest<BillingInvoice[]>("/api/billing/invoices", accessToken),
+        settleRequest<BillingInvoice[]>(`/api/billing/invoices?${invoiceRange}`, accessToken),
       ]);
 
       if (periodsResult.ok) setBillingPeriods(periodsResult.value);
-      if (chargesResult.ok) setCharges(chargesResult.value);
+      setCharges([]);
       if (accountsResult.ok) setAccounts(accountsResult.value);
       if (entriesResult.ok) setAccountingEntries(entriesResult.value);
-      if (incomeEntriesResult.ok) setIncomeMasterEntries(incomeEntriesResult.value);
-      if (expenseEntriesResult.ok) setExpenseMasterEntries(expenseEntriesResult.value);
-      if (incomeVouchersResult.ok) setIncomeVouchers(incomeVouchersResult.value);
-      if (expenseVouchersResult.ok) setExpenseVouchers(expenseVouchersResult.value);
+      setIncomeMasterEntries([]);
+      setExpenseMasterEntries([]);
+      setIncomeVouchers([]);
+      setExpenseVouchers([]);
       if (templatesResult.ok) setSmsTemplates(templatesResult.value);
       if (messagesResult.ok) setSmsMessages(messagesResult.value);
       if (attemptsResult.ok) setSmsAttempts(attemptsResult.value);
@@ -1532,13 +1908,8 @@ export function App() {
         dueSummariesResult,
         summaryResult,
         periodsResult,
-        chargesResult,
         accountsResult,
         entriesResult,
-        incomeEntriesResult,
-        expenseEntriesResult,
-        incomeVouchersResult,
-        expenseVouchersResult,
         templatesResult,
         messagesResult,
         attemptsResult,
@@ -1563,21 +1934,29 @@ export function App() {
   async function refreshBillingWorkspace() {
     const accessToken = token();
     if (!accessToken) return;
+    const currentYear = new Date().getFullYear();
+    const receiptRange = new URLSearchParams({
+      from_date: `${currentYear}-01-01`,
+      to_date: `${currentYear}-12-31`,
+    }).toString();
+    const invoiceRange = new URLSearchParams({
+      from_date: defaultMonthRange.from,
+      to_date: defaultMonthRange.to,
+    }).toString();
 
-    const [periodsResult, chargesResult, receiptsResult, dashboardResult, dueSummaryResult, headsResult, mappingsResult, invoicesResult] =
+    const [periodsResult, receiptsResult, dashboardResult, dueSummaryResult, headsResult, mappingsResult, invoicesResult] =
       await Promise.all([
         settleRequest<BillingPeriod[]>("/api/billing/periods", accessToken),
-        settleRequest<Charge[]>("/api/billing/charges", accessToken),
-        settleRequest<Receipt[]>("/api/billing/receipts", accessToken),
+        settleRequest<Receipt[]>(`/api/billing/receipts?${receiptRange}`, accessToken),
         settleRequest<BillingDashboard>("/api/billing/dashboard", accessToken),
         settleRequest<BillingMemberSummary[]>("/api/billing/member-due-summary", accessToken),
         settleRequest<BillingHead[]>("/api/billing/heads", accessToken),
         settleRequest<BillingHeadMapping[]>("/api/billing/head-mappings", accessToken),
-        settleRequest<BillingInvoice[]>("/api/billing/invoices", accessToken),
+        settleRequest<BillingInvoice[]>(`/api/billing/invoices?${invoiceRange}`, accessToken),
       ]);
 
     if (periodsResult.ok) setBillingPeriods(periodsResult.value);
-    if (chargesResult.ok) setCharges(chargesResult.value);
+    setCharges([]);
     if (receiptsResult.ok) setReceipts(receiptsResult.value);
     if (dashboardResult.ok) setBillingDashboard(dashboardResult.value);
     if (dueSummaryResult.ok) setMemberDueSummaries(dueSummaryResult.value);
@@ -1589,21 +1968,22 @@ export function App() {
   async function refreshAccountingWorkspace() {
     const accessToken = token();
     if (!accessToken) return;
-    const [nextAccounts, nextEntries, nextIncomeEntries, nextExpenseEntries, nextIncomeVouchers, nextExpenseVouchers, nextSummary] = await Promise.all([
+    const currentYear = new Date().getFullYear();
+    const entryRange = new URLSearchParams({
+      from_date: `${currentYear}-01-01`,
+      to_date: `${currentYear}-12-31`,
+    }).toString();
+    const [nextAccounts, nextEntries, nextSummary] = await Promise.all([
       apiRequest<Account[]>("/api/accounting/accounts", accessToken),
-      apiRequest<AccountingEntry[]>("/api/accounting/entries", accessToken),
-      apiRequest<AccountingMasterEntry[]>("/api/accounting/income", accessToken),
-      apiRequest<AccountingMasterEntry[]>("/api/accounting/expense", accessToken),
-      apiRequest<AccountingVoucher[]>("/api/accounting/vouchers/income", accessToken),
-      apiRequest<AccountingVoucher[]>("/api/accounting/vouchers/expense", accessToken),
+      apiRequest<AccountingEntry[]>(`/api/accounting/entries?${entryRange}`, accessToken),
       apiRequest<AccountingSummary>("/api/accounting/summary", accessToken),
     ]);
     setAccounts(nextAccounts);
     setAccountingEntries(nextEntries);
-    setIncomeMasterEntries(nextIncomeEntries);
-    setExpenseMasterEntries(nextExpenseEntries);
-    setIncomeVouchers(nextIncomeVouchers);
-    setExpenseVouchers(nextExpenseVouchers);
+    setIncomeMasterEntries([]);
+    setExpenseMasterEntries([]);
+    setIncomeVouchers([]);
+    setExpenseVouchers([]);
     setAccountingSummary(nextSummary);
   }
 
@@ -2167,6 +2547,21 @@ export function App() {
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  async function openInvoiceReportById(invoiceId: number) {
+    const accessToken = token();
+    if (!accessToken) return;
+    const freshInvoice = await apiRequest<BillingInvoice>(`/api/billing/invoices/${invoiceId}`, accessToken);
+    setInvoiceReport(freshInvoice);
+    setShowInvoiceReport(true);
+  }
+
+  async function printInvoiceById(invoiceId: number) {
+    const accessToken = token();
+    if (!accessToken) return;
+    const freshInvoice = await apiRequest<BillingInvoice>(`/api/billing/invoices/${invoiceId}`, accessToken);
+    printInvoiceReport(freshInvoice);
   }
 
   function printInvoiceReport(invoice: BillingInvoice | null = invoiceReport) {
@@ -3501,6 +3896,20 @@ export function App() {
     }
   }
 
+  async function openVoucherReportById(voucherId: number) {
+    const accessToken = token();
+    if (!accessToken) return;
+    const voucher = await apiRequest<AccountingVoucher>(`/api/accounting/vouchers/item/${voucherId}`, accessToken);
+    printAccountingVoucher(voucher);
+  }
+
+  async function printVoucherById(voucherId: number) {
+    const accessToken = token();
+    if (!accessToken) return;
+    const voucher = await apiRequest<AccountingVoucher>(`/api/accounting/vouchers/item/${voucherId}`, accessToken);
+    printAccountingVoucher(voucher);
+  }
+
   async function handleEntryDelete(entryId: number) {
     const accessToken = token();
     if (!accessToken) return;
@@ -4056,7 +4465,7 @@ export function App() {
               <div className="card-body p-0">
                 <div className="bg-light bg-opacity-50 py-1 text-center">
                   <p className="m-0">
-                    <b>{receipts.length}</b> receipts against <span className="fw-medium">{charges.length}</span> charges
+                    <b>{billingDashboard?.total_receipts ?? receipts.length}</b> receipts against <span className="fw-medium">{billingDashboard?.total_open_charges ?? 0}</span> open charges
                   </p>
                 </div>
                 <div className="table-responsive">
@@ -5036,8 +5445,23 @@ export function App() {
                 <button className="btn-close" onClick={() => setShowPreviousBills(false)} type="button" />
               </div>
               <div className="modal-body">
+                <div className="row g-3 align-items-end mb-3">
+                  <div className="col-md-4">
+                    <label className="form-label">From Date</label>
+                    <input className="form-control" type="date" value={previousBillsFromDate} onChange={(event) => setPreviousBillsFromDate(event.target.value)} />
+                  </div>
+                  <div className="col-md-4">
+                    <label className="form-label">To Date</label>
+                    <input className="form-control" type="date" value={previousBillsToDate} onChange={(event) => setPreviousBillsToDate(event.target.value)} />
+                  </div>
+                  <div className="col-md-4">
+                    <button className="btn btn-outline-secondary" onClick={() => { setPreviousBillsFromDate(defaultMonthRange.from); setPreviousBillsToDate(defaultMonthRange.to); }} type="button">
+                      Reset To Current Month
+                    </button>
+                  </div>
+                </div>
                 <div className="table-responsive billing-register-table">
-                  <table className="table table-custom table-centered table-nowrap table-hover mb-0">
+                  <table ref={previousBillsTableRef} className="table table-custom table-centered table-nowrap table-hover mb-0">
                     <thead>
                       <tr>
                         <th>Invoice No</th>
@@ -5050,37 +5474,12 @@ export function App() {
                         <th className="text-end">Action</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {selectedMemberInvoices.map((invoice) => (
-                        <tr key={invoice.id}>
-                          <td className="fw-semibold">{invoice.invoice_no}</td>
-                          <td>{shortDate(invoice.invoice_date)}</td>
-                          <td className="text-end">{money(invoice.subtotal_amount)}</td>
-                          <td className="text-end">{money(invoice.discount_amount)}</td>
-                          <td className="text-end">{money(invoice.total_receive_amount)}</td>
-                          <td className="text-end">{money(invoice.total_due_amount)}</td>
-                          <td>
-                            <span className={invoiceStatusBadgeClass(invoiceStatus(invoice))}>
-                              {invoiceStatus(invoice)}
-                            </span>
-                          </td>
-                          <td className="text-end">
-                            <div className="d-inline-flex gap-1">
-                              <button className="btn btn-sm btn-soft-info" onClick={() => void openInvoiceReport(invoice)} type="button">
-                                <i className="ri-eye-line me-1" />
-                                View
-                              </button>
-                              <button className="btn btn-sm btn-soft-primary" onClick={() => printInvoiceReport(invoice)} type="button">
-                                <i className="ri-printer-line me-1" />
-                                Print
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
                   </table>
-                  {selectedMemberInvoices.length === 0 ? <EmptyState label="No previous invoice found for this member" /> : null}
+                </div>
+                <div className="row g-3 mt-3">
+                  <div className="col-md-4"><div className="border rounded p-3"><div className="text-muted fs-13">Total Bill</div><div className="fw-semibold">{money(previousBillsTotals.total_bill_amount)}</div></div></div>
+                  <div className="col-md-4"><div className="border rounded p-3"><div className="text-muted fs-13">Total Paid</div><div className="fw-semibold">{money(previousBillsTotals.total_paid)}</div></div></div>
+                  <div className="col-md-4"><div className="border rounded p-3"><div className="text-muted fs-13">Total Due</div><div className="fw-semibold">{money(previousBillsTotals.total_due)}</div></div></div>
                 </div>
               </div>
             </div>
@@ -5337,176 +5736,74 @@ export function App() {
   }
 
   function renderBillingRegisters() {
-    const pageSize = Number(billingRegisterPageSize);
-    const rows = billingRegisterTab === "charges" ? filteredRegisterCharges : filteredRegisterReceipts;
-    const totalPages = Math.max(Math.ceil(rows.length / pageSize), 1);
-    const page = Math.min(billingRegisterPage, totalPages);
-    const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize);
-    const chargePageRows = pagedRows as Charge[];
-    const receiptPageRows = pagedRows as Receipt[];
-    const chargesTotalNet = filteredRegisterCharges.reduce((sum, charge) => sum + Number(charge.net_amount || 0), 0);
-    const chargesTotalPaid = filteredRegisterCharges.reduce((sum, charge) => sum + Math.max(Number(charge.net_amount || 0) - Number(charge.due_amount || 0), 0), 0);
-    const chargesTotalDue = filteredRegisterCharges.reduce((sum, charge) => sum + Number(charge.due_amount || 0), 0);
-    const receiptsTotal = filteredRegisterReceipts.reduce((sum, receipt) => sum + Number(receipt.total_amount || 0), 0);
-    function sortButton(key: string, label: string) {
-      const active = billingRegisterSort.key === key;
-      return (
-        <button
-          className="btn btn-link text-reset p-0 fw-semibold"
-          onClick={() => {
-            setBillingRegisterSort((current) => ({
-              key,
-              direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
-            }));
-            setBillingRegisterPage(1);
-          }}
-          type="button"
-        >
-          {label} {active ? <i className={billingRegisterSort.direction === "asc" ? "ri-arrow-up-s-line" : "ri-arrow-down-s-line"} /> : null}
-        </button>
-      );
-    }
-
     return (
       <div className="card">
         <div className="card-header pb-0">
           <ul className="nav nav-tabs nav-bordered">
             <li className="nav-item">
-              <button className={billingRegisterTab === "charges" ? "nav-link active" : "nav-link"} onClick={() => { setBillingRegisterTab("charges"); setBillingRegisterPage(1); }} type="button">
+              <button className={billingRegisterTab === "charges" ? "nav-link active" : "nav-link"} onClick={() => setBillingRegisterTab("charges")} type="button">
                 Open Charge Register
               </button>
             </li>
             <li className="nav-item">
-              <button className={billingRegisterTab === "receipts" ? "nav-link active" : "nav-link"} onClick={() => { setBillingRegisterTab("receipts"); setBillingRegisterPage(1); }} type="button">
+              <button className={billingRegisterTab === "receipts" ? "nav-link active" : "nav-link"} onClick={() => setBillingRegisterTab("receipts")} type="button">
                 Recent Receipts
               </button>
             </li>
           </ul>
         </div>
         <div className="card-body">
-          <div className="row align-items-center g-2 mb-3">
-            <div className="col-md-6">
-              <div className="input-group">
-                <span className="input-group-text"><i className="ri-search-line" /></span>
-                <input
-                  className="form-control"
-                  placeholder="Search table..."
-                  value={billingRegisterSearch}
-                  onChange={(event) => {
-                    setBillingRegisterSearch(event.target.value);
-                    setBillingRegisterPage(1);
-                  }}
-                />
-              </div>
+          <div className="row align-items-end g-3 mb-3">
+            <div className="col-md-3">
+              <label className="form-label">From Date</label>
+              <input className="form-control" type="date" value={billingRegisterFromDate} onChange={(event) => setBillingRegisterFromDate(event.target.value)} />
             </div>
-            <div className="col-md-3 ms-auto">
-              <select className="form-select" value={billingRegisterPageSize} onChange={(event) => { setBillingRegisterPageSize(event.target.value); setBillingRegisterPage(1); }}>
-                <option value="10">10 rows</option>
-                <option value="25">25 rows</option>
-                <option value="50">50 rows</option>
-                <option value="100">100 rows</option>
-              </select>
+            <div className="col-md-3">
+              <label className="form-label">To Date</label>
+              <input className="form-control" type="date" value={billingRegisterToDate} onChange={(event) => setBillingRegisterToDate(event.target.value)} />
+            </div>
+            <div className="col-md-3">
+              <button className="btn btn-outline-secondary" onClick={() => { setBillingRegisterFromDate(defaultMonthRange.from); setBillingRegisterToDate(defaultMonthRange.to); reloadDataTable(billingRegisterTableRef.current); }} type="button">
+                Current Month
+              </button>
             </div>
           </div>
-          {billingRegisterTab === "charges" ? (
-            <div className="table-responsive billing-register-table">
-              <table className="table table-custom table-centered table-nowrap table-hover mb-0">
-                <thead>
+          <div className="table-responsive billing-register-table">
+            <table ref={billingRegisterTableRef} className="table table-custom table-centered table-nowrap table-hover mb-0">
+              <thead>
+                {billingRegisterTab === "charges" ? (
                   <tr>
-                    <th>{sortButton("member", "Member")}</th>
-                    <th>{sortButton("date", "Date")}</th>
-                    <th>{sortButton("period", "Period")}</th>
-                    <th>{sortButton("head", "Expense Head")}</th>
-                    <th>{sortButton("net", "Net")}</th>
-                    <th>{sortButton("paid", "Paid")}</th>
-                    <th>{sortButton("due", "Due")}</th>
-                    <th>{sortButton("status", "Status")}</th>
+                    <th>Member</th>
+                    <th>Date</th>
+                    <th>Period</th>
+                    <th>Expense Head</th>
+                    <th>Bill Amount</th>
+                    <th>Paid</th>
+                    <th>Due</th>
+                    <th>Status</th>
                   </tr>
-                </thead>
-                <tbody>
-                  {chargePageRows.map((charge) => (
-                    <tr key={charge.id}>
-                      <td>
-                        <div className="fw-semibold">{charge.member_name}</div>
-                        <div className="text-muted fs-12">{charge.member_code}</div>
-                      </td>
-                      <td>{shortDate(charge.created_at)}</td>
-                      <td>{charge.billing_period_name ?? "N/A"}</td>
-                      <td>{chargeHeadSummary(charge)}</td>
-                      <td>{money(charge.net_amount)}</td>
-                      <td>{money(Math.max(Number(charge.net_amount || 0) - Number(charge.due_amount || 0), 0))}</td>
-                      <td className={charge.due_amount > 0 ? "text-danger" : "text-success"}>{money(charge.due_amount)}</td>
-                      <td>{charge.status}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                {filteredRegisterCharges.length > 0 ? (
-                  <tfoot>
-                    <tr>
-                      <th>Total</th>
-                      <th></th>
-                      <th></th>
-                      <th></th>
-                      <th className="text-end">{money(chargesTotalNet)}</th>
-                      <th className="text-end">{money(chargesTotalPaid)}</th>
-                      <th className="text-end">{money(chargesTotalDue)}</th>
-                      <th></th>
-                    </tr>
-                  </tfoot>
-                ) : null}
-              </table>
-              {rows.length === 0 ? <EmptyState label="No charges found" /> : null}
-            </div>
-          ) : (
-            <div className="table-responsive billing-register-table">
-              <table className="table table-custom table-centered table-nowrap table-hover mb-0">
-                <thead>
+                ) : (
                   <tr>
-                    <th>{sortButton("receipt", "Receipt")}</th>
-                    <th>{sortButton("member", "Member")}</th>
-                    <th>{sortButton("date", "Date")}</th>
-                    <th>{sortButton("total", "Total")}</th>
+                    <th>Receipt</th>
+                    <th>Member</th>
+                    <th>Plot No</th>
+                    <th>Date</th>
+                    <th>Total</th>
                   </tr>
-                </thead>
-                <tbody>
-                  {receiptPageRows.map((receipt) => (
-                    <tr key={receipt.id}>
-                      <td>{receipt.receipt_no}</td>
-                      <td>{receipt.member_name ?? "N/A"}</td>
-                      <td>{shortDate(receipt.payment_date)}</td>
-                      <td>{money(receipt.total_amount)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                {filteredRegisterReceipts.length > 0 ? (
-                  <tfoot>
-                    <tr>
-                      <th>Total</th>
-                      <th></th>
-                      <th></th>
-                      <th className="text-end">{money(receiptsTotal)}</th>
-                    </tr>
-                  </tfoot>
-                ) : null}
-              </table>
-              {rows.length === 0 ? <EmptyState label="No receipts found" /> : null}
-            </div>
-          )}
-          <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 pt-3">
-            <span className="text-muted fs-13">
-              Showing {rows.length === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, rows.length)} of {rows.length} records
-            </span>
-            <div className="btn-group">
-              <button className="btn btn-light btn-sm" disabled={page <= 1} onClick={() => setBillingRegisterPage((current) => Math.max(current - 1, 1))} type="button">
-                Previous
-              </button>
-              <button className="btn btn-light btn-sm" disabled type="button">
-                {page} / {totalPages}
-              </button>
-              <button className="btn btn-light btn-sm" disabled={page >= totalPages} onClick={() => setBillingRegisterPage((current) => Math.min(current + 1, totalPages))} type="button">
-                Next
-              </button>
-            </div>
+                )}
+              </thead>
+            </table>
+          </div>
+          <div className="row g-3 mt-3">
+            {billingRegisterTab === "charges" ? (
+              <>
+                <div className="col-md-4"><div className="border rounded p-3"><div className="text-muted fs-13">Total Bill Amount</div><div className="fw-semibold">{money(billingRegisterTotals.total_bill_amount)}</div></div></div>
+                <div className="col-md-4"><div className="border rounded p-3"><div className="text-muted fs-13">Total Paid</div><div className="fw-semibold">{money(billingRegisterTotals.total_paid)}</div></div></div>
+                <div className="col-md-4"><div className="border rounded p-3"><div className="text-muted fs-13">Total Due</div><div className="fw-semibold">{money(billingRegisterTotals.total_due)}</div></div></div>
+              </>
+            ) : (
+              <div className="col-md-4"><div className="border rounded p-3"><div className="text-muted fs-13">Total Collection</div><div className="fw-semibold">{money(billingRegisterTotals.total_collection)}</div></div></div>
+            )}
           </div>
         </div>
       </div>
@@ -5624,20 +5921,50 @@ export function App() {
   }
 
   function renderEntryView(entryType: "income" | "expense") {
-    const vouchers = entryType === "income" ? incomeVouchers : expenseVouchers;
-    const masterEntries = entryType === "income" ? incomeMasterEntries : expenseMasterEntries;
     const amountLabel = entryType === "income" ? "Collection" : "Expense";
-    const headLabel = entryType === "income" ? "Income Head" : "Expense Head";
     const label = entryType === "income" ? "Receive" : "Payment";
-    const showVoucherRegister = vouchers.length > 0;
-    const voucherTotal = vouchers.reduce((sum, entry) => sum + Number(entry.total_amount || 0), 0);
-    const masterTotal = masterEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+    const tableRef = entryType === "income" ? incomeTableRef : expenseTableRef;
+    const totals = entryTableTotals[entryType];
+    const mode = entryTableMode[entryType];
     return (
       <>
           <div className="row row-cols-md-3 row-cols-1">
             <StatCard title="Income" value={money(accountingSummary?.total_income)} subtitle="All income entries" icon="ri-arrow-down-circle-line" tone="success" />
             <StatCard title="Expense" value={money(accountingSummary?.total_expense)} subtitle="All expense entries" icon="ri-arrow-up-circle-line" tone="warning" />
             <StatCard title="Net Balance" value={money(accountingSummary?.net_balance)} subtitle="Income less expense" icon="ri-bank-line" tone="info" />
+          </div>
+          <div className="card mb-3">
+            <div className="card-header">
+              <h4 className="header-title mb-0">Search by Date</h4>
+            </div>
+            <div className="card-body">
+              <div className="row g-3 align-items-end">
+                <div className="col-md-3">
+                  <label className="form-label">From Date</label>
+                  <input className="form-control" type="date" value={entryFromDate} onChange={(event) => setEntryFromDate(event.target.value)} />
+                </div>
+                <div className="col-md-3">
+                  <label className="form-label">To Date</label>
+                  <input className="form-control" type="date" value={entryToDate} onChange={(event) => setEntryToDate(event.target.value)} />
+                </div>
+                <div className="col-md-3">
+                  <button
+                    className="btn btn-outline-secondary me-2"
+                    onClick={() => {
+                      setEntryFromDate(defaultMonthRange.from);
+                      setEntryToDate(defaultMonthRange.to);
+                      reloadDataTable(tableRef.current);
+                    }}
+                    type="button"
+                  >
+                    Current Month
+                  </button>
+                </div>
+              </div>
+              <div className="text-muted small mt-2">
+                If only <strong>From Date</strong> is set, the table shows that exact day&apos;s data.
+              </div>
+            </div>
           </div>
           <div className="card">
             <div className="card-header d-flex align-items-center justify-content-between gap-2">
@@ -5656,93 +5983,27 @@ export function App() {
             </div>
             <div className="card-body p-0">
               <div className="table-responsive accounting-grid-shell">
-                {showVoucherRegister ? (
-                  <>
-                    <table className="table table-custom table-centered table-nowrap table-hover mb-0 accounting-grid-table">
-                      <thead>
-                        <tr>
-                          <th>{label} Voucher</th>
-                          <th>Date</th>
-                          <th>{amountLabel}</th>
-                          <th>Lines</th>
-                          <th className="text-end">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {vouchers.map((entry) => (
-                          <tr key={entry.id}>
-                            <td className="fw-semibold">{entry.voucher_no}</td>
-                            <td>{shortDate(entry.voucher_date)}</td>
-                            <td>{money(entry.total_amount)}</td>
-                            <td>{entry.lines.length}</td>
-                            <td className="text-end">
-                              <button className="btn btn-sm btn-soft-info me-1" onClick={() => printAccountingVoucher(entry)} type="button">
-                                <i className="ri-file-text-line me-1" />
-                                View Report
-                              </button>
-                              <button className="btn btn-sm btn-soft-primary" onClick={() => printAccountingVoucher(entry)} type="button">
-                                <i className="ri-printer-line me-1" />
-                                Print
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      {vouchers.length > 0 ? (
-                        <tfoot>
-                          <tr>
-                            <th>Total</th>
-                            <th></th>
-                            <th className="text-end">{money(voucherTotal)}</th>
-                            <th></th>
-                            <th></th>
-                          </tr>
-                        </tfoot>
-                      ) : null}
-                    </table>
-                    {vouchers.length === 0 ? <EmptyState label={`No ${label.toLowerCase()} voucher found`} /> : null}
-                  </>
-                ) : (
-                  <>
-                    <table className="table table-custom table-centered table-nowrap table-hover mb-0 accounting-grid-table">
-                      <thead>
-                        <tr>
-                          <th>{label} Entry</th>
-                          <th>Date</th>
-                          <th>{headLabel}</th>
-                          <th>{amountLabel}</th>
-                          <th>Remarks</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {masterEntries.map((entry) => {
-                          const entryDate = entryType === "income" ? entry.income_date : entry.expense_date;
-                          return (
-                            <tr key={entry.id}>
-                              <td className="fw-semibold">{entryType === "income" ? "INC" : "EXP"}-{entry.id}</td>
-                              <td>{shortDate(entryDate)}</td>
-                              <td>{entry.coa_name ?? "-"}</td>
-                              <td>{money(entry.amount)}</td>
-                              <td>{entry.remarks ?? "-"}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                      {masterEntries.length > 0 ? (
-                        <tfoot>
-                          <tr>
-                            <th>Total</th>
-                            <th></th>
-                            <th></th>
-                            <th className="text-end">{money(masterTotal)}</th>
-                            <th></th>
-                          </tr>
-                        </tfoot>
-                      ) : null}
-                    </table>
-                    {masterEntries.length === 0 ? <EmptyState label={`No ${label.toLowerCase()} entry found`} /> : null}
-                  </>
-                )}
+                <table ref={tableRef} className="table table-custom table-centered table-nowrap table-hover mb-0 accounting-grid-table">
+                  <thead>
+                    <tr>
+                      <th>{mode === "voucher" ? `${label} Voucher` : `${label} Entry`}</th>
+                      <th>Date</th>
+                      <th>{entryType === "income" ? "Income Head" : "Expense Head"}</th>
+                      <th>{amountLabel}</th>
+                      <th>Remarks</th>
+                      <th>Lines</th>
+                      <th className="text-end">Actions</th>
+                    </tr>
+                  </thead>
+                </table>
+              </div>
+              <div className="row g-3 p-3">
+                <div className="col-md-4">
+                  <div className="border rounded p-3">
+                    <div className="text-muted fs-13">{entryType === "income" ? "Total Collection" : "Total Expense"}</div>
+                    <div className="fw-semibold">{money(totals.grand_total)}</div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

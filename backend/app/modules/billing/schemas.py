@@ -110,6 +110,7 @@ class BillingDashboardRead(BaseModel):
     total_due_amount: float
     total_open_charges: int
     total_receipts: int
+    total_collection_amount: float = 0
 
 
 class BillingHeadCreate(BaseModel):

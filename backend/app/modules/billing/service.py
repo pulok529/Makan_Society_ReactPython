@@ -243,8 +243,17 @@ class BillingService:
         self.db.commit()
         return self.serialize_invoice(invoice.id)
 
-    def list_invoices(self, member_id: int | None = None) -> list[BillingInvoiceRead]:
-        return [self.serialize_invoice(invoice.id) for invoice in self.repository.list_invoices(member_id=member_id)]
+    def list_invoices(
+        self,
+        member_id: int | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        limit: int | None = None,
+    ) -> list[BillingInvoiceRead]:
+        return [
+            self.serialize_invoice(invoice.id)
+            for invoice in self.repository.list_invoices(member_id=member_id, from_date=from_date, to_date=to_date, limit=limit)
+        ]
 
     def serialize_invoice(self, invoice_id: int) -> BillingInvoiceRead:
         invoice = self.repository.get_invoice(invoice_id)
@@ -474,12 +483,27 @@ class BillingService:
         self.db.commit()
         return generated
 
-    def list_charges(self, billing_period_id: int | None = None, member_id: int | None = None) -> list[ChargeRead]:
+    def list_charges(
+        self,
+        billing_period_id: int | None = None,
+        member_id: int | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        due_only: bool = False,
+        limit: int | None = None,
+    ) -> list[ChargeRead]:
         members = {member.id: member for member in self.member_repository.list_members()}
         periods = {period.id: period for period in self.repository.list_periods()}
         serialized: list[ChargeRead] = []
 
-        for charge in self.repository.list_charges(billing_period_id=billing_period_id, member_id=member_id):
+        for charge in self.repository.list_charges(
+            billing_period_id=billing_period_id,
+            member_id=member_id,
+            from_date=from_date,
+            to_date=to_date,
+            due_only=due_only,
+            limit=limit,
+        ):
             member = members.get(charge.member_id)
             period = periods.get(charge.billing_period_id) if charge.billing_period_id is not None else None
             items = self.repository.list_charge_items(charge.id)
@@ -577,11 +601,20 @@ class BillingService:
         self.db.commit()
         return self.serialize_receipt(receipt.id)
 
-    def list_receipts(self, member_id: int | None = None) -> list[ReceiptRead]:
-        return [self.serialize_receipt(receipt.id) for receipt in self.repository.list_receipts(member_id=member_id)]
+    def list_receipts(
+        self,
+        member_id: int | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        limit: int | None = None,
+    ) -> list[ReceiptRead]:
+        return [
+            self.serialize_receipt(receipt.id)
+            for receipt in self.repository.list_receipts(member_id=member_id, from_date=from_date, to_date=to_date, limit=limit)
+        ]
 
     def serialize_receipt(self, receipt_id: int) -> ReceiptRead:
-        receipt = next((item for item in self.repository.list_receipts() if item.id == receipt_id), None)
+        receipt = self.repository.get_receipt(receipt_id)
         if receipt is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receipt not found")
 
@@ -619,7 +652,79 @@ class BillingService:
             total_due_amount=total_due,
             total_open_charges=open_charges,
             total_receipts=self.repository.count_receipts(),
+            total_collection_amount=self.repository.sum_receipts(),
         )
+
+    def billing_charge_table(
+        self,
+        *,
+        draw: int,
+        start: int,
+        length: int,
+        search: str,
+        order_key: str,
+        order_dir: str,
+        from_date: date | None,
+        to_date: date | None,
+    ) -> dict[str, object]:
+        total, filtered, rows, totals = self.repository.paged_charge_register(
+            from_date=from_date,
+            to_date=to_date,
+            search=search,
+            order_key=order_key,
+            order_dir=order_dir,
+            start=start,
+            length=length,
+        )
+        return {"draw": draw, "recordsTotal": total, "recordsFiltered": filtered, "data": rows, "totals": totals}
+
+    def billing_receipt_table(
+        self,
+        *,
+        draw: int,
+        start: int,
+        length: int,
+        search: str,
+        order_key: str,
+        order_dir: str,
+        from_date: date | None,
+        to_date: date | None,
+    ) -> dict[str, object]:
+        total, filtered, rows, totals = self.repository.paged_receipt_register(
+            from_date=from_date,
+            to_date=to_date,
+            search=search,
+            order_key=order_key,
+            order_dir=order_dir,
+            start=start,
+            length=length,
+        )
+        return {"draw": draw, "recordsTotal": total, "recordsFiltered": filtered, "data": rows, "totals": totals}
+
+    def billing_invoice_table(
+        self,
+        *,
+        draw: int,
+        start: int,
+        length: int,
+        search: str,
+        order_key: str,
+        order_dir: str,
+        member_id: int | None,
+        from_date: date | None,
+        to_date: date | None,
+    ) -> dict[str, object]:
+        total, filtered, rows, totals = self.repository.paged_invoice_register(
+            member_id=member_id,
+            from_date=from_date,
+            to_date=to_date,
+            search=search,
+            order_key=order_key,
+            order_dir=order_dir,
+            start=start,
+            length=length,
+        )
+        return {"draw": draw, "recordsTotal": total, "recordsFiltered": filtered, "data": rows, "totals": totals}
 
     def member_due_summaries(self) -> list[BillingMemberSummary]:
         return [

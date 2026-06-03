@@ -78,10 +78,12 @@ def delete_account(
 
 @router.get("/entries", response_model=list[IncomeExpenseEntryRead])
 def list_entries(
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
     _: object = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[IncomeExpenseEntryRead]:
-    return AccountingService(db).list_entries()
+    return AccountingService(db).list_entries(from_date=from_date, to_date=to_date)
 
 
 @router.post(
@@ -180,6 +182,42 @@ def list_vouchers(
     db: Session = Depends(get_db),
 ) -> list[AccountingVoucherRead]:
     return AccountingService(db).list_vouchers(voucher_type)
+
+
+@router.get("/vouchers/item/{voucher_id}", response_model=AccountingVoucherRead)
+def get_voucher(
+    voucher_id: int,
+    _: object = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AccountingVoucherRead:
+    return AccountingService(db).get_voucher(voucher_id)
+
+
+@router.get("/tables/{voucher_type}")
+def voucher_table(
+    voucher_type: str,
+    draw: int = Query(default=1, ge=0),
+    start: int = Query(default=0, ge=0),
+    length: int = Query(default=25, ge=1, le=200),
+    search_value: str = Query(default=""),
+    order_key: str = Query(default="date"),
+    order_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    _: object = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    return AccountingService(db).voucher_table(
+        voucher_type=voucher_type,
+        draw=draw,
+        start=start,
+        length=length,
+        search=search_value,
+        order_key=order_key,
+        order_dir=order_dir,
+        from_date=from_date,
+        to_date=to_date,
+    )
 
 
 @router.post(

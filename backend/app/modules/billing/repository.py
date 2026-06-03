@@ -1,4 +1,6 @@
-from sqlalchemy import Select, func, select
+from datetime import date
+
+from sqlalchemy import Date, Select, String, and_, case, cast, column, func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.accounting.models import Account
@@ -38,12 +40,28 @@ class BillingRepository:
         self.db.refresh(period)
         return period
 
-    def list_charges(self, billing_period_id: int | None = None, member_id: int | None = None) -> list[Charge]:
+    def list_charges(
+        self,
+        billing_period_id: int | None = None,
+        member_id: int | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        due_only: bool = False,
+        limit: int | None = None,
+    ) -> list[Charge]:
         statement: Select[tuple[Charge]] = select(Charge).order_by(Charge.created_at.desc(), Charge.id.desc())
         if billing_period_id is not None:
             statement = statement.where(Charge.billing_period_id == billing_period_id)
         if member_id is not None:
             statement = statement.where(Charge.member_id == member_id)
+        if from_date is not None:
+            statement = statement.where(cast(Charge.created_at, Date) >= from_date)
+        if to_date is not None:
+            statement = statement.where(cast(Charge.created_at, Date) <= to_date)
+        if due_only:
+            statement = statement.where(Charge.due_amount > 0)
+        if limit is not None:
+            statement = statement.limit(limit)
         return list(self.db.scalars(statement))
 
     def get_charge(self, charge_id: int) -> Charge | None:
@@ -91,11 +109,26 @@ class BillingRepository:
         statement = select(Member).where(Member.is_active == True).order_by(Member.member_code.asc(), Member.full_name.asc())  # noqa: E712
         return list(self.db.scalars(statement))
 
-    def list_receipts(self, member_id: int | None = None) -> list[Receipt]:
+    def list_receipts(
+        self,
+        member_id: int | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        limit: int | None = None,
+    ) -> list[Receipt]:
         statement = select(Receipt).order_by(Receipt.payment_date.desc(), Receipt.id.desc())
         if member_id is not None:
             statement = statement.where(Receipt.member_id == member_id)
+        if from_date is not None:
+            statement = statement.where(Receipt.payment_date >= from_date)
+        if to_date is not None:
+            statement = statement.where(Receipt.payment_date <= to_date)
+        if limit is not None:
+            statement = statement.limit(limit)
         return list(self.db.scalars(statement))
+
+    def get_receipt(self, receipt_id: int) -> Receipt | None:
+        return self.db.get(Receipt, receipt_id)
 
     def add_receipt(self, receipt: Receipt) -> Receipt:
         self.db.add(receipt)
@@ -116,6 +149,10 @@ class BillingRepository:
     def count_receipts(self) -> int:
         statement = select(func.count(Receipt.id))
         return int(self.db.scalar(statement) or 0)
+
+    def sum_receipts(self) -> float:
+        statement = select(func.coalesce(func.sum(Receipt.total_amount), 0))
+        return float(self.db.scalar(statement) or 0)
 
     def summarize_open_charges(self) -> tuple[int, float]:
         statement = select(func.count(Charge.id), func.coalesce(func.sum(Charge.due_amount), 0)).where(
@@ -214,10 +251,22 @@ class BillingRepository:
     def get_invoice_by_no(self, invoice_no: str) -> BillingInvoice | None:
         return self.db.scalar(select(BillingInvoice).where(BillingInvoice.invoice_no == invoice_no))
 
-    def list_invoices(self, member_id: int | None = None) -> list[BillingInvoice]:
+    def list_invoices(
+        self,
+        member_id: int | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        limit: int | None = None,
+    ) -> list[BillingInvoice]:
         statement = select(BillingInvoice).order_by(BillingInvoice.invoice_date.desc(), BillingInvoice.id.desc())
         if member_id is not None:
             statement = statement.where(BillingInvoice.member_id == member_id)
+        if from_date is not None:
+            statement = statement.where(BillingInvoice.invoice_date >= from_date)
+        if to_date is not None:
+            statement = statement.where(BillingInvoice.invoice_date <= to_date)
+        if limit is not None:
+            statement = statement.limit(limit)
         return list(self.db.scalars(statement))
 
     def list_invoice_details(self, invoice_id: int | None = None) -> list[BillingInvoiceDetail]:
@@ -229,6 +278,216 @@ class BillingRepository:
     def count_invoices(self) -> int:
         return int(self.db.scalar(select(func.count(BillingInvoice.id))) or 0)
 
+    def paged_charge_register(
+        self,
+        *,
+        from_date: date | None,
+        to_date: date | None,
+        search: str,
+        order_key: str,
+        order_dir: str,
+        start: int,
+        length: int,
+    ) -> tuple[int, int, list[dict[str, object]], dict[str, float]]:
+        item_summary = (
+            select(
+                ChargeItem.charge_id.label("charge_id"),
+                func.string_agg(func.coalesce(ChargeItem.description, ChargeItem.item_type), literal(", ")).label("head_summary"),
+            )
+            .group_by(ChargeItem.charge_id)
+            .subquery()
+        )
+        paid_amount = Charge.net_amount - Charge.due_amount
+        status_rank = case((Charge.due_amount <= 0, 0), (paid_amount > 0, 1), else_=2)
+        base = (
+            select(
+                Charge.id.label("id"),
+                Member.full_name.label("member_name"),
+                Member.member_code.label("member_code"),
+                Member.plot_no.label("plot_no"),
+                Charge.created_at.label("created_at"),
+                BillingPeriod.period_name.label("billing_period_name"),
+                func.coalesce(item_summary.c.head_summary, Charge.charge_type).label("head_summary"),
+                Charge.net_amount.label("net_amount"),
+                paid_amount.label("paid_amount"),
+                Charge.due_amount.label("due_amount"),
+                Charge.status.label("status"),
+            )
+            .join(Member, Member.id == Charge.member_id)
+            .outerjoin(BillingPeriod, BillingPeriod.id == Charge.billing_period_id)
+            .outerjoin(item_summary, item_summary.c.charge_id == Charge.id)
+        )
+        if from_date is not None:
+            base = base.where(cast(Charge.created_at, Date) >= from_date)
+        if to_date is not None:
+            base = base.where(cast(Charge.created_at, Date) <= to_date)
+        total_records = int(self.db.scalar(select(func.count()).select_from(base.subquery())) or 0)
+        if search:
+            needle = f"%{search.lower()}%"
+            base = base.where(
+                or_(
+                    func.lower(Member.full_name).like(needle),
+                    func.lower(Member.member_code).like(needle),
+                    func.lower(func.coalesce(Member.plot_no, "")).like(needle),
+                    func.lower(func.coalesce(BillingPeriod.period_name, "")).like(needle),
+                    func.lower(func.coalesce(item_summary.c.head_summary, Charge.charge_type)).like(needle),
+                    func.lower(Charge.status).like(needle),
+                    cast(cast(Charge.created_at, Date), String).like(needle),
+                )
+            )
+        filtered_records = int(self.db.scalar(select(func.count()).select_from(base.subquery())) or 0)
+        order_map = {
+            "member": literal_column_safe("member_name"),
+            "date": literal_column_safe("created_at"),
+            "period": literal_column_safe("billing_period_name"),
+            "head": literal_column_safe("head_summary"),
+            "net": literal_column_safe("net_amount"),
+            "paid": literal_column_safe("paid_amount"),
+            "due": literal_column_safe("due_amount"),
+            "status": status_rank,
+        }
+        order_expr = order_map.get(order_key, literal_column_safe("created_at"))
+        ordered = base.order_by(order_expr.asc() if order_dir == "asc" else order_expr.desc(), literal_column_safe("id").desc())
+        rows = self.db.execute(ordered.offset(start).limit(length)).mappings().all()
+        totals_row = self.db.execute(
+            select(
+                func.coalesce(func.sum(base.subquery().c.net_amount), 0).label("total_bill_amount"),
+                func.coalesce(func.sum(base.subquery().c.paid_amount), 0).label("total_paid"),
+                func.coalesce(func.sum(base.subquery().c.due_amount), 0).label("total_due"),
+            )
+        ).one()
+        return total_records, filtered_records, [dict(row) for row in rows], {
+            "total_bill_amount": float(totals_row.total_bill_amount or 0),
+            "total_paid": float(totals_row.total_paid or 0),
+            "total_due": float(totals_row.total_due or 0),
+        }
+
+    def paged_receipt_register(
+        self,
+        *,
+        from_date: date | None,
+        to_date: date | None,
+        search: str,
+        order_key: str,
+        order_dir: str,
+        start: int,
+        length: int,
+    ) -> tuple[int, int, list[dict[str, object]], dict[str, float]]:
+        base = (
+            select(
+                Receipt.id.label("id"),
+                Receipt.receipt_no.label("receipt_no"),
+                Member.full_name.label("member_name"),
+                Member.member_code.label("member_code"),
+                Member.plot_no.label("plot_no"),
+                Receipt.payment_date.label("payment_date"),
+                Receipt.total_amount.label("total_amount"),
+                Receipt.notes.label("notes"),
+            )
+            .outerjoin(Member, Member.id == Receipt.member_id)
+        )
+        if from_date is not None:
+            base = base.where(Receipt.payment_date >= from_date)
+        if to_date is not None:
+            base = base.where(Receipt.payment_date <= to_date)
+        total_records = int(self.db.scalar(select(func.count()).select_from(base.subquery())) or 0)
+        if search:
+            needle = f"%{search.lower()}%"
+            base = base.where(
+                or_(
+                    func.lower(Receipt.receipt_no).like(needle),
+                    func.lower(func.coalesce(Member.full_name, "")).like(needle),
+                    func.lower(func.coalesce(Member.member_code, "")).like(needle),
+                    func.lower(func.coalesce(Member.plot_no, "")).like(needle),
+                    cast(Receipt.payment_date, String).like(needle),
+                    func.lower(func.coalesce(Receipt.notes, "")).like(needle),
+                )
+            )
+        filtered_records = int(self.db.scalar(select(func.count()).select_from(base.subquery())) or 0)
+        order_map = {
+            "receipt": literal_column_safe("receipt_no"),
+            "member": literal_column_safe("member_name"),
+            "plot": literal_column_safe("plot_no"),
+            "date": literal_column_safe("payment_date"),
+            "total": literal_column_safe("total_amount"),
+        }
+        order_expr = order_map.get(order_key, literal_column_safe("payment_date"))
+        ordered = base.order_by(order_expr.asc() if order_dir == "asc" else order_expr.desc(), literal_column_safe("id").desc())
+        rows = self.db.execute(ordered.offset(start).limit(length)).mappings().all()
+        totals_row = self.db.execute(select(func.coalesce(func.sum(base.subquery().c.total_amount), 0).label("total_collection"))).one()
+        return total_records, filtered_records, [dict(row) for row in rows], {
+            "total_collection": float(totals_row.total_collection or 0),
+        }
+
+    def paged_invoice_register(
+        self,
+        *,
+        member_id: int | None,
+        from_date: date | None,
+        to_date: date | None,
+        search: str,
+        order_key: str,
+        order_dir: str,
+        start: int,
+        length: int,
+    ) -> tuple[int, int, list[dict[str, object]], dict[str, float]]:
+        status_text = case(
+            (BillingInvoice.is_cancelled == True, "Cancelled"),  # noqa: E712
+            (BillingInvoice.total_due_amount <= 0, "Paid"),
+            (BillingInvoice.total_receive_amount > 0, "Partial"),
+            else_="Due",
+        )
+        base = select(
+            BillingInvoice.id.label("id"),
+            BillingInvoice.invoice_no.label("invoice_no"),
+            BillingInvoice.invoice_date.label("invoice_date"),
+            BillingInvoice.subtotal_amount.label("subtotal_amount"),
+            BillingInvoice.discount_amount.label("discount_amount"),
+            BillingInvoice.total_receive_amount.label("total_receive_amount"),
+            BillingInvoice.total_due_amount.label("total_due_amount"),
+            status_text.label("status"),
+        )
+        if member_id is not None:
+            base = base.where(BillingInvoice.member_id == member_id)
+        if from_date is not None:
+            base = base.where(BillingInvoice.invoice_date >= from_date)
+        if to_date is not None:
+            base = base.where(BillingInvoice.invoice_date <= to_date)
+        total_records = int(self.db.scalar(select(func.count()).select_from(base.subquery())) or 0)
+        if search:
+            needle = f"%{search.lower()}%"
+            base = base.where(
+                or_(
+                    func.lower(BillingInvoice.invoice_no).like(needle),
+                    cast(BillingInvoice.invoice_date, String).like(needle),
+                    func.lower(status_text).like(needle),
+                )
+            )
+        filtered_records = int(self.db.scalar(select(func.count()).select_from(base.subquery())) or 0)
+        order_map = {
+            "invoice": literal_column_safe("invoice_no"),
+            "date": literal_column_safe("invoice_date"),
+            "subtotal": literal_column_safe("subtotal_amount"),
+            "discount": literal_column_safe("discount_amount"),
+            "received": literal_column_safe("total_receive_amount"),
+            "due": literal_column_safe("total_due_amount"),
+            "status": literal_column_safe("status"),
+        }
+        order_expr = order_map.get(order_key, literal_column_safe("invoice_date"))
+        ordered = base.order_by(order_expr.asc() if order_dir == "asc" else order_expr.desc(), literal_column_safe("id").desc())
+        rows = self.db.execute(ordered.offset(start).limit(length)).mappings().all()
+        totals_row = self.db.execute(
+            select(
+                func.coalesce(func.sum(base.subquery().c.subtotal_amount), 0).label("total_bill_amount"),
+                func.coalesce(func.sum(base.subquery().c.total_receive_amount), 0).label("total_paid"),
+                func.coalesce(func.sum(base.subquery().c.total_due_amount), 0).label("total_due"),
+            )
+        ).one()
+        return total_records, filtered_records, [dict(row) for row in rows], {
+            "total_bill_amount": float(totals_row.total_bill_amount or 0),
+            "total_paid": float(totals_row.total_paid or 0),
+            "total_due": float(totals_row.total_due or 0),
+        }
     def get_period_payment_totals(self, member_id: int, head_id: int, period_date) -> tuple[float, float]:
         statement = (
             select(
@@ -289,3 +548,7 @@ class BillingRepository:
         if member_id is not None:
             statement = statement.where(BillingDueTracker.member_id == member_id)
         return list(self.db.scalars(statement))
+
+
+def literal_column_safe(column_name: str):
+    return column(column_name)
