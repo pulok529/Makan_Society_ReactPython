@@ -25,6 +25,7 @@ from app.modules.reporting.schemas import (
     ReceiptDetailReport,
     ReportEnvelope,
     ReportFilter,
+    ReportPageEnvelope,
     SingleMemberDueHistoryRow,
     SingleMemberPaymentHistoryRow,
     SingleMemberStatementReport,
@@ -82,9 +83,9 @@ class ReportingService:
 
     def _member_collection_totals(self, member_ids: set[int]) -> dict[int, float]:
         totals: dict[int, float] = {member_id: 0.0 for member_id in member_ids}
-        for receipt in self.repository.list_receipts():
-            if receipt.member_id in totals:
-                totals[receipt.member_id] += float(receipt.total_amount)
+        for invoice in self.repository.list_invoices_for_collection():
+            if invoice.member_id in totals:
+                totals[invoice.member_id] += float(invoice.total_receive_amount)
         return totals
 
     def _member_due_totals(self, member_ids: set[int]) -> dict[int, float]:
@@ -208,23 +209,23 @@ class ReportingService:
                 plot_no=filters.plot_no,
             )
         }
-        receipts = self.repository.list_receipts(
+        invoices = self.repository.list_invoices_for_collection(
             member_id=filters.member_id,
             from_date=filters.from_date,
             to_date=filters.to_date,
         )
         rows = [
             CollectionRow(
-                member_id=receipt.member_id,
-                member_code=members[receipt.member_id].member_code,
-                member_name=members[receipt.member_id].full_name,
-                receipt_no=receipt.receipt_no,
-                payment_date=receipt.payment_date,
-                total_amount=float(receipt.total_amount),
-                discount_amount=float(receipt.discount_amount),
+                member_id=invoice.member_id,
+                member_code=members[invoice.member_id].member_code,
+                member_name=members[invoice.member_id].full_name,
+                receipt_no=invoice.invoice_no,
+                payment_date=invoice.invoice_date,
+                total_amount=float(invoice.total_receive_amount),
+                discount_amount=float(invoice.discount_amount),
             )
-            for receipt in receipts
-            if receipt.member_id in members
+            for invoice in invoices
+            if invoice.member_id in members
         ]
         rows.sort(key=lambda item: (item.member_code or "", item.payment_date, item.receipt_no))
         return ReportEnvelope(
@@ -250,14 +251,14 @@ class ReportingService:
             )
         }
         grouped: dict[int, TotalCollectionRow] = {}
-        for receipt in self.repository.list_receipts(
+        for invoice in self.repository.list_invoices_for_collection(
             member_id=filters.member_id,
             from_date=filters.from_date,
             to_date=filters.to_date,
         ):
-            if receipt.member_id is None or receipt.member_id not in members:
+            if invoice.member_id is None or invoice.member_id not in members:
                 continue
-            member = members[receipt.member_id]
+            member = members[invoice.member_id]
             row = grouped.get(member.id)
             if row is None:
                 grouped[member.id] = TotalCollectionRow(
@@ -265,10 +266,10 @@ class ReportingService:
                     member_code=member.member_code,
                     member_name=member.full_name,
                     plot_no=member.plot_no or member.member_id_text,
-                    total_collection_amount=float(receipt.total_amount),
+                    total_collection_amount=float(invoice.total_receive_amount),
                 )
             else:
-                row.total_collection_amount += float(receipt.total_amount)
+                row.total_collection_amount += float(invoice.total_receive_amount)
         rows = sorted(grouped.values(), key=lambda item: (item.member_code, item.member_name))
         return ReportEnvelope(
             report_type="total_collection",
@@ -335,7 +336,7 @@ class ReportingService:
         if member is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
 
-        receipts = self.repository.list_receipts(
+        invoices = self.repository.list_invoices_for_collection(
             member_id=filters.member_id,
             from_date=filters.from_date,
             to_date=filters.to_date,
@@ -357,13 +358,13 @@ class ReportingService:
         due_history.sort(key=lambda item: (item.period_display or "", item.head_name))
         payment_history = [
             SingleMemberPaymentHistoryRow(
-                receipt_no=receipt.receipt_no,
-                payment_date=receipt.payment_date,
-                amount=float(receipt.total_amount),
-                discount_amount=float(receipt.discount_amount),
-                notes=receipt.notes,
+                receipt_no=invoice.invoice_no,
+                payment_date=invoice.invoice_date,
+                amount=float(invoice.total_receive_amount),
+                discount_amount=float(invoice.discount_amount),
+                notes=invoice.notes if hasattr(invoice, "notes") else None,
             )
-            for receipt in receipts
+            for invoice in invoices
         ]
         return SingleMemberStatementReport(
             member_id=member.id,
@@ -388,20 +389,20 @@ class ReportingService:
 
         categories = {item.id: item for item in self.repository.list_categories()}
         nominee = self.repository.get_member_nominee(member.id)
-        receipts = self.repository.list_receipts(
+        invoices = self.repository.list_invoices_for_collection(
             member_id=filters.member_id,
             from_date=filters.from_date,
             to_date=filters.to_date,
         )
         payment_history = [
             SingleMemberPaymentHistoryRow(
-                receipt_no=receipt.receipt_no,
-                payment_date=receipt.payment_date,
-                amount=float(receipt.total_amount),
-                discount_amount=float(receipt.discount_amount),
-                notes=receipt.notes,
+                receipt_no=invoice.invoice_no,
+                payment_date=invoice.invoice_date,
+                amount=float(invoice.total_receive_amount),
+                discount_amount=float(invoice.discount_amount),
+                notes=invoice.notes if hasattr(invoice, "notes") else None,
             )
-            for receipt in receipts
+            for invoice in invoices
         ]
         due_lines = BillingService(self.db).preview_member_dues(filters.member_id)
         due_history = [
@@ -581,6 +582,17 @@ class ReportingService:
         template = self.template_env.get_template("table_report.html")
         return template.render(report=report)
 
+    @staticmethod
+    def render_json_html(title: str, payload: dict) -> str:
+        import json
+
+        return (
+            "<!doctype html><html><head><meta charset='utf-8' />"
+            f"<title>{title}</title>"
+            "<style>body{font-family:Arial,Helvetica,sans-serif;margin:24px;color:#111827}pre{white-space:pre-wrap;word-break:break-word;background:#f8fafc;border:1px solid #e5e7eb;padding:16px;border-radius:10px}</style>"
+            f"</head><body><h1>{title}</h1><pre>{json.dumps(payload, ensure_ascii=False, indent=2)}</pre></body></html>"
+        )
+
     def render_xlsx(self, report: ReportEnvelope) -> bytes:
         workbook = Workbook()
         sheet = workbook.active
@@ -653,6 +665,42 @@ class ReportingService:
         workbook.save(buffer)
         return buffer.getvalue()
 
+    def render_member_information_detail_xlsx(self, report: MemberInformationDetailReport) -> bytes:
+        workbook = Workbook()
+        summary_sheet = workbook.active
+        summary_sheet.title = "Member Detail"
+        info = report.member_info
+        summary_sheet.append(["Member Information Detail"])
+        for key, value in report.applied_filters.items():
+            summary_sheet.append([key.replace("_", " ").title(), value])
+        summary_sheet.append(["Member Code", info.member_code])
+        summary_sheet.append(["Full Name", info.full_name])
+        summary_sheet.append(["Plot No", info.plot_no or ""])
+        summary_sheet.append(["Category", info.category_name or ""])
+        summary_sheet.append(["Phone", info.cell_no or ""])
+        summary_sheet.append(["Email", info.email or ""])
+        summary_sheet.append(["Total Collection", info.total_collection_amount])
+        summary_sheet.append(["Total Due", info.total_due_amount])
+
+        payment_sheet = workbook.create_sheet("Payment History")
+        payment_sheet.append(["Receipt No", "Payment Date", "Paid Amount", "Discount Amount", "Notes"])
+        for row in report.payment_history:
+            payment_sheet.append([row.receipt_no, row.payment_date.isoformat(), row.amount, row.discount_amount, row.notes or ""])
+
+        due_sheet = workbook.create_sheet("Due History")
+        due_sheet.append(["Billing Head", "Period", "Bill Amount", "Paid Amount", "Due Amount"])
+        for row in report.due_history:
+            due_sheet.append([row.head_name, row.period_display or "", row.total_bill, row.paid_amount, row.due_amount])
+
+        sms_sheet = workbook.create_sheet("SMS History")
+        sms_sheet.append(["Created At", "Recipient", "Template", "Message", "Status"])
+        for row in report.sms_history:
+            sms_sheet.append([row.created_at.isoformat(), row.recipient, row.template_name or "", row.message_body, row.status])
+
+        buffer = BytesIO()
+        workbook.save(buffer)
+        return buffer.getvalue()
+
     def render_income_expense_xlsx(self, report: IncomeExpenseComparisonReport) -> bytes:
         workbook = Workbook()
         summary_sheet = workbook.active
@@ -685,3 +733,174 @@ class ReportingService:
         buffer = BytesIO()
         workbook.save(buffer)
         return buffer.getvalue()
+
+    def paged_report(self, report_key: str, filters: ReportFilter, *, limit: int = 50, offset: int = 0) -> ReportPageEnvelope:
+        safe_limit = min(max(limit, 1), 200)
+        safe_offset = max(offset, 0)
+        applied_filters = self._applied_filters(filters)
+        generated_at = datetime.now(UTC)
+
+        if report_key == "income-detail":
+            total, total_amount, rows = self.repository.paged_income_detail(
+                from_date=filters.from_date,
+                to_date=filters.to_date,
+                limit=safe_limit,
+                offset=safe_offset,
+            )
+            return ReportPageEnvelope(
+                report_type="income_detail",
+                title="Income Detail Report",
+                generated_at=generated_at,
+                total=total,
+                limit=safe_limit,
+                offset=safe_offset,
+                totals={"total_income_amount": round(total_amount, 2), "income_entry_count": total},
+                applied_filters=applied_filters,
+                items=rows,
+            )
+        if report_key == "expense-detail":
+            total, total_amount, rows = self.repository.paged_expense_detail(
+                from_date=filters.from_date,
+                to_date=filters.to_date,
+                limit=safe_limit,
+                offset=safe_offset,
+            )
+            return ReportPageEnvelope(
+                report_type="expense_detail",
+                title="Expense Detail Report",
+                generated_at=generated_at,
+                total=total,
+                limit=safe_limit,
+                offset=safe_offset,
+                totals={"total_expense_amount": round(total_amount, 2), "expense_entry_count": total},
+                applied_filters=applied_filters,
+                items=rows,
+            )
+        if report_key == "collections":
+            total, total_amount, discount_amount, rows = self.repository.paged_collections(
+                member_id=filters.member_id,
+                category_id=filters.category_id,
+                plot_no=filters.plot_no,
+                from_date=filters.from_date,
+                to_date=filters.to_date,
+                limit=safe_limit,
+                offset=safe_offset,
+            )
+            return ReportPageEnvelope(
+                report_type="collections",
+                title="Collection Report",
+                generated_at=generated_at,
+                total=total,
+                limit=safe_limit,
+                offset=safe_offset,
+                totals={"total_collected": round(total_amount, 2), "discount_amount": round(discount_amount, 2)},
+                applied_filters=applied_filters,
+                items=rows,
+            )
+        if report_key == "charges":
+            total, net_amount, due_amount, rows = self.repository.paged_charge_register(
+                member_id=filters.member_id,
+                category_id=filters.category_id,
+                billing_period_id=filters.billing_period_id,
+                plot_no=filters.plot_no,
+                from_date=filters.from_date,
+                to_date=filters.to_date,
+                limit=safe_limit,
+                offset=safe_offset,
+            )
+            return ReportPageEnvelope(
+                report_type="charge_register",
+                title="Charge Register",
+                generated_at=generated_at,
+                total=total,
+                limit=safe_limit,
+                offset=safe_offset,
+                totals={"net_amount": round(net_amount, 2), "due_amount": round(due_amount, 2)},
+                applied_filters=applied_filters,
+                items=rows,
+            )
+        if report_key == "due-members":
+            total, total_due, rows = self.repository.paged_due_members(
+                member_id=filters.member_id,
+                category_id=filters.category_id,
+                billing_period_id=filters.billing_period_id,
+                plot_no=filters.plot_no,
+                limit=safe_limit,
+                offset=safe_offset,
+            )
+            return ReportPageEnvelope(
+                report_type="due_members",
+                title="Due Members Report",
+                generated_at=generated_at,
+                total=total,
+                limit=safe_limit,
+                offset=safe_offset,
+                totals={"total_due_amount": round(total_due, 2), "member_count": total},
+                applied_filters=applied_filters,
+                items=rows,
+            )
+        if report_key == "total-due":
+            total, total_due, rows = self.repository.paged_total_due(
+                member_id=filters.member_id,
+                category_id=filters.category_id,
+                billing_period_id=filters.billing_period_id,
+                plot_no=filters.plot_no,
+                from_date=filters.from_date,
+                to_date=filters.to_date,
+                limit=safe_limit,
+                offset=safe_offset,
+            )
+            return ReportPageEnvelope(
+                report_type="total_due",
+                title="Total Due Report",
+                generated_at=generated_at,
+                total=total,
+                limit=safe_limit,
+                offset=safe_offset,
+                totals={"total_due_amount": round(total_due, 2), "member_count": total},
+                applied_filters=applied_filters,
+                items=rows,
+            )
+        if report_key == "total-collection":
+            total, total_collection, rows = self.repository.paged_total_collection(
+                member_id=filters.member_id,
+                category_id=filters.category_id,
+                plot_no=filters.plot_no,
+                from_date=filters.from_date,
+                to_date=filters.to_date,
+                limit=safe_limit,
+                offset=safe_offset,
+            )
+            return ReportPageEnvelope(
+                report_type="total_collection",
+                title="Total Collection Report",
+                generated_at=generated_at,
+                total=total,
+                limit=safe_limit,
+                offset=safe_offset,
+                totals={"total_collection_amount": round(total_collection, 2), "member_count": total},
+                applied_filters=applied_filters,
+                items=rows,
+            )
+        if report_key == "members":
+            total, totals, rows = self.repository.paged_member_register(
+                member_id=filters.member_id,
+                category_id=filters.category_id,
+                plot_no=filters.plot_no,
+                from_date=filters.from_date,
+                to_date=filters.to_date,
+                limit=safe_limit,
+                offset=safe_offset,
+            )
+            return ReportPageEnvelope(
+                report_type="member_summary",
+                title="Total Member Summary",
+                generated_at=generated_at,
+                total=total,
+                limit=safe_limit,
+                offset=safe_offset,
+                totals=totals,
+                applied_filters=applied_filters,
+                items=rows,
+            )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported paged report type")

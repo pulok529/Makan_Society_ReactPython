@@ -147,11 +147,20 @@ class BillingRepository:
         return list(self.db.scalars(statement))
 
     def count_receipts(self) -> int:
-        statement = select(func.count(Receipt.id))
+        # Count live collections from billing_invoices (the operational collection flow)
+        statement = select(func.count(BillingInvoice.id)).where(
+            BillingInvoice.is_cancelled == False,  # noqa: E712
+            BillingInvoice.total_receive_amount > 0,
+        )
         return int(self.db.scalar(statement) or 0)
 
     def sum_receipts(self) -> float:
-        statement = select(func.coalesce(func.sum(Receipt.total_amount), 0))
+        # Sum live collections from billing_invoices (the operational collection flow)
+        statement = select(
+            func.coalesce(func.sum(BillingInvoice.total_receive_amount), 0)
+        ).where(
+            BillingInvoice.is_cancelled == False,  # noqa: E712
+        )
         return float(self.db.scalar(statement) or 0)
 
     def summarize_open_charges(self) -> tuple[int, float]:
@@ -292,7 +301,7 @@ class BillingRepository:
         item_summary = (
             select(
                 ChargeItem.charge_id.label("charge_id"),
-                func.string_agg(func.coalesce(ChargeItem.description, ChargeItem.item_type), literal(", ")).label("head_summary"),
+                func.string_agg(func.coalesce(ChargeItem.description, ChargeItem.item_type), literal(", ", String(10))).label("head_summary"),
             )
             .group_by(ChargeItem.charge_id)
             .subquery()
@@ -446,6 +455,12 @@ class BillingRepository:
             BillingInvoice.total_receive_amount.label("total_receive_amount"),
             BillingInvoice.total_due_amount.label("total_due_amount"),
             status_text.label("status"),
+        ).where(
+            BillingInvoice.is_cancelled == False,  # noqa: E712
+            or_(
+                BillingInvoice.total_due_amount <= 0,
+                BillingInvoice.total_receive_amount > 0,
+            ),
         )
         if member_id is not None:
             base = base.where(BillingInvoice.member_id == member_id)
