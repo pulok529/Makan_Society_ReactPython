@@ -1,4 +1,4 @@
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+import { apiRequest } from "../shared/api/client";
 
 export type SmsSendResult = {
   success: boolean;
@@ -18,31 +18,13 @@ export type SmsBalanceResult = {
   dry_run: boolean;
 };
 
-async function smsRequest<T>(path: string, accessToken: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-      ...(init?.headers ?? {}),
-    },
-  });
-
-  if (!response.ok) {
-    const payload = await response.json().catch(() => null);
-    throw new Error(payload?.detail ?? "SMS request failed");
-  }
-
-  return response.json() as Promise<T>;
-}
-
 export function sendTestSms(accessToken: string, number: string, message: string) {
-  return smsRequest<SmsSendResult>("/api/sms/send", accessToken, {
+  return apiRequest<SmsSendResult>("/api/sms/send", accessToken, {
     method: "POST",
     body: JSON.stringify({ number, message }),
   });
 }
 
 export function getSmsBalance(accessToken: string) {
-  return smsRequest<SmsBalanceResult>("/api/sms/balance", accessToken);
+  return apiRequest<SmsBalanceResult>("/api/sms/balance", accessToken);
 }

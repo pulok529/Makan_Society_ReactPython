@@ -35,6 +35,46 @@ class MemberService:
     def list_members(self, search: str | None = None) -> list[Member]:
         return self.repository.list_members(search)
 
+    def paged_members(
+        self,
+        *,
+        search: str | None = None,
+        is_active: bool | None = None,
+        category_id: int | None = None,
+        has_phone: bool | None = None,
+        due_only: bool = False,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[int, list[Member]]:
+        return self.repository.paged_members(
+            search=search,
+            is_active=is_active,
+            category_id=category_id,
+            has_phone=has_phone,
+            due_only=due_only,
+            limit=min(max(limit, 1), 200),
+            offset=max(offset, 0),
+        )
+
+    def search_members(
+        self,
+        *,
+        query: str,
+        limit: int = 20,
+        is_active: bool | None = True,
+        has_phone: bool | None = None,
+        due_only: bool = False,
+        category_id: int | None = None,
+    ) -> list[Member]:
+        return self.repository.search_members(
+            query=query,
+            limit=min(max(limit, 1), 50),
+            is_active=is_active,
+            has_phone=has_phone,
+            due_only=due_only,
+            category_id=category_id,
+        )
+
     def get_member(self, member_id: int) -> Member:
         member = self.repository.get_by_id(member_id)
         if member is None:

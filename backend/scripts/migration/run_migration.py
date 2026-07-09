@@ -440,7 +440,8 @@ def migrate_billing(db, execute: bool) -> dict[str, int]:
     receipts_by_legacy: dict[int, Receipt] = {}
     receipt_created = 0
     for row in legacy_receipts:
-        receipt_no = _as_str(row.get("VoucherNo")) or f"RCV-{row['BillInfoMId']}"
+        base_receipt_no = _as_str(row.get("VoucherNo")) or f"RCV-{row['BillInfoMId']}"
+        receipt_no = f"{base_receipt_no}-{row['BillInfoMId']}"[:50]
         receipt = db.query(Receipt).filter(Receipt.receipt_no == receipt_no).one_or_none()
         payment_dt = row.get("CollectionDate") or datetime.now(UTC)
         if receipt is None:
@@ -453,7 +454,7 @@ def migrate_billing(db, execute: bool) -> dict[str, int]:
                 subtotal_amount=float(row.get("TotalAmount") or 0),
                 discount_amount=float(row.get("TotalDiscount") or 0),
                 total_amount=float(row.get("TotalAmount") or 0),
-                notes=f"BillInfoMId={row['BillInfoMId']}",
+                notes=f"BillInfoMId={row['BillInfoMId']} VoucherNo={base_receipt_no}",
             )
             db.add(receipt)
             db.flush()

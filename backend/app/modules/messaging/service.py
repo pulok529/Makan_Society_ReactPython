@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from uuid import uuid4
 
 from fastapi import HTTPException, status
@@ -17,8 +17,10 @@ from app.modules.messaging.models import SmsDeliveryAttempt, SmsMessage, SmsTemp
 from app.modules.messaging.repository import MessagingRepository
 from app.modules.messaging.schemas import (
     SmsIntegrationStatusRead,
+    SmsDeliveryAttemptPage,
     SmsBulkSendRequest,
     SmsDeliveryAttemptRead,
+    SmsMessagePage,
     SmsMessageRead,
     SmsProviderCheckRead,
     SmsQueueRequest,
@@ -120,8 +122,82 @@ class MessagingService:
             for item in self.repository.list_messages()
         ]
 
+    def paged_messages(
+        self,
+        *,
+        search: str | None = None,
+        member_id: int | None = None,
+        status: str | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> SmsMessagePage:
+        start_at = datetime.combine(from_date, time.min, tzinfo=UTC) if from_date else None
+        end_at = datetime.combine(to_date, time.max, tzinfo=UTC) if to_date else None
+        total, messages = self.repository.paged_messages(
+            search=search,
+            member_id=member_id,
+            status=status,
+            from_date=start_at,
+            to_date=end_at,
+            limit=min(max(limit, 1), 200),
+            offset=max(offset, 0),
+        )
+        templates = {item.id: item for item in self.repository.list_templates()}
+        members = {item.id: item for item in self.repository.list_members()}
+        return SmsMessagePage(
+            items=[
+                SmsMessageRead(
+                    id=item.id,
+                    member_id=item.member_id,
+                    member_name=members[item.member_id].full_name if item.member_id in members else None,
+                    template_id=item.template_id,
+                    template_name=templates[item.template_id].name if item.template_id in templates else None,
+                    recipient=item.recipient,
+                    message_body=item.message_body,
+                    status=item.status,
+                    created_at=item.created_at,
+                    sent_at=item.sent_at,
+                )
+                for item in messages
+            ],
+            total=total,
+            limit=min(max(limit, 1), 200),
+            offset=max(offset, 0),
+        )
+
     def list_attempts(self, message_id: int | None = None) -> list[SmsDeliveryAttemptRead]:
         return [SmsDeliveryAttemptRead.model_validate(item) for item in self.repository.list_attempts(message_id)]
+
+    def paged_attempts(
+        self,
+        *,
+        message_id: int | None = None,
+        search: str | None = None,
+        provider_status: str | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> SmsDeliveryAttemptPage:
+        start_at = datetime.combine(from_date, time.min, tzinfo=UTC) if from_date else None
+        end_at = datetime.combine(to_date, time.max, tzinfo=UTC) if to_date else None
+        total, attempts = self.repository.paged_attempts(
+            message_id=message_id,
+            search=search,
+            provider_status=provider_status,
+            from_date=start_at,
+            to_date=end_at,
+            limit=min(max(limit, 1), 200),
+            offset=max(offset, 0),
+        )
+        return SmsDeliveryAttemptPage(
+            items=[SmsDeliveryAttemptRead.model_validate(item) for item in attempts],
+            total=total,
+            limit=min(max(limit, 1), 200),
+            offset=max(offset, 0),
+        )
 
     def queue_message(self, payload: SmsQueueRequest) -> SmsMessageRead:
         member = None

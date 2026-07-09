@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.modules.accounting.service import AccountingService
 from app.modules.auth.dependencies import get_current_user, require_permission
-from app.modules.reporting.schemas import MemberInformationDetailReport, ReceiptDetailReport, ReportEnvelope, ReportFilter, SingleMemberStatementReport
+from app.modules.reporting.schemas import MemberInformationDetailReport, ReceiptDetailReport, ReportEnvelope, ReportFilter, ReportPageEnvelope, SingleMemberStatementReport
 from app.modules.reporting.service import ReportingService
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -168,6 +168,28 @@ def member_information_detail_report(
     db: Session = Depends(get_db),
 ) -> MemberInformationDetailReport:
     return ReportingService(db).member_information_detail(_filters(from_date, to_date, member_id))
+
+
+@router.get("/paged/{report_key}", response_model=ReportPageEnvelope, dependencies=[Depends(require_permission("reports:view"))])
+def paged_report(
+    report_key: str,
+    from_date=None,
+    to_date=None,
+    member_id: int | None = None,
+    category_id: int | None = None,
+    billing_period_id: int | None = None,
+    plot_no: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    _: object = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ReportPageEnvelope:
+    return ReportingService(db).paged_report(
+        report_key,
+        _filters(from_date, to_date, member_id, category_id, billing_period_id, plot_no),
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/receipt/{receipt_id}", response_model=ReceiptDetailReport, dependencies=[Depends(require_permission("reports:view"))])

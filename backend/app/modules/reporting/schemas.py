@@ -195,6 +195,18 @@ class ReportEnvelope(BaseModel):
     rows: list[dict]
 
 
+class ReportPageEnvelope(BaseModel):
+    report_type: str
+    title: str
+    generated_at: datetime
+    total: int
+    limit: int
+    offset: int
+    totals: dict[str, float | int]
+    applied_filters: dict[str, str] = Field(default_factory=dict)
+    items: list[dict]
+
+
 class ExportRequest(BaseModel):
     format: str = Field(pattern="^(json|html|xlsx)$")
     filters: ReportFilter = Field(default_factory=ReportFilter)

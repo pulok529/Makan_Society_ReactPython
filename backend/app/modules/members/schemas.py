@@ -2,6 +2,8 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.common.schemas import PaginatedResponse
+
 
 class MemberPackageAssignmentCreate(BaseModel):
     package_id: int
@@ -106,3 +108,18 @@ class MemberListItem(BaseModel):
     category_name: str | None
     joined_on: date | None
     is_active: bool
+
+
+class MemberSearchItem(BaseModel):
+    id: int
+    member_code: str
+    full_name: str
+    plot_no: str | None
+    plot_count: int
+    cell_no: str | None
+    category_name: str | None
+    is_active: bool
+
+
+class MemberListPage(PaginatedResponse[MemberListItem]):
+    pass

@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, status
+from datetime import date
+
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -7,8 +9,10 @@ from app.modules.messaging.schemas import (
     BulkSmsBalanceRead,
     BulkSmsResultRead,
     SmsIntegrationStatusRead,
+    SmsDeliveryAttemptPage,
     SmsBulkSendRequest,
     SmsDeliveryAttemptRead,
+    SmsMessagePage,
     SmsManyRawRequest,
     SmsMessageRead,
     SmsProviderCheckRead,
@@ -94,6 +98,29 @@ def list_messages(
     return MessagingService(db).list_messages()
 
 
+@router.get("/messages/paged", response_model=SmsMessagePage, dependencies=[Depends(require_permission("reports:view"))])
+def list_messages_paged(
+    search: str | None = Query(default=None),
+    member_id: int | None = Query(default=None),
+    status: str | None = Query(default=None),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    _: object = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> SmsMessagePage:
+    return MessagingService(db).paged_messages(
+        search=search,
+        member_id=member_id,
+        status=status,
+        from_date=from_date,
+        to_date=to_date,
+        limit=limit,
+        offset=offset,
+    )
+
+
 @router.post(
     "/queue",
     response_model=SmsMessageRead,
@@ -128,6 +155,29 @@ def list_attempts(
     db: Session = Depends(get_db),
 ) -> list[SmsDeliveryAttemptRead]:
     return MessagingService(db).list_attempts(message_id)
+
+
+@router.get("/attempts/paged", response_model=SmsDeliveryAttemptPage, dependencies=[Depends(require_permission("reports:view"))])
+def list_attempts_paged(
+    message_id: int | None = Query(default=None),
+    search: str | None = Query(default=None),
+    provider_status: str | None = Query(default=None),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    _: object = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> SmsDeliveryAttemptPage:
+    return MessagingService(db).paged_attempts(
+        message_id=message_id,
+        search=search,
+        provider_status=provider_status,
+        from_date=from_date,
+        to_date=to_date,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @sms_router.post("/send", response_model=BulkSmsResultRead, dependencies=[Depends(require_permission("admin:manage"))])

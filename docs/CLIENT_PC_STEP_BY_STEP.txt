@@ -1,0 +1,312 @@
+MAKAN SOCIETY - CLIENT PC DEPLOYMENT STEP BY STEP
+=================================================
+
+This guide assumes:
+- Docker Desktop is already installed on the client PC
+- Jenkins is already installed on the client PC
+- Git is already installed on the client PC
+- The GitHub repo is:
+  https://github.com/pulok529/Makan_Society_ReactPython.git
+
+
+PART 1 - FIRST TIME SETUP ON CLIENT PC
+======================================
+
+1. Open PowerShell as Administrator
+
+2. Create the deployment folder
+
+Run:
+
+mkdir C:\deploy -Force
+mkdir C:\deploy\makan-society -Force
+
+
+3. Clone the project from GitHub
+
+Run:
+
+cd C:\deploy
+git clone https://github.com/pulok529/Makan_Society_ReactPython.git makan-society
+
+If the folder already exists and you want a fresh clone:
+
+rmdir C:\deploy\makan-society -Recurse -Force
+git clone https://github.com/pulok529/Makan_Society_ReactPython.git makan-society
+
+
+4. Create the production .env file
+
+Run:
+
+Copy-Item C:\deploy\makan-society\.env.example C:\deploy\makan-society\.env
+
+Now open:
+
+C:\deploy\makan-society\.env
+
+and set the values.
+
+Example for single-PC usage:
+
+MSSQL_SA_PASSWORD=YourStrongPasswordHere
+MSSQL_DB=SocietyApp
+MSSQL_HOST=mssql
+MSSQL_PORT=1433
+MSSQL_USER=sa
+REDIS_URL=redis://redis:6379/0
+API_HOST=0.0.0.0
+API_PORT=8000
+JWT_SECRET_KEY=replace-this-with-a-long-random-secret
+VITE_API_BASE_URL=http://localhost:8000
+SMS_PROVIDER_MODE=simulated
+BULKSMSBD_API_KEY=
+BULKSMSBD_SENDER_ID=
+BULKSMSBD_BASE_URL=https://bulksmsbd.net/api/
+BULKSMSBD_TIMEOUT_SECONDS=15
+BULKSMSBD_ENABLED=false
+BULKSMSBD_DRY_RUN=true
+
+If other PCs on the same LAN will use the app:
+
+change this line:
+
+VITE_API_BASE_URL=http://SERVER_IP:8000
+
+Example:
+
+VITE_API_BASE_URL=http://192.168.0.50:8000
+
+
+5. Restore the database from the backup already stored in Git
+
+The backup is already inside the repo here:
+
+C:\deploy\makan-society\backups\SocietyApp_pre_client_cutover_20260508_151345.bak
+
+Run:
+
+powershell -ExecutionPolicy Bypass -File C:\deploy\makan-society\deployment\jenkins\restore-database.ps1 -BackupFile C:\deploy\makan-society\backups\SocietyApp_pre_client_cutover_20260508_151345.bak -SaPassword "YourStrongPasswordHere"
+
+Important:
+- Replace YourStrongPasswordHere with the same password you used in .env
+- This restore is needed only for first setup
+
+
+6. Start the application manually once
+
+Run:
+
+cd C:\deploy\makan-society
+docker compose -f docker-compose.deploy.yml up -d --build
+
+
+7. Check if all containers are running
+
+Run:
+
+docker compose -f C:\deploy\makan-society\docker-compose.deploy.yml ps
+
+
+8. Open the application in browser
+
+Frontend:
+
+http://localhost:5173
+
+API docs:
+
+http://localhost:8000/docs
+
+If using LAN from another PC:
+
+http://SERVER_IP:5173
+
+
+PART 2 - JENKINS PIPELINE SETUP
+===============================
+
+1. Open Jenkins in browser
+
+Usually:
+
+http://localhost:8080
+
+
+2. Create a new job
+
+- Click "New Item"
+- Give name:
+  makan-society-deploy
+- Choose:
+  Pipeline
+- Click OK
+
+
+3. Configure pipeline
+
+Under Pipeline section:
+
+- Definition:
+  Pipeline script from SCM
+
+- SCM:
+  Git
+
+- Repository URL:
+  https://github.com/pulok529/Makan_Society_ReactPython.git
+
+- Branch Specifier:
+  */main
+
+- Script Path:
+  Jenkinsfile
+
+Click Save
+
+
+4. Run first Jenkins build
+
+Click:
+
+Build Now
+
+What Jenkins will do:
+- pull source from GitHub
+- copy source into C:\deploy\makan-society
+- keep the .env file already on server
+- rebuild frontend, backend, worker
+- keep database data in Docker volume
+
+
+PART 3 - NORMAL PUBLISH FLOW
+============================
+
+From your own development PC:
+
+1. Make code changes
+2. Commit changes
+3. Push to GitHub
+
+Example:
+
+git add .
+git commit -m "Update feature"
+git push origin main
+
+Then on client PC:
+- Jenkins can be triggered manually by clicking Build Now
+- or later you can add GitHub webhook if you want auto deploy
+
+
+PART 4 - DAILY USEFUL COMMANDS ON CLIENT PC
+===========================================
+
+1. Check running containers
+
+docker compose -f C:\deploy\makan-society\docker-compose.deploy.yml ps
+
+
+2. Start application
+
+docker compose -f C:\deploy\makan-society\docker-compose.deploy.yml up -d --build
+
+
+3. Stop application
+
+docker compose -f C:\deploy\makan-society\docker-compose.deploy.yml down
+
+
+4. Restart application
+
+docker compose -f C:\deploy\makan-society\docker-compose.deploy.yml down
+docker compose -f C:\deploy\makan-society\docker-compose.deploy.yml up -d --build
+
+
+5. Pull latest code manually if needed
+
+cd C:\deploy\makan-society
+git pull origin main
+
+
+PART 5 - VERY IMPORTANT DATABASE RULES
+======================================
+
+The SQL Server database is stored in a Docker named volume:
+
+society_modern_mssql_data
+
+This means:
+- normal publish will keep data
+- normal restart will keep data
+- Jenkins publish will keep data
+
+DO NOT RUN THIS ON CLIENT PC:
+
+docker compose -f C:\deploy\makan-society\docker-compose.deploy.yml down -v
+
+Why:
+- the -v removes Docker volumes
+- that would delete the SQL Server data volume
+
+
+PART 6 - HOW TO TAKE BACKUP LATER
+=================================
+
+Recommended:
+- keep live DB in Docker volume
+- export .bak files regularly
+- store backup files outside Git
+
+Suggested folder:
+
+C:\deploy\backups
+
+
+PART 7 - IF SOMETHING FAILS
+===========================
+
+1. Check container status
+
+docker compose -f C:\deploy\makan-society\docker-compose.deploy.yml ps
+
+
+2. Check container logs
+
+docker logs society-modern-api
+docker logs society-modern-frontend
+docker logs society-modern-mssql
+docker logs society-modern-worker
+
+
+3. If Jenkins build fails, check:
+- Jenkins console output
+- whether Docker Desktop is running
+- whether C:\deploy\makan-society\.env exists
+- whether the MSSQL password in .env matches the restore command
+
+
+PART 8 - MINIMUM COMMAND SEQUENCE
+=================================
+
+If you want the shortest possible first-time sequence, run these in order:
+
+mkdir C:\deploy -Force
+cd C:\deploy
+git clone https://github.com/pulok529/Makan_Society_ReactPython.git makan-society
+Copy-Item C:\deploy\makan-society\.env.example C:\deploy\makan-society\.env
+
+Then edit:
+
+C:\deploy\makan-society\.env
+
+Then run:
+
+powershell -ExecutionPolicy Bypass -File C:\deploy\makan-society\deployment\jenkins\restore-database.ps1 -BackupFile C:\deploy\makan-society\backups\SocietyApp_pre_client_cutover_20260508_151345.bak -SaPassword "YourStrongPasswordHere"
+
+cd C:\deploy\makan-society
+docker compose -f docker-compose.deploy.yml up -d --build
+docker compose -f C:\deploy\makan-society\docker-compose.deploy.yml ps
+
+
+END

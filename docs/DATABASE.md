@@ -175,6 +175,17 @@ Migration applied status in the active local DB: confirmed through `20260520_01_
   - `python -m compileall backend/scripts/migration/prepare_client_cutover.py`: passed
 - Client-ready backup created:
   - `backups/SocietyApp_client_ready_20260520_224458.bak`
+- History-inclusive backup created and verified:
+  - `backups/SocietyApp_carryforward_20260520_232506.bak`
+  - verified with `RESTORE FILELISTONLY`
+- Live accounting verification after the carry-forward rebuild:
+  - `accounting.income_entries`: `417` rows totaling `1,036,200.00`
+  - `accounting.expense_entries`: `4` rows totaling `1,810.00`
+  - `accounting.accounting_vouchers`: `417` income vouchers totaling `1,036,200.00`, `1` expense voucher totaling `1,544.00`
+  - `accounting.accounting_voucher_details`: `417` rows totaling `1,036,200.00`
+  - `accounting.income_expense_entries`: `417` income rows, `4` expense rows
+  - restored legacy `dbo.tblIncomeAndExpense`: `0` active rows totaling `0.00`
+  - note: expense history was recovered from `InspectBackup_5` (restored from `SocietyApp_pre_client_cutover_20260508_151345.bak`), where expense records existed in `accounting.income_expense_entries` and expense vouchers, not in legacy `dbo.tblIncomeAndExpense`
 - Backup logical file names:
   - data: `BroadBandDB`
   - log: `BroadBandDB_log`

@@ -3,6 +3,7 @@ from app.modules.auth.models import Permission, RefreshToken, Role, RolePermissi
 from app.modules.billing.models import BillingDueTracker, BillingPeriod, Charge, ChargeItem, Receipt, ReceiptLine
 from app.modules.categories.models import MemberCategory
 from app.modules.files.models import FileLink, FileObject
+from app.modules.jobs.models import BackgroundJob
 from app.modules.members.models import Member, MemberNominee, MemberPackage, MemberStatusHistory
 from app.modules.messaging.models import SmsDeliveryAttempt, SmsMessage, SmsTemplate
 from app.modules.packages.models import Package, PackagePriceHistory
@@ -17,6 +18,7 @@ __all__ = [
     "FileLink",
     "FileObject",
     "GeneratedReport",
+    "BackgroundJob",
     "IncomeExpenseEntry",
     "Member",
     "MemberCategory",

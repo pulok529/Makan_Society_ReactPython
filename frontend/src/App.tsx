@@ -1,7 +1,31 @@
 import { ChangeEvent, FormEvent, ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { getSmsBalance, sendTestSms, SmsBalanceResult } from "./api/sms";
+import {
+  loadIncomeExpenseReport,
+  loadMemberInformationDetailReport,
+  loadMemberStatementReport,
+  loadPagedTableReport,
+  loadReceiptDetailReport,
+} from "./features/reports/api";
+import {
+  IncomeExpenseComparisonReport,
+  MemberInformationDetailReport,
+  PagedReportEnvelope,
+  ReportEnvelope,
+  ReceiptDetailReport,
+  SingleMemberStatementReport,
+  TABLE_REPORT_TYPES,
+  TableReportType,
+} from "./features/reports/types";
+import { apiBaseUrl, apiRequest, settleRequest } from "./shared/api/client";
+import { createBulkSmsJob, createReportExportJob } from "./shared/api/jobs";
+import { AsyncSearchableDropdown } from "./shared/components/AsyncSearchableDropdown";
+import { SearchableDropdown } from "./shared/components/SearchableDropdown";
+import { useJobStatus } from "./shared/hooks/useJobStatus";
+import { useDebouncedValue } from "./shared/hooks/useDebouncedValue";
+import { PaginatedResponse } from "./shared/types/pagination";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 const accessTokenKey = "society-modern-access-token";
 const refreshTokenKey = "society-modern-refresh-token";
 const assetBase = "/layout-template/assets";
@@ -50,6 +74,17 @@ type MemberListItem = {
   category_id: number | null;
   category_name: string | null;
   joined_on: string | null;
+  is_active: boolean;
+};
+
+type MemberSearchItem = {
+  id: number;
+  member_code: string;
+  full_name: string;
+  plot_no: string | null;
+  plot_count: number;
+  cell_no: string | null;
+  category_name: string | null;
   is_active: boolean;
 };
 
@@ -380,77 +415,6 @@ type IncomeTransferPendingItem = {
   period_display: string | null;
 };
 
-type IncomeExpenseComparisonReport = {
-  from_date: string | null;
-  to_date: string | null;
-  income: { rows: Record<string, string | number | null>[]; subtotal: number };
-  expense: { rows: Record<string, string | number | null>[]; subtotal: number };
-  net_amount: number;
-};
-
-type ReportEnvelope = {
-  report_type: string;
-  title: string;
-  generated_at: string;
-  row_count: number;
-  totals: Record<string, number | string>;
-  applied_filters: Record<string, string>;
-  rows: Record<string, unknown>[];
-};
-
-type SingleMemberStatementReport = {
-  member_id: number;
-  member_code: string;
-  member_name: string;
-  plot_no: string | null;
-  total_bill: number;
-  paid_amount: number;
-  due_amount: number;
-  applied_filters: Record<string, string>;
-  due_history: {
-    head_name: string;
-    period_display: string | null;
-    total_bill: number;
-    paid_amount: number;
-    due_amount: number;
-  }[];
-  payment_history: {
-    receipt_no: string;
-    payment_date: string;
-    amount: number;
-    discount_amount: number;
-    notes: string | null;
-  }[];
-};
-
-type MemberInformationDetailReport = {
-  member_id: number;
-  applied_filters: Record<string, string>;
-  member_info: MemberInformationSummary;
-  payment_history: SingleMemberStatementReport["payment_history"];
-  due_history: SingleMemberStatementReport["due_history"];
-  sms_history: {
-    created_at: string;
-    recipient: string;
-    template_name: string | null;
-    message_body: string;
-    status: string;
-  }[];
-};
-
-type ReceiptDetailReport = {
-  receipt_id: number;
-  receipt_no: string;
-  payment_date: string;
-  member_name: string | null;
-  member_code: string | null;
-  subtotal_amount: number;
-  discount_amount: number;
-  total_amount: number;
-  applied_filters: Record<string, string>;
-  lines: { line_type: string; amount: number; charge_id: number | null }[];
-};
-
 type SmsTemplate = {
   id: number;
   name: string;
@@ -480,6 +444,10 @@ type SmsAttempt = {
   error_detail: string | null;
   attempted_at: string;
 };
+
+type SmsMessagePage = PaginatedResponse<SmsMessage>;
+type SmsAttemptPage = PaginatedResponse<SmsAttempt>;
+type MemberPage = PaginatedResponse<MemberListItem>;
 
 type SmsIntegrationStatus = {
   provider_mode: string;
@@ -589,37 +557,6 @@ async function fetchProfile(accessToken: string): Promise<UserProfile> {
   }
 
   return response.json();
-}
-
-async function apiRequest<T>(path: string, accessToken: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-      ...(init?.headers ?? {}),
-    },
-  });
-
-  if (!response.ok) {
-    const payload = await response.json().catch(() => null);
-    throw new Error(payload?.detail ?? "Request failed");
-  }
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return response.json() as Promise<T>;
-}
-
-async function settleRequest<T>(path: string, accessToken: string, init?: RequestInit) {
-  try {
-    const value = await apiRequest<T>(path, accessToken, init);
-    return { ok: true as const, value };
-  } catch (error) {
-    return { ok: false as const, error };
-  }
 }
 
 function getJQuery() {
@@ -837,90 +774,6 @@ function EmptyState({ label }: { label: string }) {
   );
 }
 
-function SearchableDropdown({
-  label,
-  placeholder,
-  options,
-  value,
-  search,
-  isOpen,
-  onSearchChange,
-  onOpenChange,
-  onChange,
-}: {
-  label: string;
-  placeholder: string;
-  options: { value: string; label: string; meta?: string }[];
-  value: string;
-  search: string;
-  isOpen: boolean;
-  onSearchChange: (value: string) => void;
-  onOpenChange: (value: boolean) => void;
-  onChange: (value: string) => void;
-}) {
-  const selected = options.find((option) => option.value === value);
-  const filtered = options.filter((option) => {
-    const needle = search.trim().toLowerCase();
-    if (!needle) return true;
-    return `${option.label} ${option.meta ?? ""}`.toLowerCase().includes(needle);
-  });
-
-  return (
-    <div className="position-relative">
-      <label className="form-label">{label}</label>
-      <div className={`dropdown ${isOpen ? "show" : ""}`}>
-        <div className="input-group">
-          <span className="input-group-text">
-            <i className="ri-search-line" />
-          </span>
-          <input
-            className="form-control"
-            onBlur={() => window.setTimeout(() => onOpenChange(false), 150)}
-            onChange={(event) => {
-              onSearchChange(event.target.value);
-              onOpenChange(true);
-            }}
-            onFocus={() => onOpenChange(true)}
-            placeholder={selected ? selected.label : placeholder}
-            value={isOpen ? search : selected?.label ?? search}
-          />
-          {value ? (
-            <button
-              className="btn btn-light"
-              onClick={() => {
-                onChange("");
-                onSearchChange("");
-              }}
-              type="button"
-            >
-              <i className="ri-close-line" />
-            </button>
-          ) : null}
-        </div>
-        <div className={`dropdown-menu w-100 ${isOpen ? "show" : ""}`} style={{ maxHeight: "260px", overflowY: "auto" }}>
-          {filtered.map((option) => (
-            <button
-              className={option.value === value ? "dropdown-item active" : "dropdown-item"}
-              key={option.value}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                onChange(option.value);
-                onSearchChange("");
-                onOpenChange(false);
-              }}
-              type="button"
-            >
-              <span className="d-block fw-semibold">{option.label}</span>
-              {option.meta ? <span className="d-block fs-12 opacity-75">{option.meta}</span> : null}
-            </button>
-          ))}
-          {filtered.length === 0 ? <span className="dropdown-item text-muted">No results found</span> : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function App() {
   const defaultMonthRange = currentMonthRange();
   const [authState, setAuthState] = useState<AuthState>("checking");
@@ -936,6 +789,7 @@ export function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(false);
   const [isDashboardReady, setIsDashboardReady] = useState(false);
+  const [memberTotalCount, setMemberTotalCount] = useState(0);
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
@@ -959,6 +813,7 @@ export function App() {
   const [accountingSummary, setAccountingSummary] = useState<AccountingSummary | null>(null);
   const [incomeExpenseReport, setIncomeExpenseReport] = useState<IncomeExpenseComparisonReport | null>(null);
   const [currentReport, setCurrentReport] = useState<ReportEnvelope | null>(null);
+  const [currentPagedReport, setCurrentPagedReport] = useState<PagedReportEnvelope | null>(null);
   const [reportViewerPage, setReportViewerPage] = useState(1);
   const [receiptReport, setReceiptReport] = useState<ReceiptDetailReport | null>(null);
   const [memberStatementReport, setMemberStatementReport] = useState<SingleMemberStatementReport | null>(null);
@@ -1096,6 +951,7 @@ export function App() {
   const [smsCategoryFilterId, setSmsCategoryFilterId] = useState("");
   const [smsRecipientSearch, setSmsRecipientSearch] = useState("");
   const [smsSelectedMemberIds, setSmsSelectedMemberIds] = useState<number[]>([]);
+  const [smsSelectedMembersData, setSmsSelectedMembersData] = useState<MemberListItem[]>([]);
   const [smsBulkProgress, setSmsBulkProgress] = useState<{
     running: boolean;
     total: number;
@@ -1114,6 +970,12 @@ export function App() {
   const [smsBulkProgressRows, setSmsBulkProgressRows] = useState<
     { memberId: number; name: string; phone: string; status: "sent" | "failed"; message: string }[]
   >([]);
+  const [smsMessageSearch, setSmsMessageSearch] = useState("");
+  const [smsAttemptSearch, setSmsAttemptSearch] = useState("");
+  const [smsMessageOffset, setSmsMessageOffset] = useState(0);
+  const [smsAttemptOffset, setSmsAttemptOffset] = useState(0);
+  const [activeJobId, setActiveJobId] = useState<number | null>(null);
+  const [activeJobLabel, setActiveJobLabel] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [displayEmail, setDisplayEmail] = useState("");
   const [displayPhone, setDisplayPhone] = useState("+8801700000000");
@@ -1197,41 +1059,9 @@ export function App() {
     () => smsTemplates.find((template) => template.id === Number(smsSelectedTemplateId)) ?? null,
     [smsSelectedTemplateId, smsTemplates],
   );
-  const smsEligibleMembers = useMemo(() => {
-    const base = members.filter((member) => (member.cell_no ?? "").replace(/\D/g, "").length >= 11);
-    return base.filter((member) => {
-      if (smsCategoryFilterId && String(member.category_id ?? "") !== smsCategoryFilterId) {
-        return false;
-      }
-      if (smsTargetMode === "due") {
-        return (dueByMemberId.get(member.id)?.total_due ?? 0) > 0;
-      }
-      if (smsTargetMode === "single") {
-        return smsMemberId ? member.id === Number(smsMemberId) : false;
-      }
-      return true;
-    });
-  }, [dueByMemberId, members, smsCategoryFilterId, smsMemberId, smsTargetMode]);
-  const smsFilteredMembers = useMemo(() => {
-    const search = smsRecipientSearch.trim().toLowerCase();
-    if (!search) return smsEligibleMembers;
-    return smsEligibleMembers.filter((member) => {
-      const haystack = `${member.full_name} ${member.member_code} ${member.cell_no ?? ""}`.toLowerCase();
-      return haystack.includes(search);
-    });
-  }, [smsEligibleMembers, smsRecipientSearch]);
   const smsSelectedMembers = useMemo(
-    () => members.filter((member) => smsSelectedMemberIds.includes(member.id)),
-    [members, smsSelectedMemberIds],
-  );
-  const memberDropdownOptions = useMemo(
-    () =>
-      members.map((member) => ({
-        value: String(member.id),
-        label: `${member.member_code} - ${member.full_name}`,
-        meta: [member.plot_no ? `Plot ${member.plot_no}` : null, `Plots ${member.plot_count ?? 1}`, member.cell_no, member.category_name].filter(Boolean).join(" | "),
-      })),
-    [members],
+    () => smsSelectedMembersData.filter((member) => smsSelectedMemberIds.includes(member.id)),
+    [smsSelectedMemberIds, smsSelectedMembersData],
   );
   const memberClassOptions = useMemo(() => {
     const values = new Set<string>(["General", "Owner", "Tenant"]);
@@ -1268,14 +1098,6 @@ export function App() {
     () => billingSelectedLines.reduce((sum, item) => sum + Math.max(Number(item.line.due_amount) - item.receive, 0), 0),
     [billingSelectedLines],
   );
-  const lastGeneratedMember = useMemo(
-    () => members.find((member) => member.id === lastGeneratedInvoice?.member_id),
-    [lastGeneratedInvoice, members],
-  );
-  const selectedInvoiceMember = useMemo(
-    () => members.find((member) => member.id === Number(invoiceMemberId)),
-    [invoiceMemberId, members],
-  );
   const todayKey = new Date().toISOString().slice(0, 10);
   const todayInvoices = useMemo(() => billingInvoices.filter((invoice) => invoice.invoice_date === todayKey && !invoice.is_cancelled), [billingInvoices, todayKey]);
   const todayCollectionAmount = useMemo(() => todayInvoices.reduce((sum, invoice) => sum + Number(invoice.total_receive_amount || 0), 0), [todayInvoices]);
@@ -1292,6 +1114,194 @@ export function App() {
     if (reportPlotNo.trim()) params.set("plot_no", reportPlotNo.trim());
     return params.toString();
   }, [reportCategoryId, reportFromDate, reportMemberId, reportPeriodId, reportPlotNo, reportToDate]);
+  const currentAccessToken = authState === "authenticated" ? token() : null;
+  const debouncedInvoiceMemberSearch = useDebouncedValue(invoiceMemberSearch, 300);
+  const debouncedReportMemberSearch = useDebouncedValue(reportMemberSearch, 300);
+  const debouncedSmsMemberSearch = useDebouncedValue(smsMemberSearch, 300);
+  const debouncedSmsRecipientSearch = useDebouncedValue(smsRecipientSearch, 300);
+  const debouncedSmsMessageSearch = useDebouncedValue(smsMessageSearch, 300);
+  const debouncedSmsAttemptSearch = useDebouncedValue(smsAttemptSearch, 300);
+
+  const categoriesQuery = useQuery({
+    queryKey: ["categories"],
+    enabled: !!currentAccessToken,
+    queryFn: () => apiRequest<Category[]>("/api/categories", currentAccessToken!),
+    staleTime: 5 * 60_000,
+  });
+  const packagesQuery = useQuery({
+    queryKey: ["packages"],
+    enabled: !!currentAccessToken,
+    queryFn: () => apiRequest<Package[]>("/api/packages", currentAccessToken!),
+    staleTime: 5 * 60_000,
+  });
+  const periodsQuery = useQuery({
+    queryKey: ["billing-periods"],
+    enabled: !!currentAccessToken,
+    queryFn: () => apiRequest<BillingPeriod[]>("/api/billing/periods", currentAccessToken!),
+    staleTime: 5 * 60_000,
+  });
+  const accountsQuery = useQuery({
+    queryKey: ["accounts"],
+    enabled: !!currentAccessToken,
+    queryFn: () => apiRequest<Account[]>("/api/accounting/accounts", currentAccessToken!),
+    staleTime: 5 * 60_000,
+  });
+  const billingHeadsQuery = useQuery({
+    queryKey: ["billing-heads"],
+    enabled: !!currentAccessToken,
+    queryFn: () => apiRequest<BillingHead[]>("/api/billing/heads", currentAccessToken!),
+    staleTime: 5 * 60_000,
+  });
+  const billingMappingsQuery = useQuery({
+    queryKey: ["billing-head-mappings"],
+    enabled: !!currentAccessToken,
+    queryFn: () => apiRequest<BillingHeadMapping[]>("/api/billing/head-mappings", currentAccessToken!),
+    staleTime: 5 * 60_000,
+  });
+  const dashboardQuery = useQuery({
+    queryKey: ["billing-dashboard"],
+    enabled: !!currentAccessToken,
+    queryFn: () => apiRequest<BillingDashboard>("/api/billing/dashboard", currentAccessToken!),
+  });
+  const dueSummariesQuery = useQuery({
+    queryKey: ["billing-due-summaries"],
+    enabled: !!currentAccessToken,
+    queryFn: () => apiRequest<BillingMemberSummary[]>("/api/billing/member-due-summary", currentAccessToken!),
+  });
+  const memberPreviewQuery = useQuery({
+    queryKey: ["members", "preview"],
+    enabled: !!currentAccessToken,
+    queryFn: () => apiRequest<MemberPage>("/api/members/paged?limit=6&offset=0", currentAccessToken!),
+  });
+  const activeMemberCountQuery = useQuery({
+    queryKey: ["members", "active-count"],
+    enabled: !!currentAccessToken,
+    queryFn: () => apiRequest<MemberPage>("/api/members/paged?limit=1&offset=0&is_active=true", currentAccessToken!),
+  });
+  const smsTemplatesQuery = useQuery({
+    queryKey: ["sms-templates"],
+    enabled: !!currentAccessToken,
+    queryFn: () => apiRequest<SmsTemplate[]>("/api/messaging/templates", currentAccessToken!),
+    staleTime: 5 * 60_000,
+  });
+  const smsStatusQuery = useQuery({
+    queryKey: ["sms-status"],
+    enabled: !!currentAccessToken,
+    queryFn: () => apiRequest<SmsIntegrationStatus>("/api/messaging/status", currentAccessToken!),
+  });
+  const invoiceMemberOptionsQuery = useQuery({
+    queryKey: ["members", "search", "invoice", debouncedInvoiceMemberSearch],
+    enabled: !!currentAccessToken && debouncedInvoiceMemberSearch.trim().length >= 2,
+    queryFn: () =>
+      apiRequest<MemberSearchItem[]>(
+        `/api/members/search?q=${encodeURIComponent(debouncedInvoiceMemberSearch.trim())}&limit=20`,
+        currentAccessToken!,
+      ),
+  });
+  const reportMemberOptionsQuery = useQuery({
+    queryKey: ["members", "search", "report", debouncedReportMemberSearch],
+    enabled: !!currentAccessToken && debouncedReportMemberSearch.trim().length >= 2,
+    queryFn: () =>
+      apiRequest<MemberSearchItem[]>(
+        `/api/members/search?q=${encodeURIComponent(debouncedReportMemberSearch.trim())}&limit=20`,
+        currentAccessToken!,
+      ),
+  });
+  const smsMemberOptionsQuery = useQuery({
+    queryKey: ["members", "search", "sms-single", debouncedSmsMemberSearch],
+    enabled: !!currentAccessToken && debouncedSmsMemberSearch.trim().length >= 2,
+    queryFn: () =>
+      apiRequest<MemberSearchItem[]>(
+        `/api/members/search?q=${encodeURIComponent(debouncedSmsMemberSearch.trim())}&limit=20&has_phone=true`,
+        currentAccessToken!,
+      ),
+  });
+  const smsRecipientMembersQuery = useQuery({
+    queryKey: ["members", "paged-sms", smsTargetMode, smsCategoryFilterId, debouncedSmsRecipientSearch],
+    enabled: !!currentAccessToken,
+    queryFn: () => {
+      const params = new URLSearchParams({
+        limit: "50",
+        offset: "0",
+        has_phone: "true",
+      });
+      if (debouncedSmsRecipientSearch.trim()) params.set("search", debouncedSmsRecipientSearch.trim());
+      if (smsCategoryFilterId) params.set("category_id", smsCategoryFilterId);
+      if (smsTargetMode === "due") params.set("due_only", "true");
+      return apiRequest<MemberPage>(`/api/members/paged?${params.toString()}`, currentAccessToken!);
+    },
+  });
+  const smsMessagesQuery = useQuery({
+    queryKey: ["sms-messages", debouncedSmsMessageSearch, smsMessageOffset],
+    enabled: !!currentAccessToken,
+    queryFn: () =>
+      apiRequest<SmsMessagePage>(
+        `/api/messaging/messages/paged?limit=8&offset=${smsMessageOffset}&search=${encodeURIComponent(debouncedSmsMessageSearch.trim())}`,
+        currentAccessToken!,
+      ),
+  });
+  const smsAttemptsQuery = useQuery({
+    queryKey: ["sms-attempts", debouncedSmsAttemptSearch, smsAttemptOffset],
+    enabled: !!currentAccessToken,
+    queryFn: () =>
+      apiRequest<SmsAttemptPage>(
+        `/api/messaging/attempts/paged?limit=8&offset=${smsAttemptOffset}&search=${encodeURIComponent(debouncedSmsAttemptSearch.trim())}`,
+        currentAccessToken!,
+      ),
+  });
+  const selectedInvoiceMemberQuery = useQuery({
+    queryKey: ["member-detail", "invoice", invoiceMemberId],
+    enabled: !!currentAccessToken && !!invoiceMemberId,
+    queryFn: () => apiRequest<MemberDetail>(`/api/members/${invoiceMemberId}`, currentAccessToken!),
+  });
+  const lastGeneratedMemberQuery = useQuery({
+    queryKey: ["member-detail", "last-generated", lastGeneratedInvoice?.member_id],
+    enabled: !!currentAccessToken && !!lastGeneratedInvoice?.member_id,
+    queryFn: () => apiRequest<MemberDetail>(`/api/members/${lastGeneratedInvoice!.member_id}`, currentAccessToken!),
+  });
+  const smsSingleMemberQuery = useQuery({
+    queryKey: ["member-detail", "sms-single", smsMemberId],
+    enabled: !!currentAccessToken && !!smsMemberId,
+    queryFn: () => apiRequest<MemberDetail>(`/api/members/${smsMemberId}`, currentAccessToken!),
+  });
+  const memberDropdownOptions = useMemo(
+    () =>
+      (invoiceMemberOptionsQuery.data ?? []).map((member) => ({
+        value: String(member.id),
+        label: `${member.member_code} - ${member.full_name}`,
+        meta: [member.plot_no ? `Plot ${member.plot_no}` : null, `Plots ${member.plot_count ?? 1}`, member.cell_no, member.category_name].filter(Boolean).join(" | "),
+      })),
+    [invoiceMemberOptionsQuery.data],
+  );
+  const reportMemberOptions = useMemo(
+    () =>
+      (reportMemberOptionsQuery.data ?? []).map((member) => ({
+        value: String(member.id),
+        label: `${member.member_code} - ${member.full_name}`,
+        meta: `${member.plot_no ? `Plot ${member.plot_no} | ` : ""}${member.cell_no ?? "No phone"}${member.category_name ? ` | ${member.category_name}` : ""}`,
+      })),
+    [reportMemberOptionsQuery.data],
+  );
+  const memberOptions = useMemo(
+    () =>
+      (smsMemberOptionsQuery.data ?? []).map((member) => ({
+        value: String(member.id),
+        label: `${member.member_code} - ${member.full_name}`,
+        meta: `${member.plot_no ? `Plot ${member.plot_no} | ` : ""}${member.cell_no ?? "No phone"}${member.category_name ? ` | ${member.category_name}` : ""}`,
+      })),
+    [smsMemberOptionsQuery.data],
+  );
+  const smsEligibleMembers = useMemo(() => {
+    const base = smsRecipientMembersQuery.data?.items ?? [];
+    if (smsTargetMode === "single") {
+      return smsSelectedMembersData.filter((member) => member.id === Number(smsMemberId));
+    }
+    return base;
+  }, [smsMemberId, smsRecipientMembersQuery.data?.items, smsSelectedMembersData, smsTargetMode]);
+  const smsFilteredMembers = smsEligibleMembers;
+  const selectedInvoiceMember = selectedInvoiceMemberQuery.data ?? null;
+  const lastGeneratedMember = lastGeneratedMemberQuery.data ?? null;
+  const activeJobStatus = useJobStatus(activeJobId, currentAccessToken, !!activeJobId);
 
   const monthlyCollection = useMemo(() => {
     const totals = new Array(12).fill(0) as number[];
@@ -1309,16 +1319,6 @@ export function App() {
     });
     return totals;
   }, [expenseEntries]);
-  const memberOptions = useMemo(
-    () =>
-      members.map((member) => ({
-        value: String(member.id),
-        label: `${member.member_code} - ${member.full_name}`,
-        meta: `${member.plot_no ? `Plot ${member.plot_no} | ` : ""}${member.cell_no ?? "No phone"}${member.category_name ? ` | ${member.category_name}` : ""}`,
-      })),
-    [members],
-  );
-
   const manualBillingHeadOptions = useMemo(
     () =>
       billingHeads.filter(
@@ -1361,6 +1361,112 @@ export function App() {
   }, [profile]);
 
   useEffect(() => {
+    if (categoriesQuery.data) setCategories(categoriesQuery.data);
+  }, [categoriesQuery.data]);
+
+  useEffect(() => {
+    if (packagesQuery.data) setPackages(packagesQuery.data);
+  }, [packagesQuery.data]);
+
+  useEffect(() => {
+    if (periodsQuery.data) setBillingPeriods(periodsQuery.data);
+  }, [periodsQuery.data]);
+
+  useEffect(() => {
+    if (accountsQuery.data) setAccounts(accountsQuery.data);
+  }, [accountsQuery.data]);
+
+  useEffect(() => {
+    if (billingHeadsQuery.data) setBillingHeads(billingHeadsQuery.data);
+  }, [billingHeadsQuery.data]);
+
+  useEffect(() => {
+    if (billingMappingsQuery.data) setBillingHeadMappings(billingMappingsQuery.data);
+  }, [billingMappingsQuery.data]);
+
+  useEffect(() => {
+    if (dashboardQuery.data) setBillingDashboard(dashboardQuery.data);
+  }, [dashboardQuery.data]);
+
+  useEffect(() => {
+    if (dueSummariesQuery.data) setMemberDueSummaries(dueSummariesQuery.data);
+  }, [dueSummariesQuery.data]);
+
+  useEffect(() => {
+    if (!memberPreviewQuery.data) return;
+    setMembers(memberPreviewQuery.data.items);
+    setMemberTotalCount(memberPreviewQuery.data.total);
+  }, [memberPreviewQuery.data]);
+
+  useEffect(() => {
+    if (smsTemplatesQuery.data) setSmsTemplates(smsTemplatesQuery.data);
+  }, [smsTemplatesQuery.data]);
+
+  useEffect(() => {
+    if (smsStatusQuery.data) {
+      setSmsIntegrationStatus(smsStatusQuery.data);
+      setSmsProviderCheck(
+        smsStatusQuery.data.provider_check_ok == null
+          ? null
+          : {
+              provider_name: smsStatusQuery.data.provider_name,
+              provider_configured: smsStatusQuery.data.provider_configured,
+              ok: smsStatusQuery.data.provider_check_ok,
+              status_code: null,
+              message: smsStatusQuery.data.provider_check_message ?? "Provider status available.",
+              response_sample: null,
+            },
+      );
+    }
+  }, [smsStatusQuery.data]);
+
+  useEffect(() => {
+    if (smsMessagesQuery.data) setSmsMessages(smsMessagesQuery.data.items);
+  }, [smsMessagesQuery.data]);
+
+  useEffect(() => {
+    if (smsAttemptsQuery.data) setSmsAttempts(smsAttemptsQuery.data.items);
+  }, [smsAttemptsQuery.data]);
+
+  useEffect(() => {
+    const job = activeJobStatus.data;
+    if (!job) return;
+    if (job.job_type === "bulk_sms") {
+      setSmsBulkProgress((current) => ({
+        ...current,
+        running: job.status === "pending" || job.status === "running",
+        total: job.progress_total || current.total,
+        completed: job.progress_current || current.completed,
+        currentRecipient: job.result_summary ?? current.currentRecipient,
+      }));
+    }
+    if (job.status === "completed") {
+      setMessage(`${activeJobLabel || "Background job"} completed.`);
+      if (job.output_filename) {
+        void downloadAuthenticatedFile(`/api/jobs/${job.id}/download`, job.output_filename);
+      }
+      setActiveJobId(null);
+      setActiveJobLabel("");
+      if (job.job_type === "bulk_sms") {
+        setSmsBulkProgress((current) => ({ ...current, running: false, completed: current.total }));
+        void refreshMessagingWorkspace();
+      }
+      return;
+    }
+    if (job.status === "failed") {
+      setMessage(`${activeJobLabel || "Background job"} failed: ${job.result_summary ?? "Unknown error"}`);
+      if (job.job_type === "bulk_sms") {
+        setSmsBulkProgress((current) => ({ ...current, running: false }));
+      }
+      setActiveJobId(null);
+      setActiveJobLabel("");
+      return;
+    }
+    const total = job.progress_total > 0 ? `${job.progress_current}/${job.progress_total}` : "Queued";
+    setMessage(`${activeJobLabel || "Background job"} is running. ${total}`);
+  }, [activeJobLabel, activeJobStatus.data]);
+
+  useEffect(() => {
     const root = document.documentElement;
     root.setAttribute("data-bs-theme", themeMode);
     root.setAttribute("data-layout-mode", layoutMode);
@@ -1380,21 +1486,131 @@ export function App() {
   }, [smsEligibleMembers, smsMemberId, smsTargetMode]);
 
   useEffect(() => {
+    const next = new Map<number, MemberListItem>();
+    smsSelectedMembersData.forEach((member) => next.set(member.id, member));
+    (smsRecipientMembersQuery.data?.items ?? []).forEach((member) => {
+      if (smsSelectedMemberIds.includes(member.id)) next.set(member.id, member);
+    });
+    if (smsSingleMemberQuery.data && smsSelectedMemberIds.includes(smsSingleMemberQuery.data.id)) {
+      next.set(smsSingleMemberQuery.data.id, {
+        id: smsSingleMemberQuery.data.id,
+        member_code: smsSingleMemberQuery.data.member_code,
+        full_name: smsSingleMemberQuery.data.full_name,
+        plot_no: smsSingleMemberQuery.data.plot_no,
+        plot_count: smsSingleMemberQuery.data.plot_count,
+        cell_no: smsSingleMemberQuery.data.cell_no,
+        category_id: smsSingleMemberQuery.data.category_id,
+        category_name: smsSingleMemberQuery.data.category_name,
+        joined_on: smsSingleMemberQuery.data.joined_on,
+        is_active: smsSingleMemberQuery.data.is_active,
+      });
+    }
+    const filtered = Array.from(next.values()).filter((member) => smsSelectedMemberIds.includes(member.id));
+    setSmsSelectedMembersData(filtered);
+  }, [smsRecipientMembersQuery.data?.items, smsSelectedMemberIds, smsSingleMemberQuery.data]);
+
+  useEffect(() => {
     if (workspaceTab !== "members") return;
     const tableElement = memberTableRef.current;
     const jq = getJQuery();
     if (!tableElement || !jq?.fn?.DataTable) return;
+    const clickHandler = (event: Event) => {
+      const target = event.target as HTMLElement;
+      const actionButton = target.closest<HTMLButtonElement>("button[data-member-action]");
+      if (!actionButton) return;
+      const memberId = Number(actionButton.dataset.memberId || 0);
+      if (!memberId) return;
+      if (actionButton.dataset.memberAction === "edit") {
+        const member =
+          memberPreviewQuery.data?.items.find((item) => item.id === memberId) ??
+          smsSelectedMembersData.find((item) => item.id === memberId) ??
+          null;
+        if (member) {
+          void startMemberEntry(member);
+        } else {
+          void (async () => {
+            const accessToken = token();
+            if (!accessToken) return;
+            const detail = await apiRequest<MemberDetail>(`/api/members/${memberId}`, accessToken);
+            await startMemberEntry({
+              id: detail.id,
+              member_code: detail.member_code,
+              full_name: detail.full_name,
+              plot_no: detail.plot_no,
+              plot_count: detail.plot_count,
+              cell_no: detail.cell_no,
+              category_id: detail.category_id,
+              category_name: detail.category_name,
+              joined_on: detail.joined_on,
+              is_active: detail.is_active,
+            });
+          })();
+        }
+      } else {
+        void handleMemberSelect(memberId);
+      }
+    };
+    tableElement.addEventListener("click", clickHandler);
 
     const timer = window.setTimeout(() => {
       try {
         jq(tableElement).DataTable({
           destroy: true,
+          processing: true,
+          serverSide: true,
           pageLength: 25,
-          lengthMenu: [10, 25, 50, 100],
+          searchDelay: 300,
+          lengthMenu: [25, 50, 100, 200],
           lengthChange: true,
-          searching: true,
-          ordering: true,
           autoWidth: false,
+          ajax: async (request: any, callback: (payload: any) => void) => {
+            const accessToken = token();
+            if (!accessToken) {
+              callback({ draw: request.draw ?? 1, recordsTotal: 0, recordsFiltered: 0, data: [] });
+              return;
+            }
+            const limit = request.length ?? 25;
+            const offset = request.start ?? 0;
+            const search = request.search?.value?.trim() ?? "";
+            const payload = await apiRequest<MemberPage>(
+              `/api/members/paged?limit=${limit}&offset=${offset}&search=${encodeURIComponent(search)}`,
+              accessToken,
+            );
+            setMemberTotalCount(payload.total);
+            callback({
+              draw: request.draw ?? 1,
+              recordsTotal: payload.total,
+              recordsFiltered: payload.total,
+              data: payload.items,
+            });
+          },
+          columns: [
+            { data: "member_code" },
+            { data: "full_name" },
+            { data: "plot_no", render: (value: string | null) => value ?? "N/A" },
+            { data: "plot_count" },
+            { data: "cell_no", render: (value: string | null) => value ?? "N/A" },
+            { data: "category_name", render: (value: string | null) => value ?? "N/A" },
+            {
+              data: "is_active",
+              render: (value: boolean) =>
+                value
+                  ? '<span class="badge bg-success-subtle text-success">Active</span>'
+                  : '<span class="badge bg-danger-subtle text-danger">Inactive</span>',
+            },
+            {
+              data: null,
+              orderable: false,
+              searchable: false,
+              className: "text-end",
+              render: (_: unknown, __: unknown, row: MemberListItem) =>
+                `<div class="d-inline-flex gap-1">
+                  <button class="btn btn-sm btn-soft-secondary" type="button" data-member-action="view" data-member-id="${row.id}">View</button>
+                  <button class="btn btn-sm btn-soft-info" type="button" data-member-action="edit" data-member-id="${row.id}">Edit</button>
+                </div>`,
+            },
+          ],
+          order: [[0, "asc"]],
           language: {
             paginate: {
               previous: "<i class='ri-arrow-left-s-line'>",
@@ -1412,6 +1628,7 @@ export function App() {
 
     return () => {
       window.clearTimeout(timer);
+      tableElement.removeEventListener("click", clickHandler);
       try {
         if (tableElement && jq?.fn?.DataTable && jq.fn.DataTable.isDataTable(tableElement)) {
           jq(tableElement).DataTable().destroy();
@@ -1420,7 +1637,7 @@ export function App() {
         // Ignore teardown errors during tab switches.
       }
     };
-  }, [members, workspaceTab]);
+  }, [workspaceTab]);
 
   useEffect(() => {
     if (workspaceTab !== "billing-registers") return;
@@ -1758,17 +1975,36 @@ export function App() {
     if (reportType !== "member-statement" && reportType !== "member-information-detail") {
       setReportMemberDropdownOpen(false);
       setReportMemberSearch("");
-      return;
     }
-    if (members.length > 0) return;
+  }, [reportType]);
+
+  useEffect(() => {
+    if (!showReportViewer || !currentPagedReport || !TABLE_REPORT_TYPES.has(reportType as TableReportType)) return;
+    const currentPage = Math.max(1, Math.floor(currentPagedReport.offset / Math.max(currentPagedReport.limit, 1)) + 1);
+    if (currentPage === reportViewerPage) return;
     const accessToken = token();
     if (!accessToken) return;
-    apiRequest<MemberListItem[]>("/api/members", accessToken)
-      .then((nextMembers) => setMembers(nextMembers))
-      .catch(() => {
-        setMessage("Unable to load members for the report.");
+
+    let cancelled = false;
+    setIsSubmitting(true);
+    void loadPagedTableReport(accessToken, reportType as TableReportType, reportQueryString, {
+      limit: currentPagedReport.limit,
+      offset: Math.max(reportViewerPage - 1, 0) * currentPagedReport.limit,
+    })
+      .then((payload) => {
+        if (!cancelled) setCurrentPagedReport(payload);
+      })
+      .catch((error) => {
+        if (!cancelled) setMessage(error instanceof Error ? error.message : "Unable to load report page");
+      })
+      .finally(() => {
+        if (!cancelled) setIsSubmitting(false);
       });
-  }, [members.length, reportType]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPagedReport, reportQueryString, reportType, reportViewerPage, showReportViewer]);
 
   useEffect(() => {
     setSmsMessageBody(selectedSmsTemplate?.body ?? "");
@@ -1793,33 +2029,14 @@ export function App() {
       setMessageTone("info");
     }
     try {
-      const [
-        categoriesResult,
-        packagesResult,
-        membersResult,
-        receiptsResult,
-        dashboardResult,
-        dueSummariesResult,
-        summaryResult,
-      ] = await Promise.all([
-        settleRequest<Category[]>("/api/categories", accessToken),
-        settleRequest<Package[]>("/api/packages", accessToken),
-        settleRequest<MemberListItem[]>("/api/members", accessToken),
+      const [receiptsResult, summaryResult] = await Promise.all([
         settleRequest<Receipt[]>(`/api/billing/receipts?${receiptRange}`, accessToken),
-        settleRequest<BillingDashboard>("/api/billing/dashboard", accessToken),
-        settleRequest<BillingMemberSummary[]>("/api/billing/member-due-summary", accessToken),
         settleRequest<AccountingSummary>("/api/accounting/summary", accessToken),
       ]);
 
-      if (categoriesResult.ok) setCategories(categoriesResult.value);
-      if (packagesResult.ok) setPackages(packagesResult.value);
-      if (membersResult.ok) setMembers(membersResult.value);
       if (receiptsResult.ok) setReceipts(receiptsResult.value);
-      if (dashboardResult.ok) setBillingDashboard(dashboardResult.value);
-      if (dueSummariesResult.ok) setMemberDueSummaries(dueSummariesResult.value);
       if (summaryResult.ok) setAccountingSummary(summaryResult.value);
 
-      const availableMembers = membersResult.ok ? membersResult.value : members;
       const memberIdToLoad = selectedMemberId ?? selectedMember?.id ?? null;
       if (memberIdToLoad) {
         const detail = await apiRequest<MemberDetail>(`/api/members/${memberIdToLoad}`, accessToken);
@@ -1828,15 +2045,7 @@ export function App() {
         setSelectedMember(null);
       }
 
-      const coreFailedCount = [
-        categoriesResult,
-        packagesResult,
-        membersResult,
-        receiptsResult,
-        dashboardResult,
-        dueSummariesResult,
-        summaryResult,
-      ].filter((result) => !result.ok).length;
+      const coreFailedCount = [receiptsResult, summaryResult].filter((result) => !result.ok).length;
 
       setIsDashboardReady(true);
       setMessage(
@@ -1845,79 +2054,19 @@ export function App() {
           : `Dashboard loaded. ${coreFailedCount} core section${coreFailedCount === 1 ? "" : "s"} could not be refreshed.`,
       );
 
-      const [
-        periodsResult,
-        accountsResult,
-        entriesResult,
-        templatesResult,
-        messagesResult,
-        attemptsResult,
-        smsStatusResult,
-        billingHeadsResult,
-        billingMappingsResult,
-        invoicesResult,
-      ] = await Promise.all([
-        settleRequest<BillingPeriod[]>("/api/billing/periods", accessToken),
-        settleRequest<Account[]>("/api/accounting/accounts", accessToken),
-        settleRequest<AccountingEntry[]>(`/api/accounting/entries?${receiptRange}`, accessToken),
-        settleRequest<SmsTemplate[]>("/api/messaging/templates", accessToken),
-        settleRequest<SmsMessage[]>("/api/messaging/messages", accessToken),
-        settleRequest<SmsAttempt[]>("/api/messaging/attempts", accessToken),
-        settleRequest<SmsIntegrationStatus>("/api/messaging/status", accessToken),
-        settleRequest<BillingHead[]>("/api/billing/heads", accessToken),
-        settleRequest<BillingHeadMapping[]>("/api/billing/head-mappings", accessToken),
+      const [invoicesResult] = await Promise.all([
         settleRequest<BillingInvoice[]>(`/api/billing/invoices?${invoiceRange}`, accessToken),
       ]);
 
-      if (periodsResult.ok) setBillingPeriods(periodsResult.value);
       setCharges([]);
-      if (accountsResult.ok) setAccounts(accountsResult.value);
-      if (entriesResult.ok) setAccountingEntries(entriesResult.value);
+      setAccountingEntries([]);
       setIncomeMasterEntries([]);
       setExpenseMasterEntries([]);
       setIncomeVouchers([]);
       setExpenseVouchers([]);
-      if (templatesResult.ok) setSmsTemplates(templatesResult.value);
-      if (messagesResult.ok) setSmsMessages(messagesResult.value);
-      if (attemptsResult.ok) setSmsAttempts(attemptsResult.value);
-      if (smsStatusResult.ok) {
-        setSmsIntegrationStatus(smsStatusResult.value);
-        setSmsProviderCheck(
-          smsStatusResult.value.provider_check_message
-            ? {
-                provider_name: smsStatusResult.value.provider_name,
-                provider_configured: smsStatusResult.value.provider_configured,
-                ok: Boolean(smsStatusResult.value.provider_check_ok),
-                status_code: null,
-                message: smsStatusResult.value.provider_check_message,
-                response_sample: null,
-              }
-            : null,
-        );
-      }
-      if (billingHeadsResult.ok) setBillingHeads(billingHeadsResult.value);
-      if (billingMappingsResult.ok) setBillingHeadMappings(billingMappingsResult.value);
       if (invoicesResult.ok) setBillingInvoices(invoicesResult.value);
 
-      const failedCount = [
-        categoriesResult,
-        packagesResult,
-        membersResult,
-        receiptsResult,
-        dashboardResult,
-        dueSummariesResult,
-        summaryResult,
-        periodsResult,
-        accountsResult,
-        entriesResult,
-        templatesResult,
-        messagesResult,
-        attemptsResult,
-        smsStatusResult,
-        billingHeadsResult,
-        billingMappingsResult,
-        invoicesResult,
-      ].filter((result) => !result.ok).length;
+      const failedCount = [receiptsResult, summaryResult, invoicesResult].filter((result) => !result.ok).length;
 
       setMessage(
         failedCount === 0
@@ -1968,18 +2117,12 @@ export function App() {
   async function refreshAccountingWorkspace() {
     const accessToken = token();
     if (!accessToken) return;
-    const currentYear = new Date().getFullYear();
-    const entryRange = new URLSearchParams({
-      from_date: `${currentYear}-01-01`,
-      to_date: `${currentYear}-12-31`,
-    }).toString();
-    const [nextAccounts, nextEntries, nextSummary] = await Promise.all([
+    const [nextAccounts, nextSummary] = await Promise.all([
       apiRequest<Account[]>("/api/accounting/accounts", accessToken),
-      apiRequest<AccountingEntry[]>(`/api/accounting/entries?${entryRange}`, accessToken),
       apiRequest<AccountingSummary>("/api/accounting/summary", accessToken),
     ]);
     setAccounts(nextAccounts);
-    setAccountingEntries(nextEntries);
+    setAccountingEntries([]);
     setIncomeMasterEntries([]);
     setExpenseMasterEntries([]);
     setIncomeVouchers([]);
@@ -1992,13 +2135,13 @@ export function App() {
     if (!accessToken) return;
     const [nextTemplates, nextMessages, nextAttempts, nextSmsStatus] = await Promise.all([
       apiRequest<SmsTemplate[]>("/api/messaging/templates", accessToken),
-      apiRequest<SmsMessage[]>("/api/messaging/messages", accessToken),
-      apiRequest<SmsAttempt[]>("/api/messaging/attempts", accessToken),
+      apiRequest<SmsMessagePage>(`/api/messaging/messages/paged?limit=8&offset=${smsMessageOffset}&search=${encodeURIComponent(debouncedSmsMessageSearch.trim())}`, accessToken),
+      apiRequest<SmsAttemptPage>(`/api/messaging/attempts/paged?limit=8&offset=${smsAttemptOffset}&search=${encodeURIComponent(debouncedSmsAttemptSearch.trim())}`, accessToken),
       apiRequest<SmsIntegrationStatus>("/api/messaging/status", accessToken),
     ]);
     setSmsTemplates(nextTemplates);
-    setSmsMessages(nextMessages);
-    setSmsAttempts(nextAttempts);
+    setSmsMessages(nextMessages.items);
+    setSmsAttempts(nextAttempts.items);
     setSmsIntegrationStatus(nextSmsStatus);
     setSmsProviderCheck(
       nextSmsStatus.provider_check_message
@@ -2720,6 +2863,7 @@ export function App() {
     if (memberInformationDetailReport) return `Member Detail - ${memberInformationDetailReport.member_info.member_code}`;
     if (receiptReport) return `Receipt Detail - ${receiptReport.receipt_no}`;
     if (incomeExpenseReport) return "Income And Expense Report";
+    if (currentPagedReport) return currentPagedReport.title;
     if (currentReport) return currentReport.title;
     return "Report Viewer";
   }
@@ -2733,6 +2877,7 @@ export function App() {
     }
     if (receiptReport) return shortDate(receiptReport.payment_date);
     if (incomeExpenseReport) return `${incomeExpenseReport.from_date ?? "Start"} to ${incomeExpenseReport.to_date ?? "Today"}`;
+    if (currentPagedReport) return `${currentPagedReport.total} row${currentPagedReport.total === 1 ? "" : "s"} available`;
     if (currentReport) return `${currentReport.row_count} row${currentReport.row_count === 1 ? "" : "s"} generated`;
     return "";
   }
@@ -2746,18 +2891,23 @@ export function App() {
       .replace(/'/g, "&#39;");
   }
 
-  function buildPaginatedTableReportMarkup(report: ReportEnvelope) {
-    const columns = report.rows.length > 0 ? Object.keys(report.rows[0]) : [];
+  function buildPaginatedTableReportMarkup(report: ReportEnvelope | PagedReportEnvelope) {
+    const isPagedReport = "items" in report;
+    const sourceRows = isPagedReport ? report.items : report.rows;
+    const columns = sourceRows.length > 0 ? Object.keys(sourceRows[0]) : [];
     const rowsPerPage = 22;
-    const pageChunks: Array<typeof report.rows> = [];
-    for (let index = 0; index < report.rows.length; index += rowsPerPage) {
-      pageChunks.push(report.rows.slice(index, index + rowsPerPage));
+    const pageChunks: Array<typeof sourceRows> = [];
+    if (isPagedReport) {
+      pageChunks.push(sourceRows);
+    } else {
+      for (let index = 0; index < sourceRows.length; index += rowsPerPage) {
+        pageChunks.push(sourceRows.slice(index, index + rowsPerPage));
+      }
     }
-    if (pageChunks.length === 0) {
-      pageChunks.push([]);
-    }
+    if (pageChunks.length === 0) pageChunks.push([]);
 
-    const totalPages = pageChunks.length;
+    const totalPages = isPagedReport ? Math.max(1, Math.ceil(report.total / Math.max(report.limit, 1))) : pageChunks.length;
+    const activePage = isPagedReport ? Math.max(1, Math.floor(report.offset / Math.max(report.limit, 1)) + 1) : reportViewerPage;
     const totalsMarkup = Object.entries(report.totals)
       .map(
         ([key, value]) => `
@@ -2805,7 +2955,7 @@ export function App() {
                   <div class="text-end">
                     <h2 class="report-title">${escapePrintHtml(report.title)}</h2>
                     <div class="text-muted">Generated ${escapePrintHtml(shortDate(report.generated_at))}</div>
-                    <div class="page-number">Page ${pageIndex + 1} of ${totalPages}</div>
+                    <div class="page-number">Page ${isPagedReport ? activePage : pageIndex + 1} of ${totalPages}</div>
                   </div>
                 </div>
               </div>
@@ -2819,7 +2969,7 @@ export function App() {
                   </div>
                   <div class="report-meta-card">
                     <span class="text-muted">Rows</span>
-                    <strong>${escapePrintHtml(report.row_count)}</strong>
+                    <strong>${escapePrintHtml(isPagedReport ? report.total : report.row_count)}</strong>
                   </div>
                   ${Object.entries(report.applied_filters ?? {})
                     .map(
@@ -3022,8 +3172,8 @@ export function App() {
       return;
     }
     const title = reportViewerTitle();
-    const printableMarkup = currentReport
-      ? buildPaginatedTableReportMarkup(currentReport)
+    const printableMarkup = currentReport || currentPagedReport
+      ? buildPaginatedTableReportMarkup(currentPagedReport ?? currentReport!)
       : memberStatementReport
         ? buildPaginatedMemberStatementMarkup(memberStatementReport)
         : `<main class="sheet">${printArea.innerHTML}</main>`;
@@ -3085,13 +3235,16 @@ export function App() {
     window.setTimeout(() => printWindow.print(), 180);
   }
 
-  function renderReportEnvelopeContent(report: ReportEnvelope) {
-    const columns = report.rows.length > 0 ? Object.keys(report.rows[0]) : [];
-    const pageSize = 15;
-    const totalPages = Math.max(1, Math.ceil(report.rows.length / pageSize));
-    const activePage = Math.min(reportViewerPage, totalPages);
-    const startIndex = (activePage - 1) * pageSize;
-    const pagedRows = report.rows.slice(startIndex, startIndex + pageSize);
+  function renderReportEnvelopeContent(report: ReportEnvelope | PagedReportEnvelope) {
+    const isPagedReport = "items" in report;
+    const rows = isPagedReport ? report.items : report.rows;
+    const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+    const pageSize = isPagedReport ? Math.max(report.limit, 1) : 15;
+    const totalRows = isPagedReport ? report.total : report.row_count;
+    const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+    const activePage = isPagedReport ? Math.max(1, Math.floor(report.offset / pageSize) + 1) : Math.min(reportViewerPage, totalPages);
+    const startIndex = isPagedReport ? report.offset : (activePage - 1) * pageSize;
+    const pagedRows = isPagedReport ? rows : rows.slice(startIndex, startIndex + pageSize);
     return (
       <div className="report-sheet">
         <div className="report-sheet-header">
@@ -3114,7 +3267,7 @@ export function App() {
           </div>
           <div className="report-meta-card">
             <span className="text-muted d-block">Rows</span>
-            <strong>{report.row_count}</strong>
+            <strong>{totalRows}</strong>
           </div>
           <div className="report-meta-card">
             <span className="text-muted d-block">Page</span>
@@ -3134,7 +3287,7 @@ export function App() {
           ))}
         </div>
         <div className="table-responsive">
-          {report.rows.length > 0 ? (
+          {rows.length > 0 ? (
             <table className="table table-bordered invoice-report-table mb-0">
               <thead>
                 <tr>
@@ -3162,10 +3315,10 @@ export function App() {
             <EmptyState label="No rows returned for this filter." />
           )}
         </div>
-        {report.rows.length > pageSize ? (
+        {totalRows > pageSize ? (
           <div className="report-pagination-bar">
             <div className="report-pagination-summary">
-              Showing {startIndex + 1}-{Math.min(startIndex + pageSize, report.rows.length)} of {report.rows.length}
+              Showing {Math.min(startIndex + 1, totalRows)}-{Math.min(startIndex + pagedRows.length, totalRows)} of {totalRows}
             </div>
             <div className="report-pagination-controls">
               <button
@@ -3592,6 +3745,7 @@ export function App() {
     if (memberStatementReport) return renderMemberStatementReportContent(memberStatementReport);
     if (receiptReport) return renderReceiptReportContent(receiptReport);
     if (incomeExpenseReport) return renderIncomeExpenseReportContent(incomeExpenseReport);
+    if (currentPagedReport) return renderReportEnvelopeContent(currentPagedReport);
     if (currentReport) return renderReportEnvelopeContent(currentReport);
     return <EmptyState label="Load a report to preview it here." />;
   }
@@ -3925,6 +4079,19 @@ export function App() {
     }
   }
 
+  async function loadPagedReportPreview(accessToken: string, report: TableReportType, page: number) {
+    const limit = 50;
+    const offset = Math.max(page - 1, 0) * limit;
+    const payload = await loadPagedTableReport(accessToken, report, reportQueryString, { limit, offset });
+    setCurrentPagedReport(payload);
+    setCurrentReport(null);
+    setReceiptReport(null);
+    setIncomeExpenseReport(null);
+    setMemberStatementReport(null);
+    setMemberInformationDetailReport(null);
+    setShowReportViewer(true);
+  }
+
   async function handleReportLoad(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const accessToken = token();
@@ -3941,13 +4108,15 @@ export function App() {
     try {
       setShowReportViewer(false);
       setReportViewerPage(1);
+      setCurrentPagedReport(null);
       if (reportType === "income-expense") {
         const params = new URLSearchParams();
         if (reportFromDate) params.set("from_date", reportFromDate);
         if (reportToDate) params.set("to_date", reportToDate);
-        const payload = await apiRequest<IncomeExpenseComparisonReport>(`/api/accounting/income-expense-report${params.toString() ? `?${params}` : ""}`, accessToken);
+        const payload = await loadIncomeExpenseReport(accessToken, params);
         setIncomeExpenseReport(payload);
         setCurrentReport(null);
+        setCurrentPagedReport(null);
         setReceiptReport(null);
         setMemberStatementReport(null);
         setMemberInformationDetailReport(null);
@@ -3956,50 +4125,34 @@ export function App() {
         return;
       }
       if (reportType === "receipt-detail") {
-        const payload = await apiRequest<ReceiptDetailReport>(`/api/reports/receipt/${reportReceiptId}`, accessToken);
+        const payload = await loadReceiptDetailReport(accessToken, reportReceiptId);
         setReceiptReport(payload);
         setCurrentReport(null);
+        setCurrentPagedReport(null);
         setIncomeExpenseReport(null);
         setMemberStatementReport(null);
         setMemberInformationDetailReport(null);
         setShowReportViewer(true);
       } else if (reportType === "member-statement") {
-        const query = reportQueryString ? `?${reportQueryString}` : "";
-        const payload = await apiRequest<SingleMemberStatementReport>(`/api/reports/member-statement${query}`, accessToken);
+        const payload = await loadMemberStatementReport(accessToken, reportQueryString);
         setMemberStatementReport(payload);
         setCurrentReport(null);
+        setCurrentPagedReport(null);
         setReceiptReport(null);
         setIncomeExpenseReport(null);
         setMemberInformationDetailReport(null);
         setShowReportViewer(true);
       } else if (reportType === "member-information-detail") {
-        const query = reportQueryString ? `?${reportQueryString}` : "";
-        const payload = await apiRequest<MemberInformationDetailReport>(`/api/reports/member-information-detail${query}`, accessToken);
+        const payload = await loadMemberInformationDetailReport(accessToken, reportQueryString);
         setMemberInformationDetailReport(payload);
         setCurrentReport(null);
+        setCurrentPagedReport(null);
         setReceiptReport(null);
         setIncomeExpenseReport(null);
         setMemberStatementReport(null);
         setShowReportViewer(true);
       } else {
-        const pathMap: Record<string, string> = {
-          "due-members": "/api/reports/due-members",
-          collections: "/api/reports/collections",
-          "income-detail": "/api/reports/income-detail",
-          "expense-detail": "/api/reports/expense-detail",
-          charges: "/api/reports/charges",
-          members: "/api/reports/members",
-          "total-collection": "/api/reports/total-collection",
-          "total-due": "/api/reports/total-due",
-        };
-        const query = reportQueryString ? `?${reportQueryString}` : "";
-        const payload = await apiRequest<ReportEnvelope>(`${pathMap[reportType]}${query}`, accessToken);
-        setCurrentReport(payload);
-        setReceiptReport(null);
-        setIncomeExpenseReport(null);
-        setMemberStatementReport(null);
-        setMemberInformationDetailReport(null);
-        setShowReportViewer(true);
+        await loadPagedReportPreview(accessToken, reportType as TableReportType, 1);
       }
       setMessage("Report loaded.");
     } catch (error) {
@@ -4066,48 +4219,31 @@ export function App() {
       setMessage("This report type is not available for export.");
       return;
     }
-    const query = reportQueryString ? `?${reportQueryString}` : "";
+    const accessToken = token();
+    if (!accessToken) return;
+    const params = new URLSearchParams(reportQueryString);
+    params.set("report_type", reportType);
+    params.set("kind", kind === "html" ? "html" : "xlsx");
     if (reportType === "receipt-detail") {
       if (!reportReceiptId) {
         setMessage("Select a receipt first.");
         return;
       }
-      if (kind === "html") {
-        setMessage("Receipt detail supports Excel export and print preview.");
-        return;
-      }
-      void downloadAuthenticatedFile(`/api/reports/receipt/${reportReceiptId}/xlsx`, `receipt-${reportReceiptId}-report.xlsx`);
+      params.set("receipt_id", reportReceiptId);
+    }
+    if ((reportType === "member-statement" || reportType === "member-information-detail") && !reportMemberId) {
+      setMessage("Select a member first.");
       return;
     }
-    if (reportType === "member-statement") {
-      if (!reportMemberId) {
-        setMessage("Select a member first.");
-        return;
-      }
-      if (kind === "html") {
-        setMessage("Single member statement supports Excel export and print preview.");
-        return;
-      }
-      void downloadAuthenticatedFile(`/api/reports/member-statement/xlsx${query}`, "member-statement-report.xlsx");
-      return;
-    }
-    if (reportType === "member-information-detail") {
-      setMessage("Member Information Detail currently supports preview and print.");
-      return;
-    }
-    if (reportType === "income-expense") {
-      if (kind === "html") {
-        setMessage("Income vs Expense supports Excel export and print preview.");
-        return;
-      }
-      void downloadAuthenticatedFile(`/api/reports/income-expense/xlsx${query}`, "income-expense-report.xlsx");
-      return;
-    }
-    if (kind === "xlsx") {
-      void downloadAuthenticatedFile(`/api/reports/${reportType}/xlsx${query}`, `${reportType}-report.xlsx`);
-      return;
-    }
-    window.open(`${apiBaseUrl}/api/reports/${reportType}/${kind}${query}`, "_blank", "noopener,noreferrer");
+    void createReportExportJob(accessToken, params)
+      .then((job) => {
+        setActiveJobId(job.id);
+        setActiveJobLabel(`Report export (${reportType})`);
+        setMessage("Report export queued in the background.");
+      })
+      .catch((error) => {
+        setMessage(error instanceof Error ? error.message : "Unable to queue report export");
+      });
   }
 
   async function handleSmsTemplateSubmit(event: FormEvent<HTMLFormElement>) {
@@ -4172,6 +4308,29 @@ export function App() {
     setSmsSelectedMemberIds((current) =>
       current.includes(memberId) ? current.filter((item) => item !== memberId) : [...current, memberId],
     );
+    const currentMember =
+      (smsRecipientMembersQuery.data?.items ?? []).find((member) => member.id === memberId) ??
+      (smsSingleMemberQuery.data && smsSingleMemberQuery.data.id === memberId
+        ? {
+            id: smsSingleMemberQuery.data.id,
+            member_code: smsSingleMemberQuery.data.member_code,
+            full_name: smsSingleMemberQuery.data.full_name,
+            plot_no: smsSingleMemberQuery.data.plot_no,
+            plot_count: smsSingleMemberQuery.data.plot_count,
+            cell_no: smsSingleMemberQuery.data.cell_no,
+            category_id: smsSingleMemberQuery.data.category_id,
+            category_name: smsSingleMemberQuery.data.category_name,
+            joined_on: smsSingleMemberQuery.data.joined_on,
+            is_active: smsSingleMemberQuery.data.is_active,
+          }
+        : null);
+    if (currentMember) {
+      setSmsSelectedMembersData((current) => {
+        const exists = current.some((member) => member.id === memberId);
+        if (exists) return current.filter((member) => member.id !== memberId);
+        return [...current, currentMember];
+      });
+    }
   }
 
   function toggleAllSmsMembers(checked: boolean) {
@@ -4190,7 +4349,21 @@ export function App() {
     if (!accessToken) return;
     setIsSubmitting(true);
     try {
-      const selectedMember = smsMemberId ? members.find((member) => member.id === Number(smsMemberId)) ?? null : null;
+      const selectedMember =
+        smsSingleMemberQuery.data && smsMemberId
+          ? {
+              id: smsSingleMemberQuery.data.id,
+              member_code: smsSingleMemberQuery.data.member_code,
+              full_name: smsSingleMemberQuery.data.full_name,
+              plot_no: smsSingleMemberQuery.data.plot_no,
+              plot_count: smsSingleMemberQuery.data.plot_count,
+              cell_no: smsSingleMemberQuery.data.cell_no,
+              category_id: smsSingleMemberQuery.data.category_id,
+              category_name: smsSingleMemberQuery.data.category_name,
+              joined_on: smsSingleMemberQuery.data.joined_on,
+              is_active: smsSingleMemberQuery.data.is_active,
+            }
+          : null;
       await apiRequest<SmsMessage>("/api/messaging/queue", accessToken, {
         method: "POST",
         body: JSON.stringify({
@@ -4229,76 +4402,25 @@ export function App() {
     }
 
     setIsSubmitting(true);
-    setSmsBulkProgress({
-      running: true,
-      total: selectedMembers.length,
-      completed: 0,
-      success: 0,
-      failed: 0,
-      currentRecipient: "",
-    });
-    setSmsBulkProgressRows([]);
-
-    let success = 0;
-    let failed = 0;
     try {
-      for (let index = 0; index < selectedMembers.length; index += 1) {
-        const member = selectedMembers[index];
-        setSmsBulkProgress((current) => ({
-          ...current,
-            currentRecipient: `${member.full_name} (${member.cell_no ?? "no number"})`,
-          }));
-        try {
-          const sentMessage = await apiRequest<SmsMessage>("/api/messaging/queue", accessToken, {
-            method: "POST",
-            body: JSON.stringify({
-              member_id: member.id,
-              template_id: smsSelectedTemplateId ? Number(smsSelectedTemplateId) : null,
-              recipient: member.cell_no,
-              message_body: smsMessageBody || null,
-              variables: buildSmsVariables(member),
-              send_now: true,
-            }),
-          });
-          if (sentMessage.status === "sent") {
-            success += 1;
-            setSmsBulkProgressRows((current) => [
-              ...current,
-              { memberId: member.id, name: member.full_name, phone: member.cell_no ?? "N/A", status: "sent", message: "Sent successfully" },
-            ]);
-          } else {
-            failed += 1;
-            setSmsBulkProgressRows((current) => [
-              ...current,
-              { memberId: member.id, name: member.full_name, phone: member.cell_no ?? "N/A", status: "failed", message: sentMessage.status },
-            ]);
-          }
-        } catch (error) {
-          failed += 1;
-          setSmsBulkProgressRows((current) => [
-            ...current,
-            {
-              memberId: member.id,
-              name: member.full_name,
-              phone: member.cell_no ?? "N/A",
-              status: "failed",
-              message: error instanceof Error ? error.message : "Send failed",
-            },
-          ]);
-        }
-        setSmsBulkProgress({
-          running: true,
-          total: selectedMembers.length,
-          completed: index + 1,
-          success,
-          failed,
-          currentRecipient: `${member.full_name} (${member.cell_no ?? "no number"})`,
-        });
-      }
-      await refreshMessagingWorkspace();
-      setMessage(`Bulk SMS completed. Sent: ${success}, Failed: ${failed}.`);
+      const job = await createBulkSmsJob(accessToken, {
+        member_ids: selectedMembers.map((member) => member.id),
+        template_id: smsSelectedTemplateId ? Number(smsSelectedTemplateId) : null,
+        message_body: smsMessageBody || null,
+      });
+      setSmsBulkProgress({
+        running: true,
+        total: selectedMembers.length,
+        completed: 0,
+        success: 0,
+        failed: 0,
+        currentRecipient: "",
+      });
+      setSmsBulkProgressRows([]);
+      setActiveJobId(job.id);
+      setActiveJobLabel("Bulk SMS");
+      setMessage("Bulk SMS queued in the background.");
     } finally {
-      setSmsBulkProgress((current) => ({ ...current, running: false }));
       setIsSubmitting(false);
     }
   }
@@ -4358,7 +4480,7 @@ export function App() {
         ) : null}
 
         <div className="row row-cols-xxl-4 row-cols-md-2 row-cols-1">
-          <StatCard title="Total Members" value={String(members.length)} subtitle={`${activeMembers.length} active`} icon="ri-team-line" tone="primary" />
+          <StatCard title="Total Members" value={String(memberTotalCount)} subtitle={`${activeMemberCountQuery.data?.total ?? activeMembers.length} active`} icon="ri-team-line" tone="primary" />
           <StatCard title="Total Collection" value={money(totalCollection)} subtitle={`${receipts.length} receipts`} icon="ri-wallet-3-line" tone="success" />
           <StatCard
             title="Open Due"
@@ -4367,7 +4489,7 @@ export function App() {
             icon="ri-file-warning-line"
             tone="warning"
           />
-          <StatCard title="SMS Messages" value={String(smsMessages.length)} subtitle={`${smsAttempts.length} attempts`} icon="ri-message-3-line" tone="info" />
+          <StatCard title="SMS Messages" value={String(smsIntegrationStatus?.message_count ?? smsMessagesQuery.data?.total ?? smsMessages.length)} subtitle={`${smsIntegrationStatus?.attempt_count ?? smsAttemptsQuery.data?.total ?? smsAttempts.length} attempts`} icon="ri-message-3-line" tone="info" />
         </div>
 
         <div className="row">
@@ -4512,7 +4634,7 @@ export function App() {
               <div className="card-body p-0">
                 <div className="bg-light bg-opacity-50 py-1 text-center">
                   <p className="m-0">
-                    <b>{activeMembers.length}</b> active members out of <span className="fw-medium">{members.length}</span>
+                    <b>{activeMemberCountQuery.data?.total ?? activeMembers.length}</b> active members out of <span className="fw-medium">{memberTotalCount}</span>
                   </p>
                 </div>
                 <div className="table-responsive">
@@ -4975,7 +5097,7 @@ export function App() {
               <div className="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
                 <h4 className="header-title">Member Register</h4>
                 <div className="d-flex align-items-center gap-2 flex-wrap">
-                  <span className="badge bg-primary-subtle text-primary">{members.length} records</span>
+                  <span className="badge bg-primary-subtle text-primary">{memberTotalCount} records</span>
                   <button className="btn btn-primary btn-sm" onClick={() => void startMemberEntry()} type="button">
                     <i className="ri-add-line me-1" />
                     Add Member
@@ -4997,34 +5119,9 @@ export function App() {
                         <th className="text-end">Action</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {members.map((member) => (
-	                        <tr className="clickable-row" key={member.id} onClick={() => void handleMemberSelect(member.id)}>
-	                          <td>{member.member_code}</td>
-	                          <td>{member.full_name}</td>
-	                          <td>{member.plot_no ?? "N/A"}</td>
-	                          <td>{member.plot_count ?? 1}</td>
-	                          <td>{member.cell_no ?? "N/A"}</td>
-                          <td>{member.category_name ?? "N/A"}</td>
-                          <td>{statusBadge(member.is_active)}</td>
-                          <td className="text-end">
-                            <button
-                              className="btn btn-sm btn-soft-info"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void startMemberEntry(member);
-                              }}
-                              type="button"
-                            >
-                              <i className="ri-edit-2-line me-1" />
-                              Edit
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
+                    <tbody />
                   </table>
-                  {members.length === 0 ? <EmptyState label="No members found" /> : null}
+                  {memberTotalCount === 0 ? <EmptyState label="No members found" /> : null}
                 </div>
               </div>
             </div>
@@ -5534,8 +5631,9 @@ export function App() {
                   <input className="form-control" type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} required />
                 </div>
                 <div className="col-xl-4 col-lg-5">
-                  <SearchableDropdown
+                  <AsyncSearchableDropdown
                     isOpen={invoiceMemberDropdownOpen}
+                    isLoading={invoiceMemberOptionsQuery.isFetching}
                     label="Member"
                     onChange={(value) => {
                       setInvoiceMemberId(value);
@@ -5548,6 +5646,7 @@ export function App() {
                     placeholder="Search member by code, name, or number"
                     search={invoiceMemberSearch}
                     value={invoiceMemberId}
+                    helperText="Type at least 2 characters to search members."
                   />
                 </div>
               </div>
@@ -6173,31 +6272,19 @@ export function App() {
                   </select>
                 </div>
                 <div className="col-xl-3 col-md-6 mb-3">
-                  {reportType === "member-statement" || reportType === "member-information-detail" ? (
-                    <SearchableDropdown
-                      isOpen={reportMemberDropdownOpen}
-                      label="Member"
-                      onChange={setReportMemberId}
-                      onOpenChange={setReportMemberDropdownOpen}
-                      onSearchChange={setReportMemberSearch}
-                      options={memberOptions}
-                      placeholder="Search member"
-                      search={reportMemberSearch}
-                      value={reportMemberId}
-                    />
-                  ) : (
-                    <>
-                      <label className="form-label">Member</label>
-                      <select className="form-select" value={reportMemberId} onChange={(event) => setReportMemberId(event.target.value)}>
-                        <option value="">All members</option>
-                        {members.map((member) => (
-                          <option key={member.id} value={member.id}>
-                            {member.member_code} - {member.full_name}
-                          </option>
-                        ))}
-                      </select>
-                    </>
-                  )}
+                  <AsyncSearchableDropdown
+                    isOpen={reportMemberDropdownOpen}
+                    isLoading={reportMemberOptionsQuery.isFetching}
+                    label="Member"
+                    onChange={setReportMemberId}
+                    onOpenChange={setReportMemberDropdownOpen}
+                    onSearchChange={setReportMemberSearch}
+                    options={reportMemberOptions}
+                    placeholder={reportType === "member-statement" || reportType === "member-information-detail" ? "Search member" : "Optional member filter"}
+                    search={reportMemberSearch}
+                    value={reportMemberId}
+                    helperText="Type at least 2 characters to search members."
+                  />
                 </div>
                 <div className="col-xl-3 col-md-6 mb-3">
                   <label className="form-label">Category</label>
@@ -6265,7 +6352,7 @@ export function App() {
             </form>
           </div>
         </div>
-        {(currentReport || incomeExpenseReport || receiptReport || memberStatementReport) && !showReportViewer ? (
+        {(currentReport || currentPagedReport || incomeExpenseReport || receiptReport || memberStatementReport || memberInformationDetailReport) && !showReportViewer ? (
           <div className="alert alert-info border-0">
             Last loaded report is ready. Click <strong>Load Report</strong> again to reopen the preview and print it.
           </div>
@@ -6277,7 +6364,20 @@ export function App() {
   function renderMessaging() {
     const previewMember =
       smsEligibleMembers.find((member) => member.id === smsSelectedMemberIds[0]) ??
-      (smsMemberId ? members.find((member) => member.id === Number(smsMemberId)) ?? null : smsEligibleMembers[0] ?? null);
+      (smsSingleMemberQuery.data && smsMemberId
+        ? {
+            id: smsSingleMemberQuery.data.id,
+            member_code: smsSingleMemberQuery.data.member_code,
+            full_name: smsSingleMemberQuery.data.full_name,
+            plot_no: smsSingleMemberQuery.data.plot_no,
+            plot_count: smsSingleMemberQuery.data.plot_count,
+            cell_no: smsSingleMemberQuery.data.cell_no,
+            category_id: smsSingleMemberQuery.data.category_id,
+            category_name: smsSingleMemberQuery.data.category_name,
+            joined_on: smsSingleMemberQuery.data.joined_on,
+            is_active: smsSingleMemberQuery.data.is_active,
+          }
+        : smsEligibleMembers[0] ?? null);
     const allSelected = smsFilteredMembers.length > 0 && smsFilteredMembers.every((member) => smsSelectedMemberIds.includes(member.id));
     const progressPercent =
       smsBulkProgress.total > 0 ? Math.round((smsBulkProgress.completed / smsBulkProgress.total) * 100) : 0;
@@ -6383,8 +6483,9 @@ export function App() {
                   </div>
                   {smsTargetMode === "single" ? (
                     <div className="col-md-4">
-                      <SearchableDropdown
+                      <AsyncSearchableDropdown
                         isOpen={smsMemberDropdownOpen}
+                        isLoading={smsMemberOptionsQuery.isFetching}
                         label="Member"
                         onChange={setSmsMemberId}
                         onOpenChange={setSmsMemberDropdownOpen}
@@ -6393,6 +6494,7 @@ export function App() {
                         placeholder="Search member"
                         search={smsMemberSearch}
                         value={smsMemberId}
+                        helperText="Type at least 2 characters to search members with phone numbers."
                       />
                     </div>
                   ) : null}
@@ -6614,8 +6716,21 @@ export function App() {
               </div>
               <div className="col-xl-6">
                 <div className="card">
-                  <div className="card-header">
-                    <h4 className="header-title">Recent Messages</h4>
+                  <div className="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                    <h4 className="header-title mb-0">Recent Messages</h4>
+                    <div className="d-flex gap-2 align-items-center">
+                      <input
+                        className="form-control form-control-sm"
+                        placeholder="Search recipient or status"
+                        value={smsMessageSearch}
+                        onChange={(event) => {
+                          setSmsMessageOffset(0);
+                          setSmsMessageSearch(event.target.value);
+                        }}
+                        style={{ width: "220px" }}
+                      />
+                      <span className="badge bg-primary-subtle text-primary">{smsMessagesQuery.data?.total ?? smsMessages.length}</span>
+                    </div>
                   </div>
                   <div className="card-body p-0">
                     <div className="table-responsive">
@@ -6629,7 +6744,7 @@ export function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {smsMessages.slice(0, 8).map((sms) => (
+                          {smsMessages.map((sms) => (
                             <tr key={sms.id}>
                               <td>{sms.recipient}</td>
                               <td>
@@ -6645,6 +6760,24 @@ export function App() {
                           ))}
                         </tbody>
                       </table>
+                      <div className="d-flex justify-content-between align-items-center px-3 py-2 border-top">
+                        <small className="text-muted">
+                          Showing {smsMessages.length} of {smsMessagesQuery.data?.total ?? smsMessages.length}
+                        </small>
+                        <div className="d-flex gap-2">
+                          <button className="btn btn-sm btn-light" disabled={smsMessageOffset === 0} onClick={() => setSmsMessageOffset((current) => Math.max(current - 8, 0))} type="button">
+                            Previous
+                          </button>
+                          <button
+                            className="btn btn-sm btn-light"
+                            disabled={smsMessageOffset + smsMessages.length >= (smsMessagesQuery.data?.total ?? 0)}
+                            onClick={() => setSmsMessageOffset((current) => current + 8)}
+                            type="button"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -6652,14 +6785,27 @@ export function App() {
             </div>
 
             <div className="card">
-              <div className="card-header">
-                <h4 className="header-title">Delivery Attempts</h4>
+              <div className="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                <h4 className="header-title mb-0">Delivery Attempts</h4>
+                <div className="d-flex gap-2 align-items-center">
+                  <input
+                    className="form-control form-control-sm"
+                    placeholder="Search attempts"
+                    value={smsAttemptSearch}
+                    onChange={(event) => {
+                      setSmsAttemptOffset(0);
+                      setSmsAttemptSearch(event.target.value);
+                    }}
+                    style={{ width: "220px" }}
+                  />
+                  <span className="badge bg-primary-subtle text-primary">{smsAttemptsQuery.data?.total ?? smsAttempts.length}</span>
+                </div>
               </div>
               <div className="card-body p-0">
                 <div className="table-responsive">
                   <table className="table table-custom table-centered table-sm table-nowrap table-hover mb-0">
                     <tbody>
-                      {smsAttempts.slice(0, 8).map((attempt) => (
+                      {smsAttempts.map((attempt) => (
                         <tr key={attempt.id}>
                           <td>Message #{attempt.sms_message_id}</td>
                           <td>{attempt.provider_name ?? "provider"}</td>
@@ -6669,6 +6815,24 @@ export function App() {
                       ))}
                     </tbody>
                   </table>
+                  <div className="d-flex justify-content-between align-items-center px-3 py-2 border-top">
+                    <small className="text-muted">
+                      Showing {smsAttempts.length} of {smsAttemptsQuery.data?.total ?? smsAttempts.length}
+                    </small>
+                    <div className="d-flex gap-2">
+                      <button className="btn btn-sm btn-light" disabled={smsAttemptOffset === 0} onClick={() => setSmsAttemptOffset((current) => Math.max(current - 8, 0))} type="button">
+                        Previous
+                      </button>
+                      <button
+                        className="btn btn-sm btn-light"
+                        disabled={smsAttemptOffset + smsAttempts.length >= (smsAttemptsQuery.data?.total ?? 0)}
+                        onClick={() => setSmsAttemptOffset((current) => current + 8)}
+                        type="button"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
                   {smsAttempts.length === 0 ? <EmptyState label="No delivery attempts logged yet" /> : null}
                 </div>
               </div>

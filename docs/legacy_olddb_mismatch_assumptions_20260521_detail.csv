@@ -1,0 +1,47 @@
+legacy_master_id,voucher_no,legacy_detail_id,customer_code,customer_name,detail_date,Year,MonthName,AmountType,PackageName,PlotCount,detail_amount_entered,package_price
+1,RCV-180710001,1,001,Nazrul Islam,2018-07-09,2017,July,Monthly,1 Plot,1,300.00,300.00
+1,RCV-180710001,2,001,Nazrul Islam,2018-07-09,2017,August,Monthly,1 Plot,1,300.00,300.00
+1,RCV-180710001,3,001,Nazrul Islam,2018-07-09,2017,September,Monthly,1 Plot,1,300.00,300.00
+1,RCV-180710001,4,001,Nazrul Islam,2018-07-09,2017,October,Monthly,1 Plot,1,300.00,300.00
+1,RCV-180710001,5,001,Nazrul Islam,2018-07-09,2017,November,Monthly,1 Plot,1,300.00,300.00
+1,RCV-180710001,6,001,Nazrul Islam,2018-07-09,2017,December,Monthly,1 Plot,1,300.00,300.00
+1,RCV-180710001,7,001,Nazrul Islam,2018-07-09,2018,July,Reg,1 Plot,1,1000.00,300.00
+1,RCV-180710001,7177,005,Nur Mohammad,2018-07-09,2025,September,Monthly,3 Plot,3,500.00,500.00
+209,NULL,1495,145,Leyakot Ali Khan,2025-03-11,2020,September,Monthly,2 Plot,2,600.00,600.00
+209,NULL,1496,145,Leyakot Ali Khan,2025-03-11,2020,October,Monthly,2 Plot,2,600.00,600.00
+210,NULL,1497,145,Leyakot Ali Khan,2025-03-11,2020,July,Monthly,2 Plot,2,600.00,600.00
+210,NULL,1498,145,Leyakot Ali Khan,2025-03-11,2020,August,Monthly,2 Plot,2,600.00,600.00
+213,RCV-250707001,1510,067,Md.Sahid Ullah Miajee,2025-07-07,2018,April,Monthly,2 Plot,2,600.00,600.00
+213,RCV-250707001,1511,067,Md.Sahid Ullah Miajee,2025-07-07,2018,May,Monthly,2 Plot,2,600.00,600.00
+213,RCV-250707001,1512,067,Md.Sahid Ullah Miajee,2025-07-07,2018,June,Monthly,2 Plot,2,600.00,600.00
+213,RCV-250707001,1513,067,Md.Sahid Ullah Miajee,2025-07-07,2018,July,Monthly,2 Plot,2,600.00,600.00
+213,RCV-250707001,1514,067,Md.Sahid Ullah Miajee,2025-07-07,2018,August,Monthly,2 Plot,2,600.00,600.00
+213,RCV-250707001,1515,067,Md.Sahid Ullah Miajee,2025-07-07,2018,September,Monthly,2 Plot,2,600.00,600.00
+213,RCV-250707001,1516,067,Md.Sahid Ullah Miajee,2025-07-07,2018,October,Monthly,2 Plot,2,600.00,600.00
+213,RCV-250707001,1517,067,Md.Sahid Ullah Miajee,2025-07-07,2018,November,Monthly,2 Plot,2,600.00,600.00
+224,RCV-250813001,1807,085,Md.Moharam Ali Gong ,2025-08-13,2017,November,Monthly,2 Plot,2,600.00,600.00
+224,RCV-250813001,1808,085,Md.Moharam Ali Gong ,2025-08-13,2017,December,Monthly,2 Plot,2,600.00,600.00
+224,RCV-250813001,1809,085,Md.Moharam Ali Gong ,2025-08-13,2018,January,Monthly,2 Plot,2,600.00,600.00
+224,RCV-250813001,1810,085,Md.Moharam Ali Gong ,2025-08-13,2018,February,Monthly,2 Plot,2,600.00,600.00
+224,RCV-250813001,1811,085,Md.Moharam Ali Gong ,2025-08-13,2018,March,Monthly,2 Plot,2,600.00,600.00
+224,RCV-250813001,1812,085,Md.Moharam Ali Gong ,2025-08-13,2018,April,Monthly,2 Plot,2,600.00,600.00
+224,RCV-250813001,1813,085,Md.Moharam Ali Gong ,2025-08-13,2018,May,Monthly,2 Plot,2,600.00,600.00
+224,RCV-250813001,1814,085,Md.Moharam Ali Gong ,2025-08-13,2018,June,Monthly,2 Plot,2,600.00,600.00
+224,RCV-250813001,1815,085,Md.Moharam Ali Gong ,2025-08-13,2018,July,Monthly,2 Plot,2,600.00,600.00
+5240,RCV-250908001,7151,001,Nazrul Islam,2025-09-08,2025,September,Monthly Installment,1 Plot,1,500.00,500.00
+5258,RCV-250908019,7172,001,Nazrul Islam,2025-09-08,2021,September,Monthly Installment,1 Plot,1,300.00,300.00
+5273,RCV-250908034,7196,001,Nazrul Islam,2025-09-08,2023,March,Monthly Installment,1 Plot,1,300.00,300.00
+5274,RCV-250908035,7201,001,Nazrul Islam,2025-09-08,2025,February,Monthly Installment,1 Plot,1,500.00,500.00
+5275,RCV-250908036,7204,001,Nazrul Islam,2025-09-08,2025,April,Monthly Installment,1 Plot,1,500.00,500.00
+5282,RCV-250908043,7220,040,Ibrahim Khalil,2025-09-08,2025,September,Monthly Installment,1 Plot,1,500.00,500.00
+5291,RCV-250908052,7234,005,Nur Mohammad,2025-09-08,2025,August,Monthly Installment,1 Plot,1,500.00,500.00
+5291,RCV-250908052,7235,005,Nur Mohammad,2025-09-08,2025,June,Monthly Installment,1 Plot,1,500.00,500.00
+7242,RCV-251007003,9157,002,Md.Abul Kashem,2025-10-07,2024,September,Monthly Installment,1 Plot,1,300.00,300.00
+7242,RCV-251007003,9158,002,Md.Abul Kashem,2025-10-07,2025,April,Monthly Installment,1 Plot,1,500.00,500.00
+7242,RCV-251007003,9160,002,Md.Abul Kashem,2025-10-07,2025,February,Monthly Installment,1 Plot,1,500.00,500.00
+7242,RCV-251007003,9161,002,Md.Abul Kashem,2025-10-07,2025,January,Monthly Installment,1 Plot,1,500.00,500.00
+7242,RCV-251007003,9162,002,Md.Abul Kashem,2025-10-07,2025,July,Monthly Installment,1 Plot,1,500.00,500.00
+7242,RCV-251007003,9163,002,Md.Abul Kashem,2025-10-07,2025,June,Monthly Installment,1 Plot,1,500.00,500.00
+7242,RCV-251007003,9164,002,Md.Abul Kashem,2025-10-07,2025,March,Monthly Installment,1 Plot,1,500.00,500.00
+7242,RCV-251007003,9165,002,Md.Abul Kashem,2025-10-07,2025,May,Monthly Installment,1 Plot,1,500.00,500.00
+7242,RCV-251007003,9166,002,Md.Abul Kashem,2025-10-07,2025,October,Monthly Installment,1 Plot,1,500.00,500.00

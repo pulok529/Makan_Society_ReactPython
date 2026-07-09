@@ -1,6 +1,7 @@
-from sqlalchemy import Integer, and_, case, cast, func, or_, select
+from sqlalchemy import Integer, and_, case, cast, exists, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.modules.billing.models import BillingDueTracker
 from app.modules.members.models import Member, MemberNominee, MemberPackage
 
 
@@ -9,6 +10,74 @@ class MemberRepository:
         self.db = db
 
     def list_members(self, search: str | None = None) -> list[Member]:
+        statement = self._member_ordered_statement()
+        if search:
+            statement = statement.where(self._search_expression(search))
+        return list(self.db.scalars(statement))
+
+    def paged_members(
+        self,
+        *,
+        search: str | None = None,
+        is_active: bool | None = None,
+        category_id: int | None = None,
+        has_phone: bool | None = None,
+        due_only: bool = False,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[int, list[Member]]:
+        statement = self._member_ordered_statement()
+        count_statement = select(func.count()).select_from(Member)
+        conditions = []
+        if search:
+            conditions.append(self._search_expression(search))
+        if is_active is not None:
+            conditions.append(Member.is_active == is_active)
+        if category_id is not None:
+            conditions.append(Member.category_id == category_id)
+        if has_phone is True:
+            conditions.append(Member.cell_no.is_not(None))
+            conditions.append(Member.cell_no != "")
+        elif has_phone is False:
+            conditions.append(or_(Member.cell_no.is_(None), Member.cell_no == ""))
+        if due_only:
+            due_exists = exists(
+                select(BillingDueTracker.id).where(
+                    BillingDueTracker.member_id == Member.id,
+                    BillingDueTracker.is_settled == False,  # noqa: E712
+                    BillingDueTracker.due_amount > 0,
+                )
+            )
+            conditions.append(due_exists)
+        for condition in conditions:
+            statement = statement.where(condition)
+            count_statement = count_statement.where(condition)
+        total = int(self.db.scalar(count_statement) or 0)
+        items = list(self.db.scalars(statement.offset(offset).limit(limit)))
+        return total, items
+
+    def search_members(
+        self,
+        *,
+        query: str,
+        limit: int = 20,
+        is_active: bool | None = True,
+        has_phone: bool | None = None,
+        due_only: bool = False,
+        category_id: int | None = None,
+    ) -> list[Member]:
+        _total, items = self.paged_members(
+            search=query,
+            is_active=is_active,
+            category_id=category_id,
+            has_phone=has_phone,
+            due_only=due_only,
+            limit=limit,
+            offset=0,
+        )
+        return items
+
+    def _member_ordered_statement(self):
         numeric_member_code = case(
             (
                 and_(
@@ -20,23 +89,23 @@ class MemberRepository:
             ),
             else_=None,
         )
-        statement = select(Member).order_by(
+        return select(Member).order_by(
             case((numeric_member_code.is_(None), 1), else_=0).asc(),
             numeric_member_code.asc(),
             Member.member_code.asc(),
             Member.full_name.asc(),
         )
-        if search:
-            pattern = f"%{search.strip()}%"
-            statement = statement.where(
-                or_(
-                    Member.full_name.ilike(pattern),
-                    Member.member_code.ilike(pattern),
-                    Member.cell_no.ilike(pattern),
-                    Member.plot_no.ilike(pattern),
-                )
-            )
-        return list(self.db.scalars(statement))
+
+    @staticmethod
+    def _search_expression(search: str):
+        pattern = f"%{search.strip()}%"
+        return or_(
+            Member.full_name.ilike(pattern),
+            Member.member_code.ilike(pattern),
+            Member.cell_no.ilike(pattern),
+            Member.plot_no.ilike(pattern),
+            Member.member_id_text.ilike(pattern),
+        )
 
     def get_by_id(self, member_id: int) -> Member | None:
         return self.db.get(Member, member_id)

@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.common.schemas import PaginatedResponse
+
 
 class SmsTemplateCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
@@ -116,3 +118,11 @@ class SmsDeliveryAttemptRead(BaseModel):
     provider_status: str | None
     error_detail: str | None
     attempted_at: datetime
+
+
+class SmsMessagePage(PaginatedResponse[SmsMessageRead]):
+    pass
+
+
+class SmsDeliveryAttemptPage(PaginatedResponse[SmsDeliveryAttemptRead]):
+    pass
