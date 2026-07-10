@@ -353,6 +353,76 @@ class AccountingService:
         self.db.commit()
         return self._serialize_voucher(voucher)
 
+    def reverse_transferred_income(self, invoice_id: int, invoice_no: str, details: list, created_by: int | None) -> None:
+        from app.modules.billing.models import BillingInvoiceDetail
+
+        transferred = [d for d in details if d.is_income_transferred and float(d.receive_amount) > 0]
+        if not transferred:
+            return
+
+        grouped_by_coa = defaultdict(float)
+        for d in transferred:
+            grouped_by_coa[d.coa_id_snapshot] += float(d.receive_amount)
+
+        today = date.today()
+        total_reverse = sum(grouped_by_coa.values())
+        remarks = f"(void invoice) Reversal for Invoice {invoice_no}"
+
+        voucher = AccountingVoucher(
+            voucher_no=self._next_voucher_no("income", today),
+            voucher_type="income",
+            voucher_date=today,
+            total_amount=-total_reverse,
+            remarks=remarks,
+            created_by=created_by,
+        )
+        self.repository.add_voucher(voucher)
+
+        for coa_id, amount in grouped_by_coa.items():
+            if coa_id is None:
+                continue
+
+            # Reversal Income Entry
+            income = IncomeEntry(
+                income_date=today,
+                coa_id=coa_id,
+                amount=-amount,
+                remarks=remarks,
+                created_by=created_by,
+            )
+            self.repository.add_income(income)
+
+            # Link to the original billing details for transparency
+            for d in transferred:
+                if d.coa_id_snapshot == coa_id:
+                    self.repository.add_income_detail(
+                        IncomeEntryDetail(
+                            income_id=income.id,
+                            billing_detail_id=d.id,
+                            amount=-float(d.receive_amount),
+                        )
+                    )
+
+            # Reversal Voucher Detail
+            self.repository.add_voucher_detail(
+                AccountingVoucherDetail(
+                    voucher_id=voucher.id,
+                    coa_id=coa_id,
+                    amount=-amount,
+                    remarks=remarks,
+                )
+            )
+
+            # Reversal IncomeExpense Entry
+            self.repository.add_entry(
+                IncomeExpenseEntry(
+                    account_id=coa_id,
+                    entry_type="income",
+                    amount=-amount,
+                    remarks=remarks,
+                )
+            )
+
     def income_expense_report(self, from_date: date | None = None, to_date: date | None = None) -> IncomeExpenseComparisonReport:
         vouchers = self.repository.list_vouchers()
         accounts = {account.id: account for account in self.repository.list_accounts()}

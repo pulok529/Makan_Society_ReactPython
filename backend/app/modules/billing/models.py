@@ -202,3 +202,55 @@ class BillingReportExport(Base):
     report_type: Mapped[str] = mapped_column(String(100))
     parameters: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class BillingVoidedInvoice(Base):
+    __tablename__ = "billing_voided_invoices"
+    __table_args__ = (
+        Index("ix_billing_voided_invoices_member", "MemberID"),
+        Index("ix_billing_voided_invoices_invoice_date", "InvoiceDate"),
+        {"schema": "billing"},
+    )
+
+    id: Mapped[int] = mapped_column("VoidedInvoiceID", primary_key=True, autoincrement=True)
+    invoice_id: Mapped[int] = mapped_column("OriginalInvoiceID")
+    invoice_no: Mapped[str] = mapped_column("InvoiceNo", String(50), index=True)
+    member_id: Mapped[int] = mapped_column("MemberID", ForeignKey("society.members.id"))
+    invoice_date: Mapped[date] = mapped_column("InvoiceDate", Date)
+    subtotal_amount: Mapped[float] = mapped_column("SubtotalAmount", Numeric(18, 2))
+    discount_amount: Mapped[float] = mapped_column("DiscountAmount", Numeric(18, 2), default=0)
+    net_amount: Mapped[float] = mapped_column("NetAmount", Numeric(18, 2))
+    total_receive_amount: Mapped[float] = mapped_column("TotalReceiveAmount", Numeric(18, 2), default=0)
+    total_due_amount: Mapped[float] = mapped_column("TotalDueAmount", Numeric(18, 2), default=0)
+    cancel_reason: Mapped[str | None] = mapped_column("CancelReason", String(255))
+    created_at: Mapped[datetime] = mapped_column("CreatedAt", DateTime(timezone=True))
+    created_by: Mapped[int | None] = mapped_column("CreatedBy", ForeignKey("auth.users.id"))
+    voided_at: Mapped[datetime] = mapped_column("VoidedAt", DateTime(timezone=True), server_default=func.now())
+    voided_by: Mapped[int | None] = mapped_column("VoidedBy", ForeignKey("auth.users.id"))
+
+
+class BillingVoidedInvoiceDetail(Base):
+    __tablename__ = "billing_voided_invoice_details"
+    __table_args__ = (
+        Index("ix_billing_voided_invoice_details_member", "MemberID"),
+        {"schema": "billing"},
+    )
+
+    id: Mapped[int] = mapped_column("VoidedInvoiceDetailID", primary_key=True, autoincrement=True)
+    voided_invoice_id: Mapped[int] = mapped_column("VoidedInvoiceID", ForeignKey("billing.billing_voided_invoices.VoidedInvoiceID", ondelete="CASCADE"))
+    original_detail_id: Mapped[int] = mapped_column("OriginalInvoiceDetailID")
+    member_id: Mapped[int] = mapped_column("MemberID", ForeignKey("society.members.id"))
+    billing_head_id: Mapped[int] = mapped_column("BillingHeadID", ForeignKey("billing.billing_heads.BillingHeadID"))
+    head_name_snapshot: Mapped[str] = mapped_column("HeadNameSnapshot", String(150))
+    head_type: Mapped[str] = mapped_column("HeadType", String(20))
+    period_date: Mapped[date | None] = mapped_column("PeriodDate", Date)
+    period_display: Mapped[str | None] = mapped_column("PeriodDisplay", String(20))
+    fee_amount: Mapped[float] = mapped_column("FeeAmount", Numeric(18, 2))
+    receive_amount: Mapped[float] = mapped_column("ReceiveAmount", Numeric(18, 2), default=0)
+    due_amount: Mapped[float] = mapped_column("DueAmount", Numeric(18, 2), default=0)
+    discount_amount: Mapped[float] = mapped_column("DiscountAmount", Numeric(18, 2), default=0)
+    coa_id_snapshot: Mapped[int | None] = mapped_column("COAIDSnapshot", ForeignKey("accounting.accounts.id"))
+    income_voucher_id: Mapped[int | None] = mapped_column("IncomeVoucherID", ForeignKey("accounting.accounting_vouchers.VoucherID"))
+    is_income_transferred: Mapped[bool] = mapped_column("IsIncomeTransferred", Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column("CreatedAt", DateTime(timezone=True))
+    created_by: Mapped[int | None] = mapped_column("CreatedBy", ForeignKey("auth.users.id"))

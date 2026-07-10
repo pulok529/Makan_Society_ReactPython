@@ -279,15 +279,66 @@ class BillingService:
             details=[self._serialize_invoice_detail(detail) for detail in details],
         )
 
-    def cancel_invoice(self, invoice_id: int, payload: BillingInvoiceCancel) -> BillingInvoiceRead:
+    def cancel_invoice(self, invoice_id: int, payload: BillingInvoiceCancel, current_user: User) -> BillingInvoiceRead:
         invoice = self.repository.get_invoice(invoice_id)
         if invoice is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
-        invoice.is_cancelled = True
-        invoice.cancel_reason = payload.cancel_reason
+            
+        details = self.repository.list_invoice_details(invoice.id)
+        
+        from app.modules.accounting.service import AccountingService
+        AccountingService(self.db).reverse_transferred_income(invoice.id, invoice.invoice_no, details, current_user.id)
+        
+        # Serialize response before deletion
+        response = self.serialize_invoice(invoice_id)
+        response.is_cancelled = True
+        response.cancel_reason = payload.cancel_reason
+        
+        from app.modules.billing.models import BillingVoidedInvoice, BillingVoidedInvoiceDetail
+        
+        voided_invoice = BillingVoidedInvoice(
+            invoice_id=invoice.id,
+            invoice_no=invoice.invoice_no,
+            member_id=invoice.member_id,
+            invoice_date=invoice.invoice_date,
+            subtotal_amount=invoice.subtotal_amount,
+            discount_amount=invoice.discount_amount,
+            net_amount=invoice.net_amount,
+            total_receive_amount=invoice.total_receive_amount,
+            total_due_amount=invoice.total_due_amount,
+            cancel_reason=payload.cancel_reason,
+            created_at=invoice.created_at,
+            created_by=invoice.created_by,
+            voided_by=current_user.id,
+        )
+        self.repository.add_voided_invoice(voided_invoice)
+        
+        for d in details:
+            voided_detail = BillingVoidedInvoiceDetail(
+                voided_invoice_id=voided_invoice.id,
+                original_detail_id=d.id,
+                member_id=d.member_id,
+                billing_head_id=d.billing_head_id,
+                head_name_snapshot=d.head_name_snapshot,
+                head_type=d.head_type,
+                period_date=d.period_date,
+                period_display=d.period_display,
+                fee_amount=d.fee_amount,
+                receive_amount=d.receive_amount,
+                due_amount=d.due_amount,
+                discount_amount=d.discount_amount,
+                coa_id_snapshot=d.coa_id_snapshot,
+                income_voucher_id=d.income_voucher_id,
+                is_income_transferred=d.is_income_transferred,
+                created_at=d.created_at,
+                created_by=d.created_by,
+            )
+            self.repository.add_voided_invoice_detail(voided_detail)
+            
+        self.repository.delete_invoice(invoice)
         self.sync_due_tracker_for_member(invoice.member_id)
         self.db.commit()
-        return self.serialize_invoice(invoice_id)
+        return response
 
     def sync_due_tracker_for_member(self, member_id: int) -> list[BillingDueTracker]:
         self._ensure_default_billing_setup()

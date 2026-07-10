@@ -1755,8 +1755,10 @@ export function App() {
       if (!invoiceId) return;
       if (actionButton.dataset.invoiceAction === "view") {
         void openInvoiceReportById(invoiceId);
-      } else {
+      } else if (actionButton.dataset.invoiceAction === "print") {
         void printInvoiceById(invoiceId);
+      } else if (actionButton.dataset.invoiceAction === "delete") {
+        void handleDeleteInvoice(invoiceId);
       }
     };
     tableElement.addEventListener("click", clickHandler);
@@ -1816,6 +1818,7 @@ export function App() {
                 `<div class="d-inline-flex gap-1">
                   <button class="btn btn-sm btn-soft-info" type="button" data-invoice-action="view" data-invoice-id="${row.id}"><i class="ri-eye-line me-1"></i>View</button>
                   <button class="btn btn-sm btn-soft-primary" type="button" data-invoice-action="print" data-invoice-id="${row.id}"><i class="ri-printer-line me-1"></i>Print</button>
+                  ${!row.status.includes('Cancelled') ? `<button class="btn btn-sm btn-soft-danger" type="button" data-invoice-action="delete" data-invoice-id="${row.id}"><i class="ri-delete-bin-line me-1"></i>Delete</button>` : ''}
                 </div>`,
             },
           ],
@@ -2689,6 +2692,43 @@ export function App() {
       setMessage(error instanceof Error ? error.message : "Unable to open invoice report");
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleDeleteInvoice(invoiceId: number) {
+    const reason = window.prompt("Are you sure you want to delete/void this invoice? Please enter a reason:");
+    if (!reason) return; // User cancelled or left it blank
+    
+    const accessToken = token();
+    if (!accessToken) return;
+    
+    try {
+      const response = await fetch(`/api/billing/invoices/${invoiceId}/cancel`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ cancel_reason: reason }),
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        window.alert(`Failed to delete invoice: ${err.detail || response.statusText}`);
+        return;
+      }
+      
+      // Reload the datatable to show it's deleted/cancelled
+      const tableElement = previousBillsTableRef.current;
+      if (tableElement && getJQuery()?.fn?.DataTable && getJQuery().fn.DataTable.isDataTable(tableElement)) {
+        getJQuery()(tableElement).DataTable().ajax.reload(null, false);
+      }
+      
+      // Also reload dues just in case
+      void handleLoadMemberDues();
+      window.alert("Invoice successfully deleted and archived!");
+    } catch (error) {
+      console.error(error);
+      window.alert("An error occurred while deleting the invoice.");
     }
   }
 

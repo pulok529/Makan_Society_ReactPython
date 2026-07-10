@@ -15,6 +15,8 @@ from app.modules.billing.models import (
     ChargeItem,
     Receipt,
     ReceiptLine,
+    BillingVoidedInvoice,
+    BillingVoidedInvoiceDetail,
 )
 from app.modules.members.models import Member, MemberPackage
 
@@ -563,6 +565,22 @@ class BillingRepository:
         if member_id is not None:
             statement = statement.where(BillingDueTracker.member_id == member_id)
         return list(self.db.scalars(statement))
+
+    def add_voided_invoice(self, voided_invoice: BillingVoidedInvoice) -> BillingVoidedInvoice:
+        self.db.add(voided_invoice)
+        self.db.flush()
+        self.db.refresh(voided_invoice)
+        return voided_invoice
+
+    def add_voided_invoice_detail(self, voided_detail: BillingVoidedInvoiceDetail) -> BillingVoidedInvoiceDetail:
+        self.db.add(voided_detail)
+        self.db.flush()
+        self.db.refresh(voided_detail)
+        return voided_detail
+
+    def delete_invoice(self, invoice: BillingInvoice) -> None:
+        self.db.delete(invoice)
+        self.db.flush()
 
 
 def literal_column_safe(column_name: str):

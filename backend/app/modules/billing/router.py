@@ -318,10 +318,10 @@ def get_invoice(
 def cancel_invoice(
     invoice_id: int,
     payload: BillingInvoiceCancel,
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> BillingInvoiceRead:
-    return BillingService(db).cancel_invoice(invoice_id, payload)
+    return BillingService(db).cancel_invoice(invoice_id, payload, current_user)
 
 
 @router.get("/reports/{report_type}", response_model=BillingReportRead)
