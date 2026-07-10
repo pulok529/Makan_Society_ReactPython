@@ -1,5 +1,6 @@
 import { ChangeEvent, FormEvent, ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import Swal from "sweetalert2";
 import { getSmsBalance, sendTestSms, SmsBalanceResult } from "./api/sms";
 import {
   loadIncomeExpenseReport,
@@ -2696,8 +2697,23 @@ export function App() {
   }
 
   async function handleDeleteInvoice(invoiceId: number) {
-    const reason = window.prompt("Are you sure you want to delete/void this invoice? Please enter a reason:");
-    if (!reason) return; // User cancelled or left it blank
+    const { value: reason } = await Swal.fire({
+      title: "Void Invoice",
+      text: "Are you sure you want to delete/void this invoice? Please enter a reason:",
+      input: "text",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, delete it",
+      confirmButtonColor: "#f06548",
+      cancelButtonText: "Cancel",
+      inputValidator: (value) => {
+        if (!value || value.trim() === "") {
+          return "You need to provide a reason!";
+        }
+      }
+    });
+
+    if (!reason) return; // User cancelled
     
     const accessToken = token();
     if (!accessToken) return;
@@ -2709,11 +2725,12 @@ export function App() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ cancel_reason: reason }),
+        body: JSON.stringify({ cancel_reason: reason.trim() }),
       });
+      
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
-        window.alert(`Failed to delete invoice: ${err.detail || response.statusText}`);
+        void Swal.fire("Failed!", `Failed to delete invoice: ${err.detail || response.statusText}`, "error");
         return;
       }
       
@@ -2725,10 +2742,10 @@ export function App() {
       
       // Also reload dues just in case
       void handleLoadMemberDues();
-      window.alert("Invoice successfully deleted and archived!");
+      void Swal.fire("Deleted!", "Invoice successfully deleted and archived!", "success");
     } catch (error) {
       console.error(error);
-      window.alert("An error occurred while deleting the invoice.");
+      void Swal.fire("Error!", "An error occurred while deleting the invoice.", "error");
     }
   }
 
