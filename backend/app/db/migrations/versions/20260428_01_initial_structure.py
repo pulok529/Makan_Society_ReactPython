@@ -272,6 +272,36 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "accounting_vouchers",
+        sa.Column("VoucherID", sa.Integer(), autoincrement=True, nullable=False),
+        sa.Column("VoucherNo", sa.String(length=50), nullable=False),
+        sa.Column("VoucherType", sa.String(length=50), nullable=False),
+        sa.Column("VoucherDate", sa.Date(), nullable=False),
+        sa.Column("TotalAmount", sa.Numeric(18, 2), nullable=False),
+        sa.Column("Remarks", sa.String(length=255), nullable=True),
+        sa.Column("CreatedAt", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("CreatedBy", sa.Integer(), nullable=True),
+        sa.ForeignKeyConstraint(["CreatedBy"], ["auth.users.id"]),
+        sa.PrimaryKeyConstraint("VoucherID"),
+        sa.UniqueConstraint("VoucherNo"),
+        schema="accounting",
+    )
+
+    op.create_table(
+        "accounting_voucher_details",
+        sa.Column("VoucherDetailID", sa.Integer(), autoincrement=True, nullable=False),
+        sa.Column("VoucherID", sa.Integer(), nullable=False),
+        sa.Column("COAID", sa.Integer(), nullable=False),
+        sa.Column("Amount", sa.Numeric(18, 2), nullable=False),
+        sa.Column("Remarks", sa.String(length=255), nullable=True),
+        sa.ForeignKeyConstraint(["COAID"], ["accounting.accounts.id"]),
+        sa.ForeignKeyConstraint(["VoucherID"], ["accounting.accounting_vouchers.VoucherID"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("VoucherDetailID"),
+        schema="accounting",
+    )
+
+
+    op.create_table(
         "sms_templates",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("name", sa.String(length=120), nullable=False),
@@ -416,6 +446,8 @@ def downgrade() -> None:
         ("file_objects", "files"),
         ("sms_templates", "messaging"),
         ("income_expense_entries", "accounting"),
+        ("accounting_voucher_details", "accounting"),
+        ("accounting_vouchers", "accounting"),
         ("accounts", "accounting"),
         ("receipt_lines", "billing"),
         ("receipts", "billing"),

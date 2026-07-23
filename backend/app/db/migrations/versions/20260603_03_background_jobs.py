@@ -16,6 +16,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    op.execute("IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'system') EXEC('CREATE SCHEMA [system]')")
     op.create_table(
         "background_jobs",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
