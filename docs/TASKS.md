@@ -1,8 +1,10 @@
-﻿# Tasks
+# Tasks
 
 Last updated: 2026-05-20
 
 ## Completed Tasks
+
+- Fixed Collection page UI and API calculation where historical legacy payments (e.g. 300 out of 500) were hidden from the grid and incorrectly excluded from invoice generation, causing math confusion. Added a new 'Paid Amount' column and dynamically capped the 'Receive Amount' input.
 
 - Fixed critical Due Amount calculation bug where the system forced historical maximum fees for remaining balances instead of current active fee rate.
 
