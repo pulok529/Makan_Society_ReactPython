@@ -505,11 +505,10 @@ class BillingRepository:
             "total_paid": float(totals_row.total_paid or 0),
             "total_due": float(totals_row.total_due or 0),
         }
-    def get_period_payment_totals(self, member_id: int, head_id: int, period_date) -> tuple[float, float]:
+    def get_period_payment_totals(self, member_id: int, head_id: int, period_date) -> float:
         statement = (
             select(
-                func.coalesce(func.sum(BillingInvoiceDetail.receive_amount + BillingInvoiceDetail.discount_amount), 0),
-                func.coalesce(func.max(BillingInvoiceDetail.fee_amount), 0),
+                func.coalesce(func.sum(BillingInvoiceDetail.receive_amount + BillingInvoiceDetail.discount_amount), 0)
             )
             .join(BillingInvoice, BillingInvoice.id == BillingInvoiceDetail.invoice_id)
             .where(
@@ -519,16 +518,13 @@ class BillingRepository:
                 BillingInvoiceDetail.period_date == period_date,
             )
         )
-        paid, fee = self.db.execute(statement).one()
-        paid_total = float(paid or 0)
-        due_total = max(float(fee or 0) - paid_total, 0)
-        return paid_total, due_total
+        paid = self.db.scalar(statement)
+        return float(paid or 0)
 
-    def get_one_time_payment_totals(self, member_id: int, head_id: int) -> tuple[float, float]:
+    def get_one_time_payment_totals(self, member_id: int, head_id: int) -> float:
         statement = (
             select(
-                func.coalesce(func.sum(BillingInvoiceDetail.receive_amount + BillingInvoiceDetail.discount_amount), 0),
-                func.coalesce(func.max(BillingInvoiceDetail.fee_amount), 0),
+                func.coalesce(func.sum(BillingInvoiceDetail.receive_amount + BillingInvoiceDetail.discount_amount), 0)
             )
             .join(BillingInvoice, BillingInvoice.id == BillingInvoiceDetail.invoice_id)
             .where(
@@ -538,10 +534,8 @@ class BillingRepository:
                 BillingInvoiceDetail.period_date.is_(None),
             )
         )
-        paid, fee = self.db.execute(statement).one()
-        paid_total = float(paid or 0)
-        due_total = max(float(fee or 0) - paid_total, 0)
-        return paid_total, due_total
+        paid = self.db.scalar(statement)
+        return float(paid or 0)
 
     def list_accounts(self) -> list[Account]:
         return list(self.db.scalars(select(Account).order_by(Account.code.asc())))

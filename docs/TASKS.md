@@ -1,8 +1,10 @@
-# Tasks
+﻿# Tasks
 
 Last updated: 2026-05-20
 
 ## Completed Tasks
+
+- Fixed critical Due Amount calculation bug where the system forced historical maximum fees for remaining balances instead of current active fee rate.
 
 - Created durable project memory files:
   - `AGENTS.md`
