@@ -37,6 +37,7 @@ def _build_report(report_key: str, service: ReportingService, filters: ReportFil
         "members": service.member_register,
         "income-detail": service.income_detail,
         "expense-detail": service.expense_detail,
+        "electricity-collection": service.electricity_collection,
         "total-collection": service.total_collection,
         "total-due": service.total_due,
     }

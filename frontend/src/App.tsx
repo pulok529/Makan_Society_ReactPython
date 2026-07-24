@@ -5342,6 +5342,7 @@ export function App() {
                   <select className="form-select" value={reportType} onChange={(event) => setReportType(event.target.value)}>
                     <option value="due-members">Due Members</option>
                     <option value="collections">Collections</option>
+                    <option value="electricity-collection">Electricity Collection Report</option>
                     <option value="income-detail">Income Detail</option>
                     <option value="expense-detail">Expense Detail</option>
                     <option value="total-collection">Total Collection</option>

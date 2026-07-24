@@ -200,6 +200,27 @@ class ReportingService:
             rows=[row.model_dump() for row in rows],
         )
 
+    def electricity_collection(self, filters: ReportFilter) -> ReportEnvelope:
+        total, total_bill, total_paid, rows = self.repository.electricity_collection(
+            member_id=filters.member_id,
+            plot_no=filters.plot_no,
+            from_date=filters.from_date,
+            to_date=filters.to_date,
+        )
+        return ReportEnvelope(
+            report_type="electricity_collection",
+            title="Electricity Collection Report",
+            generated_at=datetime.now(UTC),
+            row_count=total,
+            totals={
+                "total_transactions": total,
+                "total_electricity_bill_amount": round(total_bill, 2),
+                "total_collected_amount": round(total_paid, 2),
+            },
+            applied_filters=self._applied_filters(filters),
+            rows=rows,
+        )
+
     def collections(self, filters: ReportFilter) -> ReportEnvelope:
         members = {
             member.id: member
@@ -773,6 +794,30 @@ class ReportingService:
                 limit=safe_limit,
                 offset=safe_offset,
                 totals={"total_expense_amount": round(total_amount, 2), "expense_entry_count": total},
+                applied_filters=applied_filters,
+                items=rows,
+            )
+        if report_key == "electricity-collection":
+            total, total_bill, total_paid, rows = self.repository.paged_electricity_collection(
+                member_id=filters.member_id,
+                plot_no=filters.plot_no,
+                from_date=filters.from_date,
+                to_date=filters.to_date,
+                limit=safe_limit,
+                offset=safe_offset,
+            )
+            return ReportPageEnvelope(
+                report_type="electricity_collection",
+                title="Electricity Collection Report",
+                generated_at=generated_at,
+                total=total,
+                limit=safe_limit,
+                offset=safe_offset,
+                totals={
+                    "total_transactions": total,
+                    "total_electricity_bill_amount": round(total_bill, 2),
+                    "total_collected_amount": round(total_paid, 2),
+                },
                 applied_filters=applied_filters,
                 items=rows,
             )

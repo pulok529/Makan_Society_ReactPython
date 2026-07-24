@@ -16,6 +16,7 @@ const tableReportPathMap: Record<TableReportType, string> = {
   "expense-detail": "/api/reports/expense-detail",
   charges: "/api/reports/charges",
   members: "/api/reports/members",
+  "electricity-collection": "/api/reports/electricity-collection",
   "total-collection": "/api/reports/total-collection",
   "total-due": "/api/reports/total-due",
 };

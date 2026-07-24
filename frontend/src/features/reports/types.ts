@@ -111,6 +111,7 @@ export type TableReportType =
   | "expense-detail"
   | "charges"
   | "members"
+  | "electricity-collection"
   | "total-collection"
   | "total-due";
 
@@ -121,6 +122,7 @@ export const TABLE_REPORT_TYPES = new Set<TableReportType>([
   "expense-detail",
   "charges",
   "members",
+  "electricity-collection",
   "total-collection",
   "total-due",
 ]);

@@ -4,7 +4,7 @@ from sqlalchemy import Select, and_, case, func, select
 from sqlalchemy.orm import Session
 
 from app.modules.accounting.models import Account, ExpenseEntry, IncomeEntry
-from app.modules.billing.models import BillingInvoice, BillingInvoiceDetail, BillingPeriod, Charge, Receipt, ReceiptLine
+from app.modules.billing.models import BillingHead, BillingInvoice, BillingInvoiceDetail, BillingPeriod, Charge, Receipt, ReceiptLine
 from app.modules.categories.models import MemberCategory
 from app.modules.members.models import Member, MemberNominee, MemberPackage
 from app.modules.packages.models import Package
@@ -235,6 +235,140 @@ class ReportingRepository:
             .limit(limit)
         ).mappings().all()
         return int(self.db.scalar(count_stmt) or 0), float(self.db.scalar(total_stmt) or 0), self._serialize_rows(rows)
+
+    def _get_electricity_head_ids(self) -> list[int]:
+        stmt = select(BillingHead.id).where(BillingHead.head_name.ilike("%Electric%"))
+        return list(self.db.scalars(stmt).all())
+
+    def _base_electricity_collection_query(
+        self,
+        *,
+        member_id: int | None = None,
+        plot_no: str | None = None,
+        from_date=None,
+        to_date=None,
+    ) -> tuple[list, Select, Select]:
+        conditions = [
+            BillingInvoice.is_cancelled == False,  # noqa: E712
+            BillingInvoiceDetail.receive_amount > 0,
+        ]
+        
+        electricity_head_ids = self._get_electricity_head_ids()
+        if electricity_head_ids:
+            conditions.append(BillingInvoiceDetail.billing_head_id.in_(electricity_head_ids))
+        else:
+            # Fallback to name search if no heads match directly by ID
+            conditions.append(BillingInvoiceDetail.head_name_snapshot.ilike("%Electric%"))
+            
+        if member_id is not None:
+            conditions.append(BillingInvoice.member_id == member_id)
+        if plot_no is not None and plot_no.strip():
+            conditions.append((Member.plot_no.ilike(f"%{plot_no.strip()}%")) | (Member.member_code.ilike(f"%{plot_no.strip()}%")))
+        if from_date is not None:
+            conditions.append(BillingInvoice.invoice_date >= from_date)
+        if to_date is not None:
+            conditions.append(BillingInvoice.invoice_date <= to_date)
+
+        base = (
+            select(BillingInvoiceDetail.id)
+            .select_from(BillingInvoiceDetail)
+            .join(BillingInvoice, BillingInvoice.id == BillingInvoiceDetail.invoice_id)
+            .join(Member, Member.id == BillingInvoice.member_id)
+        )
+        total_stmt = (
+            select(
+                func.coalesce(func.sum(BillingInvoiceDetail.fee_amount), 0),
+                func.coalesce(func.sum(BillingInvoiceDetail.receive_amount), 0),
+            )
+            .select_from(BillingInvoiceDetail)
+            .join(BillingInvoice, BillingInvoice.id == BillingInvoiceDetail.invoice_id)
+            .join(Member, Member.id == BillingInvoice.member_id)
+        )
+        if conditions:
+            base = base.where(and_(*conditions))
+            total_stmt = total_stmt.where(and_(*conditions))
+            
+        return conditions, base, total_stmt
+
+    def paged_electricity_collection(
+        self,
+        *,
+        member_id: int | None = None,
+        plot_no: str | None = None,
+        from_date=None,
+        to_date=None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[int, float, float, list[dict]]:
+        conditions, base, total_stmt = self._base_electricity_collection_query(
+            member_id=member_id, plot_no=plot_no, from_date=from_date, to_date=to_date
+        )
+
+        count_stmt = select(func.count()).select_from(base.subquery())
+        
+        rows_stmt = (
+            select(
+                BillingInvoice.invoice_date.label("collection_date"),
+                Member.plot_no.label("plot_no"),
+                Member.member_code.label("member_id"),
+                Member.full_name.label("member_name"),
+                BillingInvoice.invoice_no.label("receipt_no"),
+                BillingInvoice.invoice_no.label("invoice_no"),
+                BillingInvoiceDetail.fee_amount.label("electricity_bill_amount"),
+                BillingInvoiceDetail.receive_amount.label("paid_amount"),
+            )
+            .select_from(BillingInvoiceDetail)
+            .join(BillingInvoice, BillingInvoice.id == BillingInvoiceDetail.invoice_id)
+            .join(Member, Member.id == BillingInvoice.member_id)
+        )
+        if conditions:
+            rows_stmt = rows_stmt.where(and_(*conditions))
+            
+        rows_stmt = rows_stmt.order_by(BillingInvoice.invoice_date.desc(), BillingInvoiceDetail.id.desc()).limit(limit).offset(offset)
+
+        total_count = self.db.scalar(count_stmt) or 0
+        total_bill, total_paid = self.db.execute(total_stmt).one_or_none() or (0, 0)
+        rows = self.db.execute(rows_stmt).mappings().all()
+
+        return total_count, float(total_bill), float(total_paid), self._serialize_rows(rows)
+
+    def electricity_collection(
+        self,
+        *,
+        member_id: int | None = None,
+        plot_no: str | None = None,
+        from_date=None,
+        to_date=None,
+    ) -> tuple[int, float, float, list[dict]]:
+        conditions, base, total_stmt = self._base_electricity_collection_query(
+            member_id=member_id, plot_no=plot_no, from_date=from_date, to_date=to_date
+        )
+
+        rows_stmt = (
+            select(
+                BillingInvoice.invoice_date.label("collection_date"),
+                Member.plot_no.label("plot_no"),
+                Member.member_code.label("member_id"),
+                Member.full_name.label("member_name"),
+                BillingInvoice.invoice_no.label("receipt_no"),
+                BillingInvoice.invoice_no.label("invoice_no"),
+                BillingInvoiceDetail.fee_amount.label("electricity_bill_amount"),
+                BillingInvoiceDetail.receive_amount.label("paid_amount"),
+            )
+            .select_from(BillingInvoiceDetail)
+            .join(BillingInvoice, BillingInvoice.id == BillingInvoiceDetail.invoice_id)
+            .join(Member, Member.id == BillingInvoice.member_id)
+        )
+        if conditions:
+            rows_stmt = rows_stmt.where(and_(*conditions))
+            
+        rows_stmt = rows_stmt.order_by(BillingInvoice.invoice_date.desc(), BillingInvoiceDetail.id.desc())
+
+        total_count = self.db.scalar(select(func.count()).select_from(base.subquery())) or 0
+        total_bill, total_paid = self.db.execute(total_stmt).one_or_none() or (0, 0)
+        rows = self.db.execute(rows_stmt).mappings().all()
+
+        return total_count, float(total_bill), float(total_paid), self._serialize_rows(rows)
 
     def paged_collections(
         self,
