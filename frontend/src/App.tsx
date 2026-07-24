@@ -1986,20 +1986,10 @@ export function App() {
     if (!accessToken) return;
     
     try {
-      const response = await fetch(`/api/billing/invoices/${invoiceId}/cancel`, {
+      await apiRequest<BillingInvoice>(`/api/billing/invoices/${invoiceId}/cancel`, accessToken, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${accessToken}`,
-        },
         body: JSON.stringify({ cancel_reason: reason.trim() }),
       });
-      
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        void Swal.fire("Failed!", `Failed to delete invoice: ${err.detail || response.statusText}`, "error");
-        return;
-      }
       
       // Reload the datatable to show it's deleted/cancelled
       const tableElement = previousBillsTableRef.current;
@@ -2012,7 +2002,8 @@ export function App() {
       void Swal.fire("Deleted!", "Invoice successfully deleted and archived!", "success");
     } catch (error) {
       console.error(error);
-      void Swal.fire("Error!", "An error occurred while deleting the invoice.", "error");
+      const msg = error instanceof Error ? error.message : "An error occurred while deleting the invoice.";
+      void Swal.fire("Failed!", `Failed to delete invoice: ${msg}`, "error");
     }
   }
 

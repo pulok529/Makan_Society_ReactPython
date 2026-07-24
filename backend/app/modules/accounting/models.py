@@ -50,7 +50,7 @@ class IncomeEntryDetail(Base):
 
     id: Mapped[int] = mapped_column("IncomeDetailID", primary_key=True, autoincrement=True)
     income_id: Mapped[int] = mapped_column("IncomeID", ForeignKey("accounting.income_entries.IncomeID", ondelete="CASCADE"))
-    billing_detail_id: Mapped[int] = mapped_column("BillingDetailID", ForeignKey("billing.billing_invoice_details.InvoiceDetailID"))
+    billing_detail_id: Mapped[int | None] = mapped_column("BillingDetailID", ForeignKey("billing.billing_invoice_details.InvoiceDetailID", ondelete="SET NULL"))
     amount: Mapped[float] = mapped_column("Amount", Numeric(18, 2))
 
 

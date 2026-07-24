@@ -1,5 +1,6 @@
 from collections import defaultdict
 from datetime import date
+from sqlalchemy.exc import IntegrityError
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -174,8 +175,9 @@ class BillingService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Discount cannot exceed subtotal")
         total_due = sum(max(line.fee_amount - line.receive_amount - line.discount_amount, 0) for line in billable_lines)
 
+        next_seq = self.repository.get_next_invoice_sequence()
         invoice = BillingInvoice(
-            invoice_no=f"INV-{date.today():%Y%m%d}-{self.repository.count_invoices() + 1:05d}",
+            invoice_no=f"INV-{date.today():%Y%m%d}-{next_seq:05d}",
             member_id=payload.member_id,
             invoice_date=payload.invoice_date,
             subtotal_amount=subtotal,
@@ -187,64 +189,81 @@ class BillingService:
             cancel_reason=None,
             created_by=user.id,
         )
-        self.repository.add_invoice(invoice)
+        try:
+            self.repository.add_invoice(invoice)
 
-        for line in billable_lines:
-            head = heads.get(line.billing_head_id)
-            if head is None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Billing head not found")
-            if head.head_type == "Period" and line.period_date is None:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Period head requires period date")
-            if head.head_type == "OneTime" and line.period_date is not None:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OneTime head cannot use period date")
-            effective_fee_amount = float(line.fee_amount)
-            if head.head_type == "Period":
-                if line.period_date is None or not self._head_is_effective_for_period(head, line.period_date):
-                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Billing head is not effective for the selected period")
-                effective_fee_amount = float(head.fee_amount) * self._member_plot_count(member)
-            elif head.billing_mode == "Mandatory":
-                effective_fee_amount = float(head.fee_amount)
-            if head.billing_mode == "Mandatory" and effective_fee_amount <= 0:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mandatory head requires fee amount")
-            if head.billing_mode == "Optional" and head.head_type == "OneTime" and line.fee_amount <= 0:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Optional one-time head requires amount when billing")
-            if line.receive_amount + line.discount_amount > effective_fee_amount:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Receive amount plus discount cannot exceed fee")
-            if line.period_date is not None:
-                paid = self.repository.get_period_payment_totals(payload.member_id, head.id, line.period_date)
-            elif head.billing_mode == "Mandatory":
-                paid = self.repository.get_one_time_payment_totals(payload.member_id, head.id)
-            else:
-                paid = 0
+            for line in billable_lines:
+                head = heads.get(line.billing_head_id)
+                if head is None:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Billing head not found")
+                if head.head_type == "Period" and line.period_date is None:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Period head requires period date")
+                if head.head_type == "OneTime" and line.period_date is not None:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OneTime head cannot use period date")
+                effective_fee_amount = float(line.fee_amount)
+                if head.head_type == "Period":
+                    if line.period_date is None or not self._head_is_effective_for_period(head, line.period_date):
+                        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Billing head is not effective for the selected period")
+                    effective_fee_amount = float(head.fee_amount) * self._member_plot_count(member)
+                elif head.billing_mode == "Mandatory":
+                    effective_fee_amount = float(head.fee_amount)
+                if head.billing_mode == "Mandatory" and effective_fee_amount <= 0:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mandatory head requires fee amount")
+                if head.billing_mode == "Optional" and head.head_type == "OneTime" and line.fee_amount <= 0:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Optional one-time head requires amount when billing")
+                if line.receive_amount + line.discount_amount > effective_fee_amount:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Receive amount plus discount cannot exceed fee")
+                if line.period_date is not None:
+                    paid = self.repository.get_period_payment_totals(payload.member_id, head.id, line.period_date)
+                elif head.billing_mode == "Mandatory":
+                    paid = self.repository.get_one_time_payment_totals(payload.member_id, head.id)
+                else:
+                    paid = 0
 
-            if paid >= effective_fee_amount and effective_fee_amount > 0:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This member/head/period is already fully paid")
-            
-            if paid + line.receive_amount + line.discount_amount > effective_fee_amount:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Total receive amount plus discount cannot exceed fee")
+                if paid >= effective_fee_amount and effective_fee_amount > 0:
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This member/head/period is already fully paid")
+                
+                if paid + line.receive_amount + line.discount_amount > effective_fee_amount:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Total receive amount plus discount cannot exceed fee")
 
-            mapping = self.repository.get_active_head_mapping(head.id)
-            due_amount = max(effective_fee_amount - paid - line.receive_amount - line.discount_amount, 0)
-            detail = self.repository.add_invoice_detail(
-                BillingInvoiceDetail(
-                    invoice_id=invoice.id,
-                    member_id=payload.member_id,
-                    billing_head_id=head.id,
-                    head_name_snapshot=head.head_name,
-                    head_type=head.head_type,
-                    period_date=line.period_date,
-                    period_display=self._period_display(line.period_date) if line.period_date else None,
-                    fee_amount=effective_fee_amount,
-                    receive_amount=line.receive_amount,
-                    due_amount=due_amount,
-                    discount_amount=line.discount_amount,
-                    coa_id_snapshot=mapping.coa_id if mapping else None,
-                    is_income_transferred=False,
-                    created_by=user.id,
+                mapping = self.repository.get_active_head_mapping(head.id)
+                due_amount = max(effective_fee_amount - paid - line.receive_amount - line.discount_amount, 0)
+                detail = self.repository.add_invoice_detail(
+                    BillingInvoiceDetail(
+                        invoice_id=invoice.id,
+                        member_id=payload.member_id,
+                        billing_head_id=head.id,
+                        head_name_snapshot=head.head_name,
+                        head_type=head.head_type,
+                        period_date=line.period_date,
+                        period_display=self._period_display(line.period_date) if line.period_date else None,
+                        fee_amount=effective_fee_amount,
+                        receive_amount=line.receive_amount,
+                        due_amount=due_amount,
+                        discount_amount=line.discount_amount,
+                        coa_id_snapshot=mapping.coa_id if mapping else None,
+                        is_income_transferred=False,
+                        created_by=user.id,
+                    )
                 )
+                self._upsert_due_tracker_for_invoice_detail(member, head, detail, invoice.id)
+            
+            self.db.commit()
+        except IntegrityError as e:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Database error while saving invoice: {str(e.orig) if hasattr(e, 'orig') else str(e)}",
             )
-            self._upsert_due_tracker_for_invoice_detail(member, head, detail, invoice.id)
-        self.db.commit()
+        except HTTPException:
+            self.db.rollback()
+            raise
+        except Exception as e:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An unexpected error occurred while saving the invoice.",
+            )
         return self.serialize_invoice(invoice.id)
 
     def list_invoices(
@@ -284,65 +303,82 @@ class BillingService:
         )
 
     def cancel_invoice(self, invoice_id: int, payload: BillingInvoiceCancel, current_user: User) -> BillingInvoiceRead:
+        import logging
+        logger = logging.getLogger("app.billing")
+        logger.error(f"ATTEMPTING TO CANCEL INVOICE. Received invoice_id type: {type(invoice_id)}, value: {invoice_id}")
+        
         invoice = self.repository.get_invoice(invoice_id)
         if invoice is None:
+            logger.error(f"INVOICE NOT FOUND IN DB. invoice_id: {invoice_id}")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+        logger.error(f"INVOICE FOUND! InvoiceNo: {invoice.invoice_no}, InvoiceID: {invoice.id}")
             
         details = self.repository.list_invoice_details(invoice.id)
+        import sqlalchemy.exc
         
-        from app.modules.accounting.service import AccountingService
-        AccountingService(self.db).reverse_transferred_income(invoice.id, invoice.invoice_no, details, current_user.id)
-        
-        # Serialize response before deletion
-        response = self.serialize_invoice(invoice_id)
-        response.is_cancelled = True
-        response.cancel_reason = payload.cancel_reason
-        
-        from app.modules.billing.models import BillingVoidedInvoice, BillingVoidedInvoiceDetail
-        
-        voided_invoice = BillingVoidedInvoice(
-            invoice_id=invoice.id,
-            invoice_no=invoice.invoice_no,
-            member_id=invoice.member_id,
-            invoice_date=invoice.invoice_date,
-            subtotal_amount=invoice.subtotal_amount,
-            discount_amount=invoice.discount_amount,
-            net_amount=invoice.net_amount,
-            total_receive_amount=invoice.total_receive_amount,
-            total_due_amount=invoice.total_due_amount,
-            cancel_reason=payload.cancel_reason,
-            created_at=invoice.created_at,
-            created_by=invoice.created_by,
-            voided_by=current_user.id,
-        )
-        self.repository.add_voided_invoice(voided_invoice)
-        
-        for d in details:
-            voided_detail = BillingVoidedInvoiceDetail(
-                voided_invoice_id=voided_invoice.id,
-                original_detail_id=d.id,
-                member_id=d.member_id,
-                billing_head_id=d.billing_head_id,
-                head_name_snapshot=d.head_name_snapshot,
-                head_type=d.head_type,
-                period_date=d.period_date,
-                period_display=d.period_display,
-                fee_amount=d.fee_amount,
-                receive_amount=d.receive_amount,
-                due_amount=d.due_amount,
-                discount_amount=d.discount_amount,
-                coa_id_snapshot=d.coa_id_snapshot,
-                income_voucher_id=d.income_voucher_id,
-                is_income_transferred=d.is_income_transferred,
-                created_at=d.created_at,
-                created_by=d.created_by,
-            )
-            self.repository.add_voided_invoice_detail(voided_detail)
+        try:
+            from app.modules.accounting.service import AccountingService
+            AccountingService(self.db).reverse_transferred_income(invoice.id, invoice.invoice_no, details, current_user.id)
             
-        self.repository.delete_invoice(invoice)
-        self.sync_due_tracker_for_member(invoice.member_id)
-        self.db.commit()
-        return response
+            # Serialize response before deletion
+            response = self.serialize_invoice(invoice_id)
+            response.is_cancelled = True
+            response.cancel_reason = payload.cancel_reason
+            
+            from app.modules.billing.models import BillingVoidedInvoice, BillingVoidedInvoiceDetail
+            
+            voided_invoice = BillingVoidedInvoice(
+                invoice_id=invoice.id,
+                invoice_no=invoice.invoice_no,
+                member_id=invoice.member_id,
+                invoice_date=invoice.invoice_date,
+                subtotal_amount=invoice.subtotal_amount,
+                discount_amount=invoice.discount_amount,
+                net_amount=invoice.net_amount,
+                total_receive_amount=invoice.total_receive_amount,
+                total_due_amount=invoice.total_due_amount,
+                cancel_reason=payload.cancel_reason,
+                created_at=invoice.created_at,
+                created_by=invoice.created_by,
+                voided_by=current_user.id,
+            )
+            self.repository.add_voided_invoice(voided_invoice)
+            
+            for d in details:
+                voided_detail = BillingVoidedInvoiceDetail(
+                    voided_invoice_id=voided_invoice.id,
+                    original_detail_id=d.id,
+                    member_id=d.member_id,
+                    billing_head_id=d.billing_head_id,
+                    head_name_snapshot=d.head_name_snapshot,
+                    head_type=d.head_type,
+                    period_date=d.period_date,
+                    period_display=d.period_display,
+                    fee_amount=d.fee_amount,
+                    receive_amount=d.receive_amount,
+                    due_amount=d.due_amount,
+                    discount_amount=d.discount_amount,
+                    coa_id_snapshot=d.coa_id_snapshot,
+                    income_voucher_id=d.income_voucher_id,
+                    is_income_transferred=d.is_income_transferred,
+                    created_at=d.created_at,
+                    created_by=d.created_by,
+                )
+                self.repository.add_voided_invoice_detail(voided_detail)
+                
+            self.repository.unlink_invoice_from_due_tracker(invoice.id)
+            self.repository.delete_invoice(invoice)
+            self.sync_due_tracker_for_member(invoice.member_id)
+            self.db.commit()
+            return response
+        except sqlalchemy.exc.IntegrityError as e:
+            self.db.rollback()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot delete invoice due to related records constraint.")
+        except Exception as e:
+            self.db.rollback()
+            if isinstance(e, HTTPException):
+                raise e
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to delete invoice: {str(e)}")
 
     def sync_due_tracker_for_member(self, member_id: int) -> list[BillingDueTracker]:
         self._ensure_default_billing_setup()

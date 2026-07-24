@@ -242,6 +242,8 @@ Detected from source and existing documentation:
 - Billing now uses explicit date-ranged heads in the backend/local DB baseline instead of one generic monthly head with hardcoded fee switching.
 - The restored legacy SQL snapshot `SocietyLegacyInspect` is the reference used for 2026-05-20 billing validation and rebuild.
 - The earlier fresh baseline backup is no longer the preferred client restore point when report history must be preserved.
+- **Fixed Invoice Generation:** Implemented SQL Server `SEQUENCE` object (`billing.invoice_sequence`) for robust, gap-free, globally unique invoice numbering without race conditions.
+- **Fixed Invoice Deletion:** Configured Vite dev server proxy to bypass frontend `apiBaseUrl` caching issues, preventing 404s. Backend now gracefully handles `accounting.income_entry_details` FK constraint when hard deleting an invoice, by setting `BillingDetailID` to NULL before deletion.
 
 ## Next Tasks
 

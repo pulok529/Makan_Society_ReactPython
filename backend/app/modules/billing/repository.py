@@ -1,6 +1,21 @@
 from datetime import date
 
-from sqlalchemy import Date, Select, String, and_, case, cast, column, func, literal, or_, select
+from sqlalchemy import (
+    Date,
+    Select,
+    String,
+    and_,
+    asc,
+    case,
+    cast,
+    column,
+    desc,
+    func,
+    literal,
+    or_,
+    select,
+    text,
+)
 from sqlalchemy.orm import Session
 
 from app.modules.accounting.models import Account
@@ -286,6 +301,10 @@ class BillingRepository:
             statement = statement.where(BillingInvoiceDetail.invoice_id == invoice_id)
         return list(self.db.scalars(statement))
 
+    def get_next_invoice_sequence(self) -> int:
+        result = self.db.execute(text("SELECT NEXT VALUE FOR billing.invoice_sequence"))
+        return result.scalar()
+
     def count_invoices(self) -> int:
         return int(self.db.scalar(select(func.count(BillingInvoice.id))) or 0)
 
@@ -459,10 +478,6 @@ class BillingRepository:
             status_text.label("status"),
         ).where(
             BillingInvoice.is_cancelled == False,  # noqa: E712
-            or_(
-                BillingInvoice.total_due_amount <= 0,
-                BillingInvoice.total_receive_amount > 0,
-            ),
         )
         if member_id is not None:
             base = base.where(BillingInvoice.member_id == member_id)
@@ -493,11 +508,12 @@ class BillingRepository:
         order_expr = order_map.get(order_key, literal_column_safe("invoice_date"))
         ordered = base.order_by(order_expr.asc() if order_dir == "asc" else order_expr.desc(), literal_column_safe("id").desc())
         rows = self.db.execute(ordered.offset(start).limit(length)).mappings().all()
+        base_subq = base.subquery()
         totals_row = self.db.execute(
             select(
-                func.coalesce(func.sum(base.subquery().c.subtotal_amount), 0).label("total_bill_amount"),
-                func.coalesce(func.sum(base.subquery().c.total_receive_amount), 0).label("total_paid"),
-                func.coalesce(func.sum(base.subquery().c.total_due_amount), 0).label("total_due"),
+                func.coalesce(func.sum(base_subq.c.subtotal_amount), 0).label("total_bill_amount"),
+                func.coalesce(func.sum(base_subq.c.total_receive_amount), 0).label("total_paid"),
+                func.coalesce(func.sum(base_subq.c.subtotal_amount - base_subq.c.discount_amount - base_subq.c.total_receive_amount), 0).label("total_due"),
             )
         ).one()
         return total_records, filtered_records, [dict(row) for row in rows], {
@@ -560,6 +576,10 @@ class BillingRepository:
             statement = statement.where(BillingDueTracker.member_id == member_id)
         return list(self.db.scalars(statement))
 
+    def unlink_invoice_from_due_tracker(self, invoice_id: int) -> None:
+        self.db.query(BillingDueTracker).filter(BillingDueTracker.last_invoice_id == invoice_id).update({"last_invoice_id": None})
+        self.db.flush()
+
     def add_voided_invoice(self, voided_invoice: BillingVoidedInvoice) -> BillingVoidedInvoice:
         self.db.add(voided_invoice)
         self.db.flush()
@@ -573,6 +593,15 @@ class BillingRepository:
         return voided_detail
 
     def delete_invoice(self, invoice: BillingInvoice) -> None:
+        # Unlink from Accounting IncomeEntryDetails to avoid Foreign Key violation
+        from app.modules.accounting.models import IncomeEntryDetail
+        self.db.query(IncomeEntryDetail).filter(
+            IncomeEntryDetail.billing_detail_id.in_(
+                self.db.query(BillingInvoiceDetail.id).filter(BillingInvoiceDetail.invoice_id == invoice.id)
+            )
+        ).update({"billing_detail_id": None}, synchronize_session=False)
+        self.db.flush()
+
         self.db.delete(invoice)
         self.db.flush()
 
