@@ -348,6 +348,7 @@ export function App() {
     [billingDueLines, invoiceReceipts],
   );
   const billingGridFeeTotal = useMemo(() => billingDueLines.reduce((sum, line) => sum + Number(line.fee_amount || 0), 0), [billingDueLines]);
+  const billingGridPaidTotal = useMemo(() => billingDueLines.reduce((sum, line) => sum + Number(line.paid_amount || 0), 0), [billingDueLines]);
   const billingGridReceiveTotal = useMemo(
     () => billingDueLines.reduce((sum, line, index) => sum + Number(invoiceReceipts[billingLineKey(line, index)] ?? 0), 0),
     [billingDueLines, invoiceReceipts],
@@ -4840,8 +4841,9 @@ export function App() {
                       <th className="text-center">Plot Count</th>
                       <th className="text-center">Base Amount</th>
                       <th className="text-center">Fee Amount</th>
-                      <th className="text-center">Receive Amount</th>
+                      <th className="text-center">Paid Amount</th>
                       <th className="text-center">Due Amount</th>
+                      <th className="text-center">Receive Amount</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -4870,10 +4872,18 @@ export function App() {
                           <td className="text-center">{line.plot_count ?? 1}</td>
                           <td className="text-center">{money(line.base_fee_amount ?? line.fee_amount)}</td>
                           <td className="text-center">{money(line.fee_amount)}</td>
-                          <td className="text-center">
-                            <input className="form-control form-control-sm billing-receive-input mx-auto" type="number" max={line.due_amount} value={invoiceReceipts[key] ?? "0"} onChange={(event) => setInvoiceReceipts((current) => ({ ...current, [key]: event.target.value }))} />
-                          </td>
+                          <td className="text-center">{money(line.paid_amount ?? 0)}</td>
                           <td className="text-center">{money(line.due_amount)}</td>
+                          <td className="text-center">
+                            <input className="form-control form-control-sm billing-receive-input mx-auto" type="number" max={line.due_amount} value={invoiceReceipts[key] ?? "0"} onChange={(event) => {
+                              const val = Number(event.target.value);
+                              if (val > line.due_amount) {
+                                setInvoiceReceipts((current) => ({ ...current, [key]: String(line.due_amount) }));
+                              } else {
+                                setInvoiceReceipts((current) => ({ ...current, [key]: event.target.value }));
+                              }
+                            }} />
+                          </td>
                         </tr>
                       );
                     })}
@@ -4883,8 +4893,9 @@ export function App() {
                       <tr>
                         <th className="text-center" colSpan={5}>Total</th>
                         <th className="text-center">{money(billingGridFeeTotal)}</th>
-                        <th className="text-center">{money(billingGridReceiveTotal)}</th>
+                        <th className="text-center">{money(billingGridPaidTotal)}</th>
                         <th className="text-center">{money(billingGridDueTotal)}</th>
+                        <th className="text-center">{money(billingGridReceiveTotal)}</th>
                       </tr>
                     </tfoot>
                   ) : null}

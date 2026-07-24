@@ -224,7 +224,7 @@ class BillingService:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Total receive amount plus discount cannot exceed fee")
 
             mapping = self.repository.get_active_head_mapping(head.id)
-            due_amount = max(effective_fee_amount - line.receive_amount - line.discount_amount, 0)
+            due_amount = max(effective_fee_amount - paid - line.receive_amount - line.discount_amount, 0)
             detail = self.repository.add_invoice_detail(
                 BillingInvoiceDetail(
                     invoice_id=invoice.id,
@@ -930,6 +930,10 @@ class BillingService:
                     base_fee = float(head.fee_amount)
                     fee = base_fee * plot_count
                     paid = self.repository.get_period_payment_totals(member.id, head.id, current)
+                    
+                    # LOGGING AS REQUESTED
+                    print(f"DEBUG PERIOD DUE: Member={member.id} Head={head.id} Period={current} FeeAmount={fee} TotalReceived={paid} CalculatedDue={max(fee - paid, 0)}")
+                    
                     remaining = max(fee - paid, 0)
                     if remaining > 0:
                         rows.append(
@@ -958,6 +962,10 @@ class BillingService:
             base_fee = float(head.fee_amount)
             fee = base_fee
             paid = self.repository.get_one_time_payment_totals(member.id, head.id)
+            
+            # LOGGING AS REQUESTED
+            print(f"DEBUG ONE-TIME DUE: Member={member.id} Head={head.id} FeeAmount={fee} TotalReceived={paid} CalculatedDue={max(fee - paid, 0)}")
+            
             remaining = max(fee - paid, 0)
             if remaining > 0:
                 rows.append(
