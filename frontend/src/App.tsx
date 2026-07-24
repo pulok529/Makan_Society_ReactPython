@@ -347,14 +347,15 @@ export function App() {
         .filter((item) => item.receive > 0),
     [billingDueLines, invoiceReceipts],
   );
-  const billingGridFeeTotal = useMemo(() => billingDueLines.reduce((sum, line) => sum + Number(line.fee_amount || 0), 0), [billingDueLines]);
-  const billingGridPaidTotal = useMemo(() => billingDueLines.reduce((sum, line) => sum + Number(line.paid_amount || 0), 0), [billingDueLines]);
+  const isLineSelected = (line: BillingDueLineRead, index: number) => Number(invoiceReceipts[billingLineKey(line, index)] ?? 0) > 0;
+  const billingGridFeeTotal = useMemo(() => billingDueLines.reduce((sum, line, index) => isLineSelected(line, index) ? sum + Number(line.fee_amount || 0) : sum, 0), [billingDueLines, invoiceReceipts]);
+  const billingGridPaidTotal = useMemo(() => billingDueLines.reduce((sum, line, index) => isLineSelected(line, index) ? sum + Number(line.paid_amount || 0) : sum, 0), [billingDueLines, invoiceReceipts]);
   const billingGridReceiveTotal = useMemo(
-    () => billingDueLines.reduce((sum, line, index) => sum + Number(invoiceReceipts[billingLineKey(line, index)] ?? 0), 0),
+    () => billingDueLines.reduce((sum, line, index) => isLineSelected(line, index) ? sum + Number(invoiceReceipts[billingLineKey(line, index)] ?? 0) : sum, 0),
     [billingDueLines, invoiceReceipts],
   );
-  const billingGridDueTotal = useMemo(() => billingDueLines.reduce((sum, line) => sum + Number(line.due_amount || 0), 0), [billingDueLines]);
-  const billingAllRowsChecked = billingDueLines.length > 0 && billingDueLines.every((line, index) => Number(invoiceReceipts[billingLineKey(line, index)] ?? 0) > 0);
+  const billingGridDueTotal = useMemo(() => billingDueLines.reduce((sum, line, index) => isLineSelected(line, index) ? sum + Number(line.due_amount || 0) : sum, 0), [billingDueLines, invoiceReceipts]);
+  const billingAllRowsChecked = billingDueLines.length > 0 && billingDueLines.every((line, index) => isLineSelected(line, index));
   const billingSubtotal = useMemo(() => billingSelectedLines.reduce((sum, item) => sum + item.receive, 0), [billingSelectedLines]);
   const billingReceiveTotal = useMemo(
     () => billingSelectedLines.reduce((sum, item) => sum + item.receive, 0),
@@ -4827,14 +4828,14 @@ export function App() {
                           type="checkbox"
                         />
                       </th>
-                      <th className="text-center">Head Name</th>
+                      <th className="text-start">Head Name</th>
                       <th className="text-center">Period</th>
                       <th className="text-center">Plot Count</th>
-                      <th className="text-center">Base Amount</th>
-                      <th className="text-center">Fee Amount</th>
-                      <th className="text-center">Paid Amount</th>
-                      <th className="text-center">Due Amount</th>
-                      <th className="text-center">Receive Amount</th>
+                      <th className="text-end">Base Amount</th>
+                      <th className="text-end">Fee Amount</th>
+                      <th className="text-end">Paid Amount</th>
+                      <th className="text-end">Due Amount</th>
+                      <th className="text-end">Receive Amount</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -4858,15 +4859,15 @@ export function App() {
                               type="checkbox"
                             />
                           </td>
-                          <td className="text-center fw-semibold">{line.head_name}</td>
+                          <td className="text-start text-wrap fw-semibold">{line.head_name}</td>
                           <td className="text-center"><span className="badge bg-secondary-subtle text-secondary">{line.period_display ?? "One Time"}</span></td>
                           <td className="text-center">{line.plot_count ?? 1}</td>
-                          <td className="text-center">{money(line.base_fee_amount ?? line.fee_amount)}</td>
-                          <td className="text-center">{money(line.fee_amount)}</td>
-                          <td className="text-center">{money(line.paid_amount ?? 0)}</td>
-                          <td className="text-center">{money(line.due_amount)}</td>
-                          <td className="text-center">
-                            <input className="form-control form-control-sm billing-receive-input mx-auto" type="number" max={line.due_amount} value={invoiceReceipts[key] ?? "0"} onChange={(event) => {
+                          <td className="text-end">{money(line.base_fee_amount ?? line.fee_amount)}</td>
+                          <td className="text-end">{money(line.fee_amount)}</td>
+                          <td className="text-end">{money(line.paid_amount ?? 0)}</td>
+                          <td className="text-end">{money(line.due_amount)}</td>
+                          <td className="text-end">
+                            <input className="form-control form-control-sm billing-receive-input ms-auto" style={{ maxWidth: "120px" }} type="number" min="0" max={line.due_amount} onFocus={(e) => e.target.select()} value={invoiceReceipts[key] ?? "0"} onChange={(event) => {
                               const val = Number(event.target.value);
                               if (val > line.due_amount) {
                                 setInvoiceReceipts((current) => ({ ...current, [key]: String(line.due_amount) }));
@@ -4882,11 +4883,11 @@ export function App() {
                   {billingDueLines.length > 0 ? (
                     <tfoot>
                       <tr>
-                        <th className="text-center" colSpan={5}>Total</th>
-                        <th className="text-center">{money(billingGridFeeTotal)}</th>
-                        <th className="text-center">{money(billingGridPaidTotal)}</th>
-                        <th className="text-center">{money(billingGridDueTotal)}</th>
-                        <th className="text-center">{money(billingGridReceiveTotal)}</th>
+                        <th className="text-end" colSpan={5}>Total (Selected Rows)</th>
+                        <th className="text-end">{money(billingGridFeeTotal)}</th>
+                        <th className="text-end">{money(billingGridPaidTotal)}</th>
+                        <th className="text-end">{money(billingGridDueTotal)}</th>
+                        <th className="text-end">{money(billingGridReceiveTotal)}</th>
                       </tr>
                     </tfoot>
                   ) : null}

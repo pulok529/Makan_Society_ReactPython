@@ -513,7 +513,7 @@ class BillingRepository:
             select(
                 func.coalesce(func.sum(base_subq.c.subtotal_amount), 0).label("total_bill_amount"),
                 func.coalesce(func.sum(base_subq.c.total_receive_amount), 0).label("total_paid"),
-                func.coalesce(func.sum(base_subq.c.subtotal_amount - base_subq.c.discount_amount - base_subq.c.total_receive_amount), 0).label("total_due"),
+                func.coalesce(func.sum(base_subq.c.total_due_amount), 0).label("total_due"),
             )
         ).one()
         return total_records, filtered_records, [dict(row) for row in rows], {

@@ -166,12 +166,12 @@ class BillingService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invoice requires at least one row with receive amount")
 
         heads = {head.id: head for head in self.repository.list_billing_heads(active_only=True)}
-        subtotal = sum(line.receive_amount for line in billable_lines)
+        subtotal = sum(line.fee_amount for line in billable_lines)
         if payload.discount_amount > subtotal:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Discount cannot exceed subtotal")
         total_line_receive = sum(line.receive_amount for line in billable_lines)
         total_line_discount = sum(line.discount_amount for line in billable_lines)
-        if total_line_discount > sum(line.fee_amount for line in billable_lines):
+        if total_line_discount > subtotal:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Discount cannot exceed subtotal")
         total_due = sum(max(line.fee_amount - line.receive_amount - line.discount_amount, 0) for line in billable_lines)
 
