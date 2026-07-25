@@ -1,4 +1,4 @@
-﻿import { PaginatedResponse } from "./pagination";
+import { PaginatedResponse } from "./pagination";
 
 export type UserProfile = {
   id: number;
@@ -242,7 +242,9 @@ export type BillingInvoice = {
   id: number;
   invoice_no: string;
   member_id: number;
+  member_code: string;
   member_name: string;
+  plot_no: string | null;
   invoice_date: string;
   subtotal_amount: number;
   discount_amount: number;

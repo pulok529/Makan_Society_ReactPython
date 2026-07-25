@@ -2105,8 +2105,8 @@ export function App() {
             <section class="meta">
               <div>
                 Bill To: ${escapeHtml(invoice.member_name)}<br />
-                Plot No: ${escapeHtml(member?.plot_no || "")}<br />
-                Member ID: ${escapeHtml(member?.member_code || "")}
+                Plot No: ${escapeHtml(invoice.plot_no || "")}<br />
+                Member ID: ${escapeHtml(invoice.member_code || "")}
               </div>
               <div class="right">
                 <span class="muted">Invoice Date</span><br />
@@ -4505,8 +4505,8 @@ export function App() {
         <div className="invoice-report-meta">
           <div>
             <div>Bill To: {invoice.member_name}</div>
-            <div>Plot No: {member?.plot_no || ""}</div>
-            <div>Member ID: {member?.member_code || ""}</div>
+            <div>Plot No: {invoice.plot_no || ""}</div>
+            <div>Member ID: {invoice.member_code || ""}</div>
           </div>
           <div className="text-md-end">
             <span className="text-muted d-block">Invoice Date</span>

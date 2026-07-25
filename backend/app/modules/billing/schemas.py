@@ -203,7 +203,9 @@ class BillingInvoiceRead(BaseModel):
     id: int
     invoice_no: str
     member_id: int
+    member_code: str
     member_name: str
+    plot_no: str | None
     invoice_date: date
     subtotal_amount: float
     discount_amount: float
