@@ -355,6 +355,7 @@ export function App() {
     [billingDueLines, invoiceReceipts],
   );
   const billingGridDueTotal = useMemo(() => billingDueLines.reduce((sum, line, index) => isLineSelected(line, index) ? sum + Number(line.due_amount || 0) : sum, 0), [billingDueLines, invoiceReceipts]);
+  const billingGridAbsoluteDueTotal = useMemo(() => billingDueLines.reduce((sum, line) => sum + Number(line.due_amount || 0), 0), [billingDueLines]);
   const billingAllRowsChecked = billingDueLines.length > 0 && billingDueLines.every((line, index) => isLineSelected(line, index));
   const billingSubtotal = useMemo(() => billingSelectedLines.reduce((sum, item) => sum + item.receive, 0), [billingSelectedLines]);
   const billingReceiveTotal = useMemo(
@@ -4876,8 +4877,8 @@ export function App() {
                       );
                     })}
                   </tbody>
-                  {billingDueLines.length > 0 ? (
-                    <tfoot>
+                  <tfoot>
+                    {billingDueLines.length > 0 ? (
                       <tr>
                         <th className="text-end" colSpan={5}>Total (Selected Rows)</th>
                         <th className="text-end">{money(billingGridFeeTotal)}</th>
@@ -4885,8 +4886,13 @@ export function App() {
                         <th className="text-end">{money(billingGridDueTotal)}</th>
                         <th className="text-end">{money(billingGridReceiveTotal)}</th>
                       </tr>
-                    </tfoot>
-                  ) : null}
+                    ) : null}
+                    <tr className="table-warning fw-bold">
+                      <td className="text-end" colSpan={7}>Total Due</td>
+                      <td className="text-end">{money(billingGridAbsoluteDueTotal)}</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
                 </table>
                 </div>
                 {billingDueLines.length === 0 ? <EmptyState label="Select a member and load dues, or add a billing head manually" /> : null}
