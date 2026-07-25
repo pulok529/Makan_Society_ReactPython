@@ -4877,21 +4877,22 @@ export function App() {
                     })}
                   </tbody>
                   <tfoot>
+                    <tr style={{ height: "12px" }}></tr>
                     {billingDueLines.length > 0 ? (
-                      <tr>
-                        <th className="text-end" colSpan={5}>Total (Selected Rows)</th>
-                        <th className="text-end">{money(billingGridFeeTotal)}</th>
-                        <th className="text-end">{money(billingGridPaidTotal)}</th>
-                        <th className="text-end fw-bold">{money(billingGridAbsoluteDueTotal)}</th>
-                        <th className="text-end">{money(billingGridReceiveTotal)}</th>
+                      <tr style={{ backgroundColor: "rgba(255, 255, 255, 0.04)" }}>
+                        <th className="text-end border-0" colSpan={5} style={{ paddingLeft: "16px", borderTopLeftRadius: "8px", borderBottomLeftRadius: "8px", borderTop: "1px solid rgba(255,255,255,0.1)", borderBottom: "1px solid rgba(255,255,255,0.1)", borderLeft: "1px solid rgba(255,255,255,0.1)" }}>Total (Selected Rows)</th>
+                        <th className="text-end border-0" style={{ borderTop: "1px solid rgba(255,255,255,0.1)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>{money(billingGridFeeTotal)}</th>
+                        <th className="text-end border-0" style={{ borderTop: "1px solid rgba(255,255,255,0.1)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>{money(billingGridPaidTotal)}</th>
+                        <th className="text-end fw-bold border-0" style={{ borderTop: "1px solid rgba(255,255,255,0.1)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>{money(billingGridAbsoluteDueTotal)}</th>
+                        <th className="text-end border-0" style={{ paddingRight: "16px", borderTopRightRadius: "8px", borderBottomRightRadius: "8px", borderTop: "1px solid rgba(255,255,255,0.1)", borderBottom: "1px solid rgba(255,255,255,0.1)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>{money(billingGridReceiveTotal)}</th>
                       </tr>
                     ) : (
-                      <tr>
-                        <th className="text-end" colSpan={5}>Total (Selected Rows)</th>
-                        <th className="text-end">0.00</th>
-                        <th className="text-end">0.00</th>
-                        <th className="text-end fw-bold">0.00</th>
-                        <th className="text-end">0.00</th>
+                      <tr style={{ backgroundColor: "rgba(255, 255, 255, 0.04)" }}>
+                        <th className="text-end border-0" colSpan={5} style={{ paddingLeft: "16px", borderTopLeftRadius: "8px", borderBottomLeftRadius: "8px", borderTop: "1px solid rgba(255,255,255,0.1)", borderBottom: "1px solid rgba(255,255,255,0.1)", borderLeft: "1px solid rgba(255,255,255,0.1)" }}>Total (Selected Rows)</th>
+                        <th className="text-end border-0" style={{ borderTop: "1px solid rgba(255,255,255,0.1)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>0.00</th>
+                        <th className="text-end border-0" style={{ borderTop: "1px solid rgba(255,255,255,0.1)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>0.00</th>
+                        <th className="text-end fw-bold border-0" style={{ borderTop: "1px solid rgba(255,255,255,0.1)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>0.00</th>
+                        <th className="text-end border-0" style={{ paddingRight: "16px", borderTopRightRadius: "8px", borderBottomRightRadius: "8px", borderTop: "1px solid rgba(255,255,255,0.1)", borderBottom: "1px solid rgba(255,255,255,0.1)", borderRight: "1px solid rgba(255,255,255,0.1)" }}>0.00</th>
                       </tr>
                     )}
                   </tfoot>
@@ -4900,16 +4901,27 @@ export function App() {
                 {billingDueLines.length === 0 ? <EmptyState label="Select a member and load dues, or add a billing head manually" /> : null}
               </div>
 
-              <div className="border-top border-dashed mt-4 pt-3">
+              <div className="border-top border-dashed mt-4 pt-4">
                 <div className="row justify-content-end">
                   <div className="col-xl-4 col-lg-5">
-                    <div className="d-flex justify-content-between mb-2"><span>Subtotal</span><strong>{money(billingSubtotal)}</strong></div>
-                    <div className="mb-2">
-                      <label className="form-label">Discount</label>
-                      <input className="form-control" type="number" value={invoiceDiscount} onChange={(event) => setInvoiceDiscount(event.target.value)} />
+                    <div className="d-flex justify-content-between align-items-center mb-3">
+                      <span className="text-muted fw-medium">Subtotal</span>
+                      <strong className="fs-15">{money(billingSubtotal)}</strong>
                     </div>
-                    <div className="d-flex justify-content-between mb-2"><span>Net Amount</span><strong>{money(billingNetAmount)}</strong></div>
-                    <div className="d-flex justify-content-between mb-3"><span>Due Amount</span><strong>{money(billingDueTotal)}</strong></div>
+                    <div className="d-flex justify-content-between align-items-center mb-3">
+                      <label className="form-label mb-0 text-muted fw-medium">Discount</label>
+                      <div style={{ maxWidth: "120px" }}>
+                        <input className="form-control form-control-sm text-end" type="number" min="0" value={invoiceDiscount} onChange={(event) => setInvoiceDiscount(event.target.value)} />
+                      </div>
+                    </div>
+                    <div className="d-flex justify-content-between align-items-center mb-3">
+                      <span className="text-muted fw-medium">Net Amount</span>
+                      <strong className="fs-15 text-primary">{money(billingNetAmount)}</strong>
+                    </div>
+                    <div className="d-flex justify-content-between align-items-center mb-4">
+                      <span className="text-muted fw-medium">Due Amount</span>
+                      <strong className="fs-16">{money(billingDueTotal)}</strong>
+                    </div>
                     <button className="btn btn-success w-100" disabled={isSubmitting || billingDueLines.length === 0} type="submit">Generate Invoice</button>
                   </div>
                 </div>
