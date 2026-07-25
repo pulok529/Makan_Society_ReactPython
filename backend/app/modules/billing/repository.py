@@ -509,13 +509,23 @@ class BillingRepository:
         ordered = base.order_by(order_expr.asc() if order_dir == "asc" else order_expr.desc(), literal_column_safe("id").desc())
         rows = self.db.execute(ordered.offset(start).limit(length)).mappings().all()
         base_subq = base.subquery()
-        totals_row = self.db.execute(
-            select(
-                func.coalesce(func.sum(base_subq.c.subtotal_amount), 0).label("total_bill_amount"),
-                func.coalesce(func.sum(base_subq.c.total_receive_amount), 0).label("total_paid"),
-                func.coalesce(func.sum(base_subq.c.total_due_amount), 0).label("total_due"),
-            )
-        ).one()
+        if member_id is not None:
+            totals_row = self.db.execute(
+                select(
+                    func.coalesce(func.sum(BillingDueTracker.fee_amount), 0).label("total_bill_amount"),
+                    func.coalesce(func.sum(BillingDueTracker.paid_amount), 0).label("total_paid"),
+                    func.coalesce(func.sum(BillingDueTracker.due_amount), 0).label("total_due"),
+                ).where(BillingDueTracker.member_id == member_id)
+            ).one()
+        else:
+            totals_row = self.db.execute(
+                select(
+                    func.coalesce(func.sum(base_subq.c.subtotal_amount), 0).label("total_bill_amount"),
+                    func.coalesce(func.sum(base_subq.c.total_receive_amount), 0).label("total_paid"),
+                    func.coalesce(func.sum(base_subq.c.total_due_amount), 0).label("total_due"),
+                )
+            ).one()
+        
         return total_records, filtered_records, [dict(row) for row in rows], {
             "total_bill_amount": float(totals_row.total_bill_amount or 0),
             "total_paid": float(totals_row.total_paid or 0),

@@ -163,8 +163,8 @@ export function App() {
   const [showInvoiceReport, setShowInvoiceReport] = useState(false);
   const [showReportViewer, setShowReportViewer] = useState(false);
   const [showPreviousBills, setShowPreviousBills] = useState(false);
-  const [previousBillsFromDate, setPreviousBillsFromDate] = useState(defaultMonthRange.from);
-  const [previousBillsToDate, setPreviousBillsToDate] = useState(defaultMonthRange.to);
+  const [previousBillsFromDate, setPreviousBillsFromDate] = useState("");
+  const [previousBillsToDate, setPreviousBillsToDate] = useState("");
   const [previousBillsTotals, setPreviousBillsTotals] = useState<DataTableTotals>({});
   const [manualBillingHeadId, setManualBillingHeadId] = useState("");
   const [manualBillingPeriod, setManualBillingPeriod] = useState(new Date().toISOString().slice(0, 7));
