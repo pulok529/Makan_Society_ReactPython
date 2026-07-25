@@ -2104,11 +2104,9 @@ export function App() {
             </section>
             <section class="meta">
               <div>
-                <span class="muted">Bill To</span><br />
-                <strong>${escapeHtml(invoice.member_name)}</strong><br />
-                ${member?.member_code ? `Member Code: ${escapeHtml(member.member_code)}<br />` : ""}
-                ${member?.cell_no ? `Phone: ${escapeHtml(member.cell_no)}<br />` : ""}
-                ${member?.category_name ? `Category: ${escapeHtml(member.category_name)}` : ""}
+                Bill To: ${escapeHtml(invoice.member_name)}<br />
+                Plot No: ${escapeHtml(member?.plot_no || "")}<br />
+                Member ID: ${escapeHtml(member?.member_code || "")}
               </div>
               <div class="right">
                 <span class="muted">Invoice Date</span><br />
@@ -2132,11 +2130,11 @@ export function App() {
                 <div><span>Discount</span><strong>${money(invoice.discount_amount)}</strong></div>
                 <div><span>Net Amount</span><strong>${money(invoice.net_amount)}</strong></div>
                 <div><span>Received</span><strong>${money(invoice.total_receive_amount)}</strong></div>
-                <div class="grand"><span>Due</span><strong>${money(invoice.total_due_amount)}</strong></div>
+                <div class="grand"><span>Due</span><strong>${money(Math.max(0, Number(invoice.net_amount || 0) - Number(invoice.total_receive_amount || 0)))}</strong></div>
               </div>
             </section>
             <section class="signatures">
-              <div><span></span>Prepared By</div>
+              <div><span></span>Prepared By<br/>User Name: ${escapeHtml(profile?.username || "")}</div>
               <div><span></span>Received By</div>
               <div><span></span>Authorized Signature</div>
             </section>
@@ -4506,11 +4504,9 @@ export function App() {
 
         <div className="invoice-report-meta">
           <div>
-            <span className="text-muted d-block">Bill To</span>
-            <strong>{invoice.member_name}</strong>
-            <div>{member?.member_code ? `Member Code: ${member.member_code}` : null}</div>
-            <div>{member?.cell_no ? `Phone: ${member.cell_no}` : null}</div>
-            <div>{member?.category_name ? `Category: ${member.category_name}` : null}</div>
+            <div>Bill To: {invoice.member_name}</div>
+            <div>Plot No: {member?.plot_no || ""}</div>
+            <div>Member ID: {member?.member_code || ""}</div>
           </div>
           <div className="text-md-end">
             <span className="text-muted d-block">Invoice Date</span>
@@ -4556,12 +4552,12 @@ export function App() {
             <div><span>Discount</span><strong>{money(invoice.discount_amount)}</strong></div>
             <div><span>Net Amount</span><strong>{money(invoice.net_amount)}</strong></div>
             <div><span>Received</span><strong>{money(invoice.total_receive_amount)}</strong></div>
-            <div className="grand-total"><span>Due</span><strong>{money(invoice.total_due_amount)}</strong></div>
+            <div className="grand-total"><span>Due</span><strong>{money(Math.max(0, Number(invoice.net_amount || 0) - Number(invoice.total_receive_amount || 0)))}</strong></div>
           </div>
         </div>
 
         <div className="invoice-report-signatures">
-          <div><span />Prepared By</div>
+          <div><span />Prepared By<br/>User Name: {profile?.username || ""}</div>
           <div><span />Received By</div>
           <div><span />Authorized Signature</div>
         </div>
