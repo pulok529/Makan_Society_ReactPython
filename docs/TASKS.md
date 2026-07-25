@@ -4,6 +4,9 @@ Last updated: 2026-05-20
 
 ## Completed Tasks
 
+- Fixed historical invoice double-counting bug causing massively inflated Total Bill and Total Due summaries for legacy members. Replaced UI summary calculation to source directly from `BillingDueTracker` to perfectly respect billing head isolation without modifying any valid DB history.
+- Fixed Previous Bills grid defaulting to the current month, which wrongly hid historical invoices from the view (Member 146 issue).
+
 - Fixed "Previous Bills" summary calculation bugs in the API (`repository.py`). Addressed a massive SQL Cartesian Product that inflated totals, removed an erroneous filter that hid 147 unpaid invoices, and corrected the `Total Due` dynamic sum mathematically (`Bill - Paid - Discount`) to perfectly align the UI footer with ledger expectations.
 
 - Fixed Collection page UI and API calculation where historical legacy payments (e.g. 300 out of 500) were hidden from the grid and incorrectly excluded from invoice generation, causing math confusion. Added a new 'Paid Amount' column and dynamically capped the 'Receive Amount' input.
