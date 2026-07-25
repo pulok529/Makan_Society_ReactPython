@@ -347,7 +347,7 @@ export function App() {
         .filter((item) => item.receive > 0),
     [billingDueLines, invoiceReceipts],
   );
-  const isLineSelected = (line: BillingDueLineRead, index: number) => Number(invoiceReceipts[billingLineKey(line, index)] ?? 0) > 0;
+  const isLineSelected = (line: BillingDueLine, index: number) => Number(invoiceReceipts[billingLineKey(line, index)] ?? 0) > 0;
   const billingGridFeeTotal = useMemo(() => billingDueLines.reduce((sum, line, index) => isLineSelected(line, index) ? sum + Number(line.fee_amount || 0) : sum, 0), [billingDueLines, invoiceReceipts]);
   const billingGridPaidTotal = useMemo(() => billingDueLines.reduce((sum, line, index) => isLineSelected(line, index) ? sum + Number(line.paid_amount || 0) : sum, 0), [billingDueLines, invoiceReceipts]);
   const billingGridReceiveTotal = useMemo(
@@ -940,9 +940,9 @@ export function App() {
               search_value: request.search?.value ?? "",
               order_key: orderKeys[order?.column ?? 1] ?? "date",
               order_dir: order?.dir ?? "desc",
-              from_date: billingRegisterFromDate,
-              to_date: billingRegisterToDate,
             });
+            if (billingRegisterFromDate) params.append("from_date", billingRegisterFromDate);
+            if (billingRegisterToDate) params.append("to_date", billingRegisterToDate);
             try {
               const payload = await apiRequest<DataTableResponse<BillingChargeTableRow | BillingReceiptTableRow>>(
                 `/api/billing/tables/${isChargeTable ? "charges" : "receipts"}?${params.toString()}`,
@@ -1054,9 +1054,9 @@ export function App() {
               order_key: orderKeys[order?.column ?? 1] ?? "date",
               order_dir: order?.dir ?? "desc",
               member_id: invoiceMemberId,
-              from_date: previousBillsFromDate,
-              to_date: previousBillsToDate,
             });
+            if (previousBillsFromDate) params.append("from_date", previousBillsFromDate);
+            if (previousBillsToDate) params.append("to_date", previousBillsToDate);
             try {
               const payload = await apiRequest<DataTableResponse<BillingInvoiceTableRow>>(`/api/billing/tables/invoices?${params.toString()}`, accessToken);
               setPreviousBillsTotals(payload.totals ?? {});

@@ -469,6 +469,7 @@ class BillingRepository:
         )
         base = select(
             BillingInvoice.id.label("id"),
+            BillingInvoice.member_id.label("member_id"),
             BillingInvoice.invoice_no.label("invoice_no"),
             BillingInvoice.invoice_date.label("invoice_date"),
             BillingInvoice.subtotal_amount.label("subtotal_amount"),
@@ -509,27 +510,34 @@ class BillingRepository:
         ordered = base.order_by(order_expr.asc() if order_dir == "asc" else order_expr.desc(), literal_column_safe("id").desc())
         rows = self.db.execute(ordered.offset(start).limit(length)).mappings().all()
         base_subq = base.subquery()
-        if member_id is not None:
-            totals_row = self.db.execute(
-                select(
-                    func.coalesce(func.sum(BillingDueTracker.fee_amount), 0).label("total_bill_amount"),
-                    func.coalesce(func.sum(BillingDueTracker.paid_amount), 0).label("total_paid"),
-                    func.coalesce(func.sum(BillingDueTracker.due_amount), 0).label("total_due"),
-                ).where(BillingDueTracker.member_id == member_id)
-            ).one()
-        else:
-            totals_row = self.db.execute(
-                select(
-                    func.coalesce(func.sum(base_subq.c.subtotal_amount), 0).label("total_bill_amount"),
-                    func.coalesce(func.sum(base_subq.c.total_receive_amount), 0).label("total_paid"),
-                    func.coalesce(func.sum(base_subq.c.total_due_amount), 0).label("total_due"),
-                )
-            ).one()
+        detail_q = select(
+            func.max(BillingInvoiceDetail.fee_amount).label("max_fee")
+        ).join(
+            base_subq, base_subq.c.id == BillingInvoiceDetail.invoice_id
+        ).group_by(
+            base_subq.c.member_id,
+            BillingInvoiceDetail.billing_head_id,
+            func.coalesce(cast(BillingInvoiceDetail.period_date, String), "1900-01-01"),
+            func.coalesce(BillingInvoiceDetail.period_display, "OneTime")
+        ).subquery()
+        
+        total_bill = float(self.db.scalar(select(func.coalesce(func.sum(detail_q.c.max_fee), 0))) or 0.0)
+        
+        totals_row = self.db.execute(
+            select(
+                func.coalesce(func.sum(base_subq.c.total_receive_amount), 0).label("total_paid"),
+                func.coalesce(func.sum(base_subq.c.discount_amount), 0).label("total_discount"),
+            )
+        ).one()
+        
+        total_paid = float(totals_row.total_paid or 0)
+        total_discount = float(totals_row.total_discount or 0)
+        total_due = max(total_bill - total_paid - total_discount, 0.0)
         
         return total_records, filtered_records, [dict(row) for row in rows], {
-            "total_bill_amount": float(totals_row.total_bill_amount or 0),
-            "total_paid": float(totals_row.total_paid or 0),
-            "total_due": float(totals_row.total_due or 0),
+            "total_bill_amount": total_bill,
+            "total_paid": total_paid,
+            "total_due": total_due,
         }
     def get_period_payment_totals(self, member_id: int, head_id: int, period_date) -> float:
         statement = (
