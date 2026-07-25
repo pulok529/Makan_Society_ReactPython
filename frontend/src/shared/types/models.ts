@@ -251,6 +251,7 @@ export type BillingInvoice = {
   net_amount: number;
   total_receive_amount: number;
   total_due_amount: number;
+  member_outstanding_due: number;
   is_cancelled: boolean;
   cancel_reason: string | null;
   created_at: string;

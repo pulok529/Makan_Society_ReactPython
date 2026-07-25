@@ -212,6 +212,7 @@ class BillingInvoiceRead(BaseModel):
     net_amount: float
     total_receive_amount: float
     total_due_amount: float
+    member_outstanding_due: float = 0.0
     is_cancelled: bool
     cancel_reason: str | None
     created_at: datetime

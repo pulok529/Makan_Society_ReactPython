@@ -2130,7 +2130,7 @@ export function App() {
                 <div><span>Discount</span><strong>${money(invoice.discount_amount)}</strong></div>
                 <div><span>Net Amount</span><strong>${money(invoice.net_amount)}</strong></div>
                 <div><span>Received</span><strong>${money(invoice.total_receive_amount)}</strong></div>
-                <div class="grand"><span>Due</span><strong>${money(Math.max(0, Number(invoice.net_amount || 0) - Number(invoice.total_receive_amount || 0)))}</strong></div>
+                <div class="grand"><span>Due</span><strong>${money(invoice.member_outstanding_due)}</strong></div>
               </div>
             </section>
             <section class="signatures">
@@ -4552,7 +4552,7 @@ export function App() {
             <div><span>Discount</span><strong>{money(invoice.discount_amount)}</strong></div>
             <div><span>Net Amount</span><strong>{money(invoice.net_amount)}</strong></div>
             <div><span>Received</span><strong>{money(invoice.total_receive_amount)}</strong></div>
-            <div className="grand-total"><span>Due</span><strong>{money(Math.max(0, Number(invoice.net_amount || 0) - Number(invoice.total_receive_amount || 0)))}</strong></div>
+            <div className="grand-total"><span>Due</span><strong>{money(invoice.member_outstanding_due)}</strong></div>
           </div>
         </div>
 

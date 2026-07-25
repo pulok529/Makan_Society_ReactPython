@@ -539,6 +539,46 @@ class BillingRepository:
             "total_paid": total_paid,
             "total_due": total_due,
         }
+    def get_member_outstanding_due(self, member_id: int) -> float:
+        base = select(
+            BillingInvoice.id.label("id"),
+            BillingInvoice.member_id.label("member_id"),
+            BillingInvoice.discount_amount.label("discount_amount"),
+            BillingInvoice.total_receive_amount.label("total_receive_amount"),
+        ).where(
+            BillingInvoice.is_cancelled == False,  # noqa: E712
+            BillingInvoice.member_id == member_id,
+        )
+        base_subq = base.subquery()
+        detail_q = select(
+            func.max(BillingInvoiceDetail.fee_amount).label("max_fee")
+        ).join(
+            base_subq, base_subq.c.id == BillingInvoiceDetail.invoice_id
+        ).group_by(
+            base_subq.c.member_id,
+            BillingInvoiceDetail.billing_head_id,
+            func.coalesce(cast(BillingInvoiceDetail.period_date, String), "1900-01-01"),
+            func.coalesce(BillingInvoiceDetail.period_display, "OneTime")
+        ).subquery()
+        
+        total_bill = float(self.db.scalar(select(func.coalesce(func.sum(detail_q.c.max_fee), 0))) or 0.0)
+        
+        totals_row = self.db.execute(
+            select(
+                func.coalesce(func.sum(base_subq.c.total_receive_amount), 0).label("total_paid"),
+                func.coalesce(func.sum(base_subq.c.discount_amount), 0).label("total_discount"),
+            )
+        ).one_or_none()
+        
+        if totals_row is None:
+            total_paid = 0.0
+            total_discount = 0.0
+        else:
+            total_paid = float(totals_row.total_paid or 0)
+            total_discount = float(totals_row.total_discount or 0)
+            
+        return max(total_bill - total_paid - total_discount, 0.0)
+
     def get_period_payment_totals(self, member_id: int, head_id: int, period_date) -> float:
         statement = (
             select(

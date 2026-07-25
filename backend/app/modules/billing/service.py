@@ -297,6 +297,7 @@ class BillingService:
             net_amount=float(invoice.net_amount),
             total_receive_amount=float(invoice.total_receive_amount),
             total_due_amount=float(invoice.total_due_amount),
+            member_outstanding_due=self.repository.get_member_outstanding_due(invoice.member_id),
             is_cancelled=invoice.is_cancelled,
             cancel_reason=invoice.cancel_reason,
             created_at=invoice.created_at,
