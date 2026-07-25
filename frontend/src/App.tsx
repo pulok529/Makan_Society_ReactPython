@@ -354,7 +354,6 @@ export function App() {
     () => billingDueLines.reduce((sum, line, index) => isLineSelected(line, index) ? sum + Number(invoiceReceipts[billingLineKey(line, index)] ?? 0) : sum, 0),
     [billingDueLines, invoiceReceipts],
   );
-  const billingGridDueTotal = useMemo(() => billingDueLines.reduce((sum, line, index) => isLineSelected(line, index) ? sum + Number(line.due_amount || 0) : sum, 0), [billingDueLines, invoiceReceipts]);
   const billingGridAbsoluteDueTotal = useMemo(() => billingDueLines.reduce((sum, line) => sum + Number(line.due_amount || 0), 0), [billingDueLines]);
   const billingAllRowsChecked = billingDueLines.length > 0 && billingDueLines.every((line, index) => isLineSelected(line, index));
   const billingSubtotal = useMemo(() => billingSelectedLines.reduce((sum, item) => sum + item.receive, 0), [billingSelectedLines]);
@@ -4883,15 +4882,18 @@ export function App() {
                         <th className="text-end" colSpan={5}>Total (Selected Rows)</th>
                         <th className="text-end">{money(billingGridFeeTotal)}</th>
                         <th className="text-end">{money(billingGridPaidTotal)}</th>
-                        <th className="text-end">{money(billingGridDueTotal)}</th>
+                        <th className="text-end fw-bold">{money(billingGridAbsoluteDueTotal)}</th>
                         <th className="text-end">{money(billingGridReceiveTotal)}</th>
                       </tr>
-                    ) : null}
-                    <tr className="table-warning fw-bold">
-                      <td className="text-end" colSpan={7}>Total Due</td>
-                      <td className="text-end">{money(billingGridAbsoluteDueTotal)}</td>
-                      <td></td>
-                    </tr>
+                    ) : (
+                      <tr>
+                        <th className="text-end" colSpan={5}>Total (Selected Rows)</th>
+                        <th className="text-end">0.00</th>
+                        <th className="text-end">0.00</th>
+                        <th className="text-end fw-bold">0.00</th>
+                        <th className="text-end">0.00</th>
+                      </tr>
+                    )}
                   </tfoot>
                 </table>
                 </div>
