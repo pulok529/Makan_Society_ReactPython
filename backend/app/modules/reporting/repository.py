@@ -660,17 +660,13 @@ class ReportingRepository:
             .group_by(BillingDueTracker.member_id)
         ).subquery()
 
-        conditions = [Member.is_active == True]  # noqa: E712
+        conditions = []
         if member_id is not None:
             conditions.append(Member.id == member_id)
         if category_id is not None:
             conditions.append(Member.category_id == category_id)
         if plot_no is not None and plot_no.strip():
             conditions.append((Member.plot_no.ilike(f"%{plot_no.strip()}%")) | (Member.member_id_text.ilike(f"%{plot_no.strip()}%")))
-        if from_date is not None:
-            conditions.append((Member.joined_on.is_(None)) | (Member.joined_on >= from_date))
-        if to_date is not None:
-            conditions.append((Member.joined_on.is_(None)) | (Member.joined_on <= to_date))
 
         base = (
             select(
@@ -699,8 +695,6 @@ class ReportingRepository:
         rows = self.db.execute(
             select(base_subquery)
             .order_by(base_subquery.c.member_code.asc(), base_subquery.c.full_name.asc())
-            .offset(offset)
-            .limit(limit)
         ).mappings().all()
         totals = self.db.execute(totals_stmt).mappings().one()
         return int(self.db.scalar(count_stmt) or 0), {
