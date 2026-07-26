@@ -94,6 +94,8 @@ class TotalDueRow(BaseModel):
     member_code: str
     member_name: str
     plot_no: str | None
+    total_billed_amount: float
+    total_received_amount: float
     total_due_amount: float
 
 
@@ -192,6 +194,7 @@ class ReportEnvelope(BaseModel):
     row_count: int
     totals: dict[str, float | int]
     applied_filters: dict[str, str] = Field(default_factory=dict)
+    empty_message: str | None = None
     rows: list[dict]
 
 
@@ -204,7 +207,8 @@ class ReportPageEnvelope(BaseModel):
     offset: int
     totals: dict[str, float | int]
     applied_filters: dict[str, str] = Field(default_factory=dict)
-    items: list[dict]
+    empty_message: str | None = None
+    rows: list[dict]
 
 
 class ExportRequest(BaseModel):

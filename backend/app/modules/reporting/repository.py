@@ -4,7 +4,7 @@ from sqlalchemy import Select, and_, case, func, select
 from sqlalchemy.orm import Session
 
 from app.modules.accounting.models import Account, ExpenseEntry, IncomeEntry
-from app.modules.billing.models import BillingHead, BillingInvoice, BillingInvoiceDetail, BillingPeriod, Charge, Receipt, ReceiptLine
+from app.modules.billing.models import BillingHead, BillingInvoice, BillingInvoiceDetail, BillingPeriod, Charge, Receipt, ReceiptLine, BillingDueTracker
 from app.modules.categories.models import MemberCategory
 from app.modules.members.models import Member, MemberNominee, MemberPackage
 from app.modules.packages.models import Package
@@ -542,20 +542,18 @@ class ReportingRepository:
         to_date=None,
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[int, float, list[dict]]:
-        conditions = [Charge.due_amount > 0]
+    ) -> tuple[int, float, float, float, list[dict]]:
+        conditions = [BillingDueTracker.due_amount > 0]
         if member_id is not None:
-            conditions.append(Charge.member_id == member_id)
+            conditions.append(BillingDueTracker.member_id == member_id)
         if category_id is not None:
             conditions.append(Member.category_id == category_id)
-        if billing_period_id is not None:
-            conditions.append(Charge.billing_period_id == billing_period_id)
         if plot_no is not None and plot_no.strip():
             conditions.append((Member.plot_no.ilike(f"%{plot_no.strip()}%")) | (Member.member_id_text.ilike(f"%{plot_no.strip()}%")))
         if from_date is not None:
-            conditions.append(Charge.created_at >= from_date)
+            conditions.append(BillingDueTracker.period_date >= from_date)
         if to_date is not None:
-            conditions.append(Charge.created_at <= to_date)
+            conditions.append(BillingDueTracker.period_date <= to_date)
 
         grouped = (
             select(
@@ -563,23 +561,32 @@ class ReportingRepository:
                 Member.member_code.label("member_code"),
                 Member.full_name.label("member_name"),
                 func.coalesce(Member.plot_no, Member.member_id_text).label("plot_no"),
-                func.coalesce(func.sum(Charge.due_amount), 0).label("total_due_amount"),
+                func.coalesce(func.sum(BillingDueTracker.fee_amount), 0).label("total_billed_amount"),
+                func.coalesce(func.sum(BillingDueTracker.paid_amount), 0).label("total_received_amount"),
+                func.coalesce(func.sum(BillingDueTracker.due_amount), 0).label("total_due_amount"),
             )
-            .select_from(Charge)
-            .join(Member, Member.id == Charge.member_id)
+            .select_from(BillingDueTracker)
+            .join(Member, Member.id == BillingDueTracker.member_id)
             .where(and_(*conditions))
             .group_by(Member.id, Member.member_code, Member.full_name, Member.plot_no, Member.member_id_text)
         ).subquery()
 
         count_stmt = select(func.count()).select_from(grouped)
-        total_stmt = select(func.coalesce(func.sum(grouped.c.total_due_amount), 0)).select_from(grouped)
+        total_stmt = select(
+            func.coalesce(func.sum(grouped.c.total_billed_amount), 0),
+            func.coalesce(func.sum(grouped.c.total_received_amount), 0),
+            func.coalesce(func.sum(grouped.c.total_due_amount), 0)
+        ).select_from(grouped)
+        
         rows = self.db.execute(
             select(grouped)
             .order_by(grouped.c.member_code.asc(), grouped.c.member_name.asc())
             .offset(offset)
             .limit(limit)
         ).mappings().all()
-        return int(self.db.scalar(count_stmt) or 0), float(self.db.scalar(total_stmt) or 0), self._serialize_rows(rows)
+        
+        total_billed, total_received, total_due = self.db.execute(total_stmt).one_or_none() or (0, 0, 0)
+        return int(self.db.scalar(count_stmt) or 0), float(total_billed), float(total_received), float(total_due), self._serialize_rows(rows)
 
     def paged_total_collection(
         self,

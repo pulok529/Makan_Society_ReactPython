@@ -305,47 +305,36 @@ class ReportingService:
         )
 
     def total_due(self, filters: ReportFilter) -> ReportEnvelope:
-        members = {
-            member.id: member
-            for member in self.repository.list_members(
-                member_id=filters.member_id,
-                category_id=filters.category_id,
-                plot_no=filters.plot_no,
-            )
-        }
-        grouped: dict[int, TotalDueRow] = {}
-        for charge in self.repository.list_charges(
+        """
+        Generates the Total Due Report.
+        Note: billing.billing_due_tracker is now the official source of truth for due reporting,
+        replacing the legacy billing.charges table.
+        """
+        total_count, total_billed, total_received, total_due, rows = self.repository.paged_total_due(
             member_id=filters.member_id,
+            category_id=filters.category_id,
             billing_period_id=filters.billing_period_id,
+            plot_no=filters.plot_no,
             from_date=filters.from_date,
             to_date=filters.to_date,
-        ):
-            if charge.member_id not in members or float(charge.due_amount) <= 0:
-                continue
-            member = members[charge.member_id]
-            row = grouped.get(member.id)
-            if row is None:
-                grouped[member.id] = TotalDueRow(
-                    member_id=member.id,
-                    member_code=member.member_code,
-                    member_name=member.full_name,
-                    plot_no=member.plot_no or member.member_id_text,
-                    total_due_amount=float(charge.due_amount),
-                )
-            else:
-                row.total_due_amount += float(charge.due_amount)
-        rows = sorted(grouped.values(), key=lambda item: (item.member_code, item.member_name))
+            limit=1000000,
+            offset=0,
+        )
+        
         return ReportEnvelope(
             report_type="total_due",
             title="Total Due Report",
             generated_at=datetime.now(UTC),
-            row_count=len(rows),
+            row_count=total_count,
             totals={
-                "total_due_amount": round(sum(item.total_due_amount for item in rows), 2),
-                "member_count": len(rows),
+                "total_billed_amount": round(total_billed, 2),
+                "total_received_amount": round(total_received, 2),
+                "total_due_amount": round(total_due, 2),
+                "member_count": total_count,
             },
             applied_filters=self._applied_filters(filters),
-            rows=[row.model_dump() for row in rows],
+            empty_message="No members currently have outstanding dues.",
+            rows=rows,
         )
 
     def single_member_statement(self, filters: ReportFilter) -> SingleMemberStatementReport:
@@ -1001,7 +990,7 @@ class ReportingService:
                 items=rows,
             )
         if report_key == "total-due":
-            total, total_due, rows = self.repository.paged_total_due(
+            total, total_billed, total_received, total_due, rows = self.repository.paged_total_due(
                 member_id=filters.member_id,
                 category_id=filters.category_id,
                 billing_period_id=filters.billing_period_id,
@@ -1018,9 +1007,14 @@ class ReportingService:
                 total=total,
                 limit=safe_limit,
                 offset=safe_offset,
-                totals={"total_due_amount": round(total_due, 2), "member_count": total},
+                totals={
+                    "total_billed_amount": round(total_billed, 2),
+                    "total_received_amount": round(total_received, 2),
+                    "total_due_amount": round(total_due, 2), 
+                },
                 applied_filters=applied_filters,
-                items=rows,
+                rows=rows,
+                empty_message="No members currently have outstanding dues.",
             )
         if report_key == "total-collection":
             total, total_collection, rows = self.repository.paged_total_collection(
