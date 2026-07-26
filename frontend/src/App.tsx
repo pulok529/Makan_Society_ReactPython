@@ -2222,16 +2222,6 @@ export function App() {
 
     const totalPages = isPagedReport ? Math.max(1, Math.ceil(report.total / Math.max(report.limit, 1))) : pageChunks.length;
     const activePage = isPagedReport ? Math.max(1, Math.floor(report.offset / Math.max(report.limit, 1)) + 1) : reportViewerPage;
-    const totalsMarkup = Object.entries(report.totals)
-      .map(
-        ([key, value]) => `
-          <div class="report-meta-card">
-            <span class="text-muted">${escapePrintHtml(key.replace(/_/g, " "))}</span>
-            <strong>${escapePrintHtml(formatReportCell(key, value))}</strong>
-          </div>
-        `,
-      )
-      .join("");
 
     return pageChunks
       .map((rows, pageIndex) => {
@@ -2275,29 +2265,7 @@ export function App() {
               </div>
               ${
                 pageIndex === 0
-                  ? `
-                <div class="report-filter-grid">
-                  <div class="report-meta-card">
-                    <span class="text-muted">Report Type</span>
-                    <strong>${escapePrintHtml(report.report_type)}</strong>
-                  </div>
-                  <div class="report-meta-card">
-                    <span class="text-muted">Rows</span>
-                    <strong>${escapePrintHtml(isPagedReport ? report.total : report.row_count)}</strong>
-                  </div>
-                  ${Object.entries(report.applied_filters ?? {})
-                    .map(
-                      ([key, value]) => `
-                    <div class="report-meta-card">
-                      <span class="text-muted">${escapePrintHtml(key.replace(/_/g, " "))}</span>
-                      <strong>${escapePrintHtml(value)}</strong>
-                    </div>
-                  `,
-                    )
-                    .join("")}
-                  ${totalsMarkup}
-                </div>
-              `
+                  ? ``
                   : ""
               }
               <table>
@@ -2309,6 +2277,18 @@ export function App() {
                 <tbody>
                   ${rowMarkup}
                 </tbody>
+                ${
+                  Object.keys(report.totals).length > 0
+                    ? `<tfoot>
+                        ${Object.entries(report.totals).map(([key, value]) => `
+                          <tr style="background-color: #f9fafb; border-top: 2px solid #6b7280;">
+                            <td colspan="${columns.length - 1}" class="right" style="font-weight: bold;">${escapePrintHtml(key.replace(/_/g, " ").replace(/\\b\\w/g, l => l.toUpperCase()))}</td>
+                            <td class="right" style="font-weight: bold;">${escapePrintHtml(formatReportCell(key, value))}</td>
+                          </tr>
+                        `).join("")}
+                      </tfoot>`
+                    : ""
+                }
               </table>
             </div>
           </section>
@@ -2445,24 +2425,6 @@ export function App() {
                     <strong>${escapePrintHtml(money(report.total_bill))}</strong>
                   </div>
                 </div>
-                ${
-                  Object.entries(report.applied_filters ?? {}).length
-                    ? `
-                  <div class="report-filter-grid">
-                    ${Object.entries(report.applied_filters ?? {})
-                      .map(
-                        ([key, value]) => `
-                      <div class="report-meta-card">
-                        <span class="text-muted">${escapePrintHtml(key.replace(/_/g, " "))}</span>
-                        <strong>${escapePrintHtml(value)}</strong>
-                      </div>
-                    `,
-                      )
-                      .join("")}
-                  </div>
-                `
-                    : ""
-                }
               `
                   : ""
               }
@@ -2574,32 +2536,6 @@ export function App() {
             </div>
           </div>
         </div>
-        <div className="report-filter-grid">
-          <div className="report-meta-card">
-            <span className="text-muted d-block">Report Type</span>
-            <strong>{report.report_type}</strong>
-          </div>
-          <div className="report-meta-card">
-            <span className="text-muted d-block">Rows</span>
-            <strong>{totalRows}</strong>
-          </div>
-          <div className="report-meta-card">
-            <span className="text-muted d-block">Page</span>
-            <strong>{activePage} / {totalPages}</strong>
-          </div>
-          {Object.entries(report.applied_filters ?? {}).map(([key, value]) => (
-            <div className="report-meta-card" key={`filter-${key}`}>
-              <span className="text-muted d-block text-capitalize">{key.replace(/_/g, " ")}</span>
-              <strong>{value}</strong>
-            </div>
-          ))}
-          {Object.entries(report.totals).map(([key, value]) => (
-            <div className="report-meta-card" key={key}>
-              <span className="text-muted d-block text-capitalize">{key.replace(/_/g, " ")}</span>
-              <strong>{formatReportCell(key, value)}</strong>
-            </div>
-          ))}
-        </div>
         <div className="table-responsive">
           {rows.length > 0 ? (
             <table className="table table-bordered invoice-report-table mb-0">
@@ -2624,6 +2560,20 @@ export function App() {
                   </tr>
                 ))}
               </tbody>
+              {Object.keys(report.totals).length > 0 && (
+                <tfoot>
+                  {Object.entries(report.totals).map(([key, value]) => (
+                    <tr style={{ backgroundColor: "#f9fafb", borderTop: "2px solid #6b7280" }} key={key}>
+                      <td colSpan={columns.length - 1} className="text-end fw-bold">
+                        {key.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}
+                      </td>
+                      <td className="text-end fw-bold">
+                        {formatReportCell(key, value)}
+                      </td>
+                    </tr>
+                  ))}
+                </tfoot>
+              )}
             </table>
           ) : (
             <EmptyState label="No rows returned for this filter." />
@@ -2660,19 +2610,7 @@ export function App() {
   }
 
   function renderAppliedFilterCards(filters: Record<string, string>) {
-    const entries = Object.entries(filters ?? {}).filter(([, value]) => String(value ?? "").trim() !== "");
-    if (entries.length === 0) return null;
-
-    return (
-      <div className="report-filter-grid mt-3">
-        {entries.map(([key, value]) => (
-          <div className="report-meta-card" key={`special-filter-${key}`}>
-            <span className="text-muted d-block text-capitalize">{key.replace(/_/g, " ")}</span>
-            <strong>{value}</strong>
-          </div>
-        ))}
-      </div>
-    );
+    return null;
   }
 
   function renderReceiptReportContent(report: ReceiptDetailReport) {
