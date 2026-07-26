@@ -299,7 +299,7 @@ class ReportingService:
             title="Total Collection Report",
             generated_at=datetime.now(UTC),
             row_count=len(rows),
-            totals={},
+            totals={"total_collection_amount": sum(r.total_collection_amount for r in rows)},
             applied_filters=self._applied_filters(filters),
             rows=[row.model_dump() for row in rows],
         )

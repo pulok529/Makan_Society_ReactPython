@@ -33,27 +33,7 @@
         color: #4b5563;
         margin-bottom: 12px;
       }
-      .filters {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px;
-        margin-bottom: 16px;
-        background: #f9fafb;
-        padding: 12px;
-        border-radius: 6px;
-        border: 1px solid #e5e7eb;
-      }
-      .filter-item {
-        font-size: 12px;
-      }
-      .filter-label {
-        color: #6b7280;
-        font-weight: bold;
-        margin-right: 4px;
-      }
-      .filter-value {
-        font-weight: 600;
-      }
+
       table {
         width: 100%;
         border-collapse: collapse;
@@ -133,16 +113,7 @@
         {% endif %}
       </div>
       
-      {% if report.applied_filters is defined and report.applied_filters %}
-      <div class="filters">
-        {% for key, value in report.applied_filters.items() %}
-        <div class="filter-item">
-          <span class="filter-label">{{ key|replace('_', ' ')|title }}:</span>
-          <span class="filter-value">{{ value }}</span>
-        </div>
-        {% endfor %}
-      </div>
-      {% endif %}
+
     </div>
 
     <div class="report-content">

@@ -495,32 +495,7 @@ function renderTableReportContent(
           </div>
         </div>
       </div>
-      <div className="report-filter-grid">
-        <div className="report-meta-card">
-          <span className="text-muted d-block">Report Type</span>
-          <strong>{report.report_type}</strong>
-        </div>
-        <div className="report-meta-card">
-          <span className="text-muted d-block">Rows</span>
-          <strong>{totalRows}</strong>
-        </div>
-        <div className="report-meta-card">
-          <span className="text-muted d-block">Page</span>
-          <strong>{activePage} / {totalPages}</strong>
-        </div>
-        {Object.entries(report.applied_filters ?? {}).map(([key, value]) => (
-          <div className="report-meta-card" key={`filter-${key}`}>
-            <span className="text-muted d-block text-capitalize">{key.replace(/_/g, " ")}</span>
-            <strong>{value}</strong>
-          </div>
-        ))}
-        {Object.entries(report.totals).map(([key, value]) => (
-          <div className="report-meta-card" key={key}>
-            <span className="text-muted d-block text-capitalize">{key.replace(/_/g, " ")}</span>
-            <strong>{formatReportCell(key, value, options.money, options.shortDate)}</strong>
-          </div>
-        ))}
-      </div>
+
       <div className="table-responsive">
         {rows.length > 0 ? (
           <table className="table table-bordered invoice-report-table mb-0">
@@ -545,6 +520,20 @@ function renderTableReportContent(
                 </tr>
               ))}
             </tbody>
+            {Object.keys(report.totals).length > 0 && (
+              <tfoot>
+                {Object.entries(report.totals).map(([key, value]) => (
+                  <tr style={{ backgroundColor: "#f9fafb", borderTop: "2px solid #6b7280" }} key={key}>
+                    <td colSpan={columns.length - 1} className="text-end fw-bold">
+                      {key.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}
+                    </td>
+                    <td className="text-end fw-bold">
+                      {formatReportCell(key, value, options.money, options.shortDate)}
+                    </td>
+                  </tr>
+                ))}
+              </tfoot>
+            )}
           </table>
         ) : (
           options.emptyState
@@ -651,30 +640,6 @@ function buildPaginatedTableReportMarkup(
             <div class="page-number">Page ${activePage} of ${totalPages}</div>
           </div>
         </div>
-        <div class="report-filter-grid">
-          <div class="report-meta-card">
-            <span class="text-muted d-block">Rows</span>
-            <strong>${totalRows}</strong>
-          </div>
-          ${Object.entries(report.applied_filters)
-            .map(
-              ([key, value]) => `
-                <div class="report-meta-card">
-                  <span class="text-muted d-block text-capitalize">${escapePrintHtml(key.replace(/_/g, " "))}</span>
-                  <strong>${escapePrintHtml(value)}</strong>
-                </div>`,
-            )
-            .join("")}
-          ${Object.entries(report.totals)
-            .map(
-              ([key, value]) => `
-                <div class="report-meta-card">
-                  <span class="text-muted d-block text-capitalize">${escapePrintHtml(key.replace(/_/g, " "))}</span>
-                  <strong>${escapePrintHtml(formatReportCell(key, value, money, shortDate))}</strong>
-                </div>`,
-            )
-            .join("")}
-        </div>
       </section>
       ${
         pageRows.length > 0
@@ -702,6 +667,18 @@ function buildPaginatedTableReportMarkup(
                 )
                 .join("")}
             </tbody>
+            ${
+              Object.keys(report.totals).length > 0
+                ? `<tfoot>
+                    ${Object.entries(report.totals).map(([key, value]) => `
+                      <tr style="background-color: #f9fafb; border-top: 2px solid #6b7280;">
+                        <td colspan="${columns.length - 1}" class="right" style="font-weight: bold;">${escapePrintHtml(key.replace(/_/g, " ").replace(/\\b\\w/g, l => l.toUpperCase()))}</td>
+                        <td class="right" style="font-weight: bold;">${escapePrintHtml(formatReportCell(key, value, money, shortDate))}</td>
+                      </tr>
+                    `).join("")}
+                  </tfoot>`
+                : ""
+            }
           </table>
           <div class="text-muted" style="margin-top: 12px;">Showing ${Math.min(startIndex + 1, totalRows)}-${Math.min(startIndex + pageRows.length, totalRows)} of ${totalRows}</div>
         `

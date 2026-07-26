@@ -27,29 +27,26 @@
         </tr>
         {% endfor %}
       </tbody>
+      {% if report.totals %}
+      <tfoot>
+        {% for key, value in report.totals.items() %}
+        <tr style="background-color: #f9fafb; border-top: 2px solid #6b7280;">
+          <td colspan="{{ row_data[0].keys()|length - 1 }}" class="right" style="font-weight: bold;">{{ key|replace('_', ' ')|title }}</td>
+          <td class="right" style="font-weight: bold;">
+            {% if value is float %}
+              {{ "{:,.2f}".format(value) }}
+            {% else %}
+              {{ value }}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tfoot>
+      {% endif %}
     </table>
     {% else %}
     <p>No rows found for this report.</p>
     {% endif %}
 
-    {% if report.totals %}
-    <div class="totals-container">
-      <table class="totals-table">
-        <tbody>
-          {% for key, value in report.totals.items() %}
-          <tr>
-            <th>{{ key|replace('_', ' ')|title }}</th>
-            <td>
-              {% if value is float %}
-                {{ "{:,.2f}".format(value) }}
-              {% else %}
-                {{ value }}
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% endif %}
+
 {% endblock %}
