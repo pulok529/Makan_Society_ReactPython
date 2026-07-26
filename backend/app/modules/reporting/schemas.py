@@ -245,12 +245,7 @@ class MemberRegisterRow(BaseModel):
     member_code: str
     full_name: str
     plot_no: str | None
-    plot_count: int
-    category_name: str | None
-    national_id: str | None
     cell_no: str | None
-    joined_on: date | None
-    is_active: bool
     total_collection_amount: float
     total_due_amount: float
 

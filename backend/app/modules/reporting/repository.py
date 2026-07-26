@@ -650,25 +650,17 @@ class ReportingRepository:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[int, dict[str, float | int], list[dict]]:
-        collection_totals = (
+        from app.modules.billing.models import BillingDueTracker
+        due_tracker_totals = (
             select(
-                BillingInvoice.member_id.label("member_id"),
-                func.coalesce(func.sum(BillingInvoice.total_receive_amount), 0).label("total_collection_amount"),
+                BillingDueTracker.member_id.label("member_id"),
+                func.coalesce(func.sum(BillingDueTracker.paid_amount), 0).label("total_collection_amount"),
+                func.coalesce(func.sum(BillingDueTracker.due_amount), 0).label("total_due_amount"),
             )
-            .where(
-                BillingInvoice.is_cancelled == False,  # noqa: E712
-            )
-            .group_by(BillingInvoice.member_id)
-        ).subquery()
-        due_totals = (
-            select(
-                Charge.member_id.label("member_id"),
-                func.coalesce(func.sum(Charge.due_amount), 0).label("total_due_amount"),
-            )
-            .group_by(Charge.member_id)
+            .group_by(BillingDueTracker.member_id)
         ).subquery()
 
-        conditions = []
+        conditions = [Member.is_active == True]  # noqa: E712
         if member_id is not None:
             conditions.append(Member.id == member_id)
         if category_id is not None:
@@ -686,19 +678,12 @@ class ReportingRepository:
                 Member.member_code.label("member_code"),
                 Member.full_name.label("full_name"),
                 func.coalesce(Member.plot_no, Member.member_id_text).label("plot_no"),
-                Member.plot_count.label("plot_count"),
-                MemberCategory.name.label("category_name"),
-                Member.national_id.label("national_id"),
                 Member.cell_no.label("cell_no"),
-                Member.joined_on.label("joined_on"),
-                Member.is_active.label("is_active"),
-                func.coalesce(collection_totals.c.total_collection_amount, 0).label("total_collection_amount"),
-                func.coalesce(due_totals.c.total_due_amount, 0).label("total_due_amount"),
+                func.coalesce(due_tracker_totals.c.total_collection_amount, 0).label("total_collection_amount"),
+                func.coalesce(due_tracker_totals.c.total_due_amount, 0).label("total_due_amount"),
             )
             .select_from(Member)
-            .outerjoin(MemberCategory, MemberCategory.id == Member.category_id)
-            .outerjoin(collection_totals, collection_totals.c.member_id == Member.id)
-            .outerjoin(due_totals, due_totals.c.member_id == Member.id)
+            .outerjoin(due_tracker_totals, due_tracker_totals.c.member_id == Member.id)
         )
         if conditions:
             base = base.where(and_(*conditions))
@@ -707,10 +692,10 @@ class ReportingRepository:
         count_stmt = select(func.count()).select_from(base_subquery)
         totals_stmt = select(
             func.count().label("member_count"),
-            func.coalesce(func.sum(case((base_subquery.c.is_active == True, 1), else_=0)), 0).label("active_members"),  # noqa: E712
             func.coalesce(func.sum(base_subquery.c.total_collection_amount), 0).label("total_collection_amount"),
             func.coalesce(func.sum(base_subquery.c.total_due_amount), 0).label("total_due_amount"),
         ).select_from(base_subquery)
+        
         rows = self.db.execute(
             select(base_subquery)
             .order_by(base_subquery.c.member_code.asc(), base_subquery.c.full_name.asc())
@@ -720,7 +705,6 @@ class ReportingRepository:
         totals = self.db.execute(totals_stmt).mappings().one()
         return int(self.db.scalar(count_stmt) or 0), {
             "member_count": int(totals["member_count"] or 0),
-            "active_members": int(totals["active_members"] or 0),
             "total_collection_amount": float(totals["total_collection_amount"] or 0),
             "total_due_amount": float(totals["total_due_amount"] or 0),
         }, self._serialize_rows(rows)

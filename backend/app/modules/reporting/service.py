@@ -518,43 +518,28 @@ class ReportingService:
         )
 
     def member_register(self, filters: ReportFilter) -> ReportEnvelope:
-        categories = {item.id: item for item in self.repository.list_categories()}
-        members = self.repository.list_members(member_id=filters.member_id, category_id=filters.category_id, plot_no=filters.plot_no)
-        member_ids = {member.id for member in members}
-        collection_totals = self._member_collection_totals(member_ids)
-        due_totals = self._member_due_totals(member_ids)
-        rows = [
-            MemberRegisterRow(
-                member_id=member.id,
-                member_code=member.member_code,
-                full_name=member.full_name,
-                plot_no=member.plot_no or member.member_id_text,
-                plot_count=max(int(getattr(member, "plot_count", 1) or 1), 1),
-                category_name=categories[member.category_id].name if member.category_id in categories else None,
-                national_id=member.national_id,
-                cell_no=member.cell_no,
-                joined_on=member.joined_on,
-                is_active=member.is_active,
-                total_collection_amount=round(collection_totals.get(member.id, 0.0), 2),
-                total_due_amount=round(due_totals.get(member.id, 0.0), 2),
-            )
-            for member in members
-            if (filters.from_date is None or member.joined_on is None or member.joined_on >= filters.from_date)
-            and (filters.to_date is None or member.joined_on is None or member.joined_on <= filters.to_date)
-        ]
+        total_count, totals_dict, rows = self.repository.paged_member_register(
+            member_id=filters.member_id,
+            category_id=filters.category_id,
+            plot_no=filters.plot_no,
+            from_date=filters.from_date,
+            to_date=filters.to_date,
+            limit=1000000,
+            offset=0,
+        )
+        
         return ReportEnvelope(
             report_type="member_summary",
             title="Total Member Summary",
             generated_at=datetime.now(UTC),
-            row_count=len(rows),
+            row_count=total_count,
             totals={
-                "member_count": len(rows),
-                "active_members": sum(1 for row in rows if row.is_active),
-                "total_collection_amount": round(sum(row.total_collection_amount for row in rows), 2),
-                "total_due_amount": round(sum(row.total_due_amount for row in rows), 2),
+                "member_count": total_count,
+                "total_collection_amount": round(totals_dict["total_collection_amount"], 2),
+                "total_due_amount": round(totals_dict["total_due_amount"], 2),
             },
             applied_filters=self._applied_filters(filters),
-            rows=[row.model_dump(mode="json") for row in rows],
+            items=rows,
         )
 
     def receipt_detail(self, receipt_id: int) -> ReceiptDetailReport:
@@ -654,10 +639,10 @@ class ReportingService:
         sheet.title = "Report"
         sheet.append([report.title])
         sheet.append([])
-        if report.rows:
-            headers = [key.replace("_", " ").title() for key in report.rows[0].keys()]
+        if getattr(report, "items", None):
+            headers = [key.replace("_", " ").title() for key in report.items[0].keys()]
             sheet.append(headers)
-            for row in report.rows:
+            for row in report.items:
                 sheet.append(list(row.values()))
         self._style_worksheet(sheet, report.title)
         buffer = BytesIO()
@@ -672,7 +657,7 @@ class ReportingService:
         sheet.append([])
         headers = ["Member ID", "Member Code", "Member Name", "Plot No", "Total Collection Amount"]
         sheet.append(headers)
-        for row in report.rows:
+        for row in report.items:
             sheet.append([
                 row.get("member_id"),
                 row.get("member_code"),
@@ -680,7 +665,7 @@ class ReportingService:
                 row.get("plot_no"),
                 row.get("total_collection_amount")
             ])
-        row_count = len(report.rows)
+        row_count = len(report.items)
         start_row = 4 # Row 1=Title, Row 2=Empty, Row 3=Header, Row 4=First Data
         end_row = start_row + row_count - 1 if row_count > 0 else start_row
         sum_formula = f"=SUM(E{start_row}:E{end_row})" if row_count > 0 else 0
