@@ -8,7 +8,7 @@ from app.modules.reporting.schemas import ReportFilter
 
 
 class ReportExportJobPayload(BaseModel):
-    kind: Literal["html", "xlsx", "json"]
+    kind: Literal["html", "xlsx", "json", "pdf"]
     report_type: str
     filters: ReportFilter = Field(default_factory=ReportFilter)
     receipt_id: int | None = None

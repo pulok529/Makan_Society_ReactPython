@@ -78,13 +78,19 @@ class JobService:
         return job
 
     def download_job_output(self, job_id: int) -> FileResponse:
+        from starlette.background import BackgroundTask
         job = self.get_job(job_id)
         if job.status != "completed" or not job.result_path:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Job output is not ready")
         path = Path(job.result_path)
         if not path.exists():
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job output file not found")
-        return FileResponse(path, media_type=job.output_content_type or "application/octet-stream", filename=job.output_filename or path.name)
+        return FileResponse(
+            path,
+            media_type=job.output_content_type or "application/octet-stream",
+            filename=job.output_filename or path.name,
+            background=BackgroundTask(lambda: path.unlink(missing_ok=True)),
+        )
 
     def process_next_pending_job(self) -> bool:
         job = self.repository.get_next_pending_job()
@@ -117,7 +123,8 @@ class JobService:
         reporting = ReportingService(self.db)
         accounting = AccountingService(self.db)
 
-        report_filename = f"{payload.report_type}-{uuid4().hex[:10]}"
+        from datetime import datetime
+        report_filename = f"{payload.report_type}_{datetime.now().strftime('%Y-%m-%d_%H%M')}_{uuid4().hex[:4]}"
         EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 
         if payload.report_type == "income-expense":
@@ -127,9 +134,15 @@ class JobService:
                 suffix = ".xlsx"
                 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             elif payload.kind == "html":
-                content = reporting.render_json_html("Income Expense Report", report.model_dump(mode="json")).encode("utf-8")
+                content = reporting.render_income_expense_html(report).encode("utf-8")
                 suffix = ".html"
                 content_type = "text/html; charset=utf-8"
+            elif payload.kind == "pdf":
+                import weasyprint
+                content_html = reporting.render_income_expense_html(report)
+                content = weasyprint.HTML(string=content_html).write_pdf()
+                suffix = ".pdf"
+                content_type = "application/pdf"
             else:
                 content = json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2).encode("utf-8")
                 suffix = ".json"
@@ -143,9 +156,15 @@ class JobService:
                 suffix = ".xlsx"
                 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             elif payload.kind == "html":
-                content = reporting.render_json_html(f"Receipt {report.receipt_no}", report.model_dump(mode="json")).encode("utf-8")
+                content = reporting.render_receipt_html(report).encode("utf-8")
                 suffix = ".html"
                 content_type = "text/html; charset=utf-8"
+            elif payload.kind == "pdf":
+                import weasyprint
+                content_html = reporting.render_receipt_html(report)
+                content = weasyprint.HTML(string=content_html).write_pdf()
+                suffix = ".pdf"
+                content_type = "application/pdf"
             else:
                 content = json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2).encode("utf-8")
                 suffix = ".json"
@@ -159,9 +178,15 @@ class JobService:
                 suffix = ".xlsx"
                 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             elif payload.kind == "html":
-                content = reporting.render_json_html(f"Member Statement {report.member_code}", report.model_dump(mode="json")).encode("utf-8")
+                content = reporting.render_member_statement_html(report).encode("utf-8")
                 suffix = ".html"
                 content_type = "text/html; charset=utf-8"
+            elif payload.kind == "pdf":
+                import weasyprint
+                content_html = reporting.render_member_statement_html(report)
+                content = weasyprint.HTML(string=content_html).write_pdf()
+                suffix = ".pdf"
+                content_type = "application/pdf"
             else:
                 content = json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2).encode("utf-8")
                 suffix = ".json"
@@ -175,9 +200,35 @@ class JobService:
                 suffix = ".xlsx"
                 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             elif payload.kind == "html":
-                content = reporting.render_json_html(f"Member Detail {report.member_info.member_code}", report.model_dump(mode="json")).encode("utf-8")
+                content = reporting.render_member_information_detail_html(report).encode("utf-8")
                 suffix = ".html"
                 content_type = "text/html; charset=utf-8"
+            elif payload.kind == "pdf":
+                import weasyprint
+                content_html = reporting.render_member_information_detail_html(report)
+                content = weasyprint.HTML(string=content_html).write_pdf()
+                suffix = ".pdf"
+                content_type = "application/pdf"
+            else:
+                content = json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2).encode("utf-8")
+                suffix = ".json"
+                content_type = "application/json"
+        elif payload.report_type == "total-collection":
+            report = reporting.total_collection(payload.filters)
+            if payload.kind == "xlsx":
+                content = reporting.render_total_collection_xlsx(report)
+                suffix = ".xlsx"
+                content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            elif payload.kind == "html":
+                content = reporting.render_total_collection_html(report).encode("utf-8")
+                suffix = ".html"
+                content_type = "text/html; charset=utf-8"
+            elif payload.kind == "pdf":
+                import weasyprint
+                content_html = reporting.render_total_collection_html(report)
+                content = weasyprint.HTML(string=content_html).write_pdf()
+                suffix = ".pdf"
+                content_type = "application/pdf"
             else:
                 content = json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2).encode("utf-8")
                 suffix = ".json"
@@ -186,9 +237,9 @@ class JobService:
             path_map = {
                 "due-members": reporting.due_members,
                 "collections": reporting.collections,
+                "electricity-collection": reporting.electricity_collection,
                 "income-detail": reporting.income_detail,
                 "expense-detail": reporting.expense_detail,
-                "total-collection": reporting.total_collection,
                 "total-due": reporting.total_due,
                 "charges": reporting.charge_register,
                 "members": reporting.member_register,
@@ -201,6 +252,12 @@ class JobService:
                 content = reporting.render_html(report).encode("utf-8")
                 suffix = ".html"
                 content_type = "text/html; charset=utf-8"
+            elif payload.kind == "pdf":
+                import weasyprint
+                content_html = reporting.render_html(report)
+                content = weasyprint.HTML(string=content_html).write_pdf()
+                suffix = ".pdf"
+                content_type = "application/pdf"
             elif payload.kind == "xlsx":
                 content = reporting.render_xlsx(report)
                 suffix = ".xlsx"

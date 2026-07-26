@@ -6,6 +6,8 @@ from io import BytesIO
 from fastapi import HTTPException, status
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from openpyxl import Workbook
+from openpyxl.styles import Font, Border, Side, Alignment, PatternFill
+from openpyxl.utils import get_column_letter
 
 from app.modules.billing.service import BillingService
 from app.modules.accounting.schemas import IncomeExpenseComparisonReport
@@ -297,10 +299,7 @@ class ReportingService:
             title="Total Collection Report",
             generated_at=datetime.now(UTC),
             row_count=len(rows),
-            totals={
-                "total_collection_amount": round(sum(item.total_collection_amount for item in rows), 2),
-                "member_count": len(rows),
-            },
+            totals={},
             applied_filters=self._applied_filters(filters),
             rows=[row.model_dump() for row in rows],
         )
@@ -599,40 +598,141 @@ class ReportingService:
             ],
         )
 
+    def _style_worksheet(self, sheet, report_title: str):
+        sheet.freeze_panes = 'A2'
+        title_cell = sheet['A1']
+        title_cell.font = Font(bold=True, size=14)
+        thin_border = Border(
+            left=Side(style='thin', color='000000'), right=Side(style='thin', color='000000'),
+            top=Side(style='thin', color='000000'), bottom=Side(style='thin', color='000000')
+        )
+        for row in sheet.iter_rows():
+            for cell in row:
+                if cell.value is not None:
+                    cell.border = thin_border
+                    if isinstance(cell.value, (int, float)):
+                        cell.alignment = Alignment(horizontal='right')
+                        cell.number_format = '#,##0.00'
+        header_fill = PatternFill(start_color="F3F4F6", end_color="F3F4F6", fill_type="solid")
+        for row in sheet.iter_rows(min_row=1, max_row=sheet.max_row):
+            if row[0].row > 2:
+                has_values = any(c.value is not None for c in row)
+                if has_values and not any(isinstance(c.value, (int, float)) for c in row):
+                    for cell in row:
+                        if cell.value:
+                            cell.font = Font(bold=True)
+                            cell.fill = header_fill
+        for col_idx in range(1, sheet.max_column + 1):
+            col_letter = get_column_letter(col_idx)
+            max_len = 0
+            for row in sheet.iter_rows(min_col=col_idx, max_col=col_idx):
+                cell = row[0]
+                if cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+            sheet.column_dimensions[col_letter].width = min(max_len + 2, 50)
+
     def render_html(self, report: ReportEnvelope) -> str:
         template = self.template_env.get_template("table_report.html")
         return template.render(report=report)
 
-    @staticmethod
-    def render_json_html(title: str, payload: dict) -> str:
-        import json
+    def render_total_collection_html(self, report: ReportEnvelope) -> str:
+        template = self.template_env.get_template("total_collection_report.html")
+        return template.render(report=report)
 
-        return (
-            "<!doctype html><html><head><meta charset='utf-8' />"
-            f"<title>{title}</title>"
-            "<style>body{font-family:Arial,Helvetica,sans-serif;margin:24px;color:#111827}pre{white-space:pre-wrap;word-break:break-word;background:#f8fafc;border:1px solid #e5e7eb;padding:16px;border-radius:10px}</style>"
-            f"</head><body><h1>{title}</h1><pre>{json.dumps(payload, ensure_ascii=False, indent=2)}</pre></body></html>"
-        )
+    def render_paged_report_html(self, report: ReportPageEnvelope) -> str:
+        template = self.template_env.get_template("table_report.html")
+        return template.render(report=report)
+
+    def render_receipt_html(self, report: ReceiptDetailReport) -> str:
+        template = self.template_env.get_template("receipt_detail_report.html")
+        return template.render(report=report)
+
+    def render_member_statement_html(self, report: SingleMemberStatementReport) -> str:
+        template = self.template_env.get_template("member_statement_report.html")
+        return template.render(report=report)
+
+    def render_member_information_detail_html(self, report: MemberInformationDetailReport) -> str:
+        template = self.template_env.get_template("member_info_report.html")
+        return template.render(report=report)
+
+    def render_income_expense_html(self, report: IncomeExpenseComparisonReport) -> str:
+        template = self.template_env.get_template("income_expense_report.html")
+        return template.render(report=report)
 
     def render_xlsx(self, report: ReportEnvelope) -> bytes:
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Report"
+        sheet.append([report.title])
+        sheet.append([])
+        if report.rows:
+            headers = [key.replace("_", " ").title() for key in report.rows[0].keys()]
+            sheet.append(headers)
+            for row in report.rows:
+                sheet.append(list(row.values()))
+        self._style_worksheet(sheet, report.title)
+        buffer = BytesIO()
+        workbook.save(buffer)
+        return buffer.getvalue()
+
+    def render_total_collection_xlsx(self, report: ReportEnvelope) -> bytes:
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Total Collection"
+        sheet.append(["Total Collection Report"])
+        sheet.append([])
+        headers = ["Member ID", "Member Code", "Member Name", "Plot No", "Total Collection Amount"]
+        sheet.append(headers)
+        for row in report.rows:
+            sheet.append([
+                row.get("member_id"),
+                row.get("member_code"),
+                row.get("member_name"),
+                row.get("plot_no"),
+                row.get("total_collection_amount")
+            ])
+        row_count = len(report.rows)
+        start_row = 4 # Row 1=Title, Row 2=Empty, Row 3=Header, Row 4=First Data
+        end_row = start_row + row_count - 1 if row_count > 0 else start_row
+        sum_formula = f"=SUM(E{start_row}:E{end_row})" if row_count > 0 else 0
+        total_row = end_row + 1
+        sheet.append(["", "", "", "Total Collection", sum_formula])
+        
+        self._style_worksheet(sheet, "Total Collection Report")
+        
+        # Style the total row
+        from openpyxl.styles import Font, Border, Side
+        bold_font = Font(bold=True)
+        top_border = Border(top=Side(style='thin', color='000000'))
+        
+        for col in range(4, 6):
+            cell = sheet.cell(row=total_row, column=col)
+            cell.font = bold_font
+            cell.border = top_border
+            
+        buffer = BytesIO()
+        workbook.save(buffer)
+        return buffer.getvalue()
+        
+    def render_paged_report_xlsx(self, report: ReportPageEnvelope) -> bytes:
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = report.title[:31]
         sheet.append([report.title])
         sheet.append([f"Generated at: {report.generated_at.isoformat()}"])
         for key, value in report.applied_filters.items():
-            sheet.append([key, value])
+            sheet.append([key.replace('_', ' ').title(), value])
         sheet.append([])
-        if report.rows:
-            headers = list(report.rows[0].keys())
+        if report.items:
+            headers = [h.replace('_', ' ').title() for h in report.items[0].keys()]
             sheet.append(headers)
-            for row in report.rows:
-                sheet.append([row.get(header) for header in headers])
+            for row in report.items:
+                sheet.append([row.get(k) for k in report.items[0].keys()])
         sheet.append([])
-        sheet.append(["Totals"])
-        for key, value in report.totals.items():
-            sheet.append([key, value])
-
+        if report.totals:
+            for key, value in report.totals.items():
+                sheet.append([f"Total {key.replace('_', ' ').title()}", value])
+        self._style_worksheet(sheet, report.title)
         buffer = BytesIO()
         workbook.save(buffer)
         return buffer.getvalue()
@@ -646,111 +746,127 @@ class ReportingService:
         sheet.append(["Payment Date", report.payment_date.isoformat()])
         sheet.append(["Member Name", report.member_name or ""])
         sheet.append(["Member Code", report.member_code or ""])
-        sheet.append(["Subtotal", report.subtotal_amount])
-        sheet.append(["Discount", report.discount_amount])
-        sheet.append(["Collected", report.total_amount])
         sheet.append([])
         sheet.append(["Line Type", "Charge ID", "Amount"])
         for line in report.lines:
-            sheet.append([line.line_type, line.charge_id, line.amount])
-
+            sheet.append([line.line_type.replace('_', ' ').title(), line.charge_id or "N/A", line.amount])
+        sheet.append([])
+        sheet.append(["Subtotal", "", report.subtotal_amount])
+        sheet.append(["Discount", "", report.discount_amount])
+        sheet.append(["Collected", "", report.total_amount])
+        self._style_worksheet(sheet, "Receipt Detail Report")
         buffer = BytesIO()
         workbook.save(buffer)
         return buffer.getvalue()
 
     def render_member_statement_xlsx(self, report: SingleMemberStatementReport) -> bytes:
         workbook = Workbook()
-        summary_sheet = workbook.active
-        summary_sheet.title = "Member Statement"
-        summary_sheet.append(["Single Member Due And Paid Statement"])
-        summary_sheet.append(["Member Code", report.member_code])
-        summary_sheet.append(["Member Name", report.member_name])
-        summary_sheet.append(["Plot No", report.plot_no or ""])
-        for key, value in report.applied_filters.items():
-            summary_sheet.append([key.replace("_", " ").title(), value])
-        summary_sheet.append(["Outstanding Bill Total", report.total_bill])
-        summary_sheet.append(["Total Paid", report.paid_amount])
-        summary_sheet.append(["Outstanding Due", report.due_amount])
-
-        due_sheet = workbook.create_sheet("Outstanding Dues")
-        due_sheet.append(["Billing Head", "Period", "Bill Amount", "Paid Amount", "Due Amount"])
+        sheet = workbook.active
+        sheet.title = "Member Statement"
+        sheet.append(["Member Statement"])
+        sheet.append(["Member Code", report.member_code])
+        sheet.append(["Member Name", report.member_name])
+        sheet.append(["Plot No", report.plot_no or ""])
+        sheet.append([])
+        sheet.append(["Dues (Billed)"])
+        sheet.append(["Period", "Charge Type", "Total Bill", "Paid", "Due"])
         for row in report.due_history:
-            due_sheet.append([row.head_name, row.period_display or "", row.total_bill, row.paid_amount, row.due_amount])
-
-        payment_sheet = workbook.create_sheet("Payment History")
-        payment_sheet.append(["Receipt No", "Payment Date", "Paid Amount", "Discount Amount", "Notes"])
+            period = row["period_display"] if isinstance(row, dict) else row.period_display
+            head = row["head_name"] if isinstance(row, dict) else row.head_name
+            bill = row["total_bill"] if isinstance(row, dict) else row.total_bill
+            paid = row["paid_amount"] if isinstance(row, dict) else row.paid_amount
+            due = row["due_amount"] if isinstance(row, dict) else row.due_amount
+            sheet.append([period or "N/A", head, bill, paid, due])
+        sheet.append([])
+        sheet.append(["Payments (Received)"])
+        sheet.append(["Date", "Receipt No", "Collected", "Discount", "Total Credited"])
         for row in report.payment_history:
-            payment_sheet.append([row.receipt_no, row.payment_date.isoformat(), row.amount, row.discount_amount, row.notes or ""])
-
+            dt = row["payment_date"] if isinstance(row, dict) else row.payment_date
+            rn = row["receipt_no"] if isinstance(row, dict) else row.receipt_no
+            amt = row["amount"] if isinstance(row, dict) else row.amount
+            dsc = row["discount_amount"] if isinstance(row, dict) else row.discount_amount
+            sheet.append([dt.isoformat(), rn, amt, dsc, amt + dsc])
+        sheet.append([])
+        sheet.append(["Total Billed", "", "", report.total_bill])
+        sheet.append(["Total Paid", "", "", report.paid_amount])
+        sheet.append(["Total Due", "", "", report.due_amount])
+        self._style_worksheet(sheet, "Member Statement")
         buffer = BytesIO()
         workbook.save(buffer)
         return buffer.getvalue()
 
     def render_member_information_detail_xlsx(self, report: MemberInformationDetailReport) -> bytes:
         workbook = Workbook()
-        summary_sheet = workbook.active
-        summary_sheet.title = "Member Detail"
+        sheet = workbook.active
+        sheet.title = "Member Info"
         info = report.member_info
-        summary_sheet.append(["Member Information Detail"])
-        for key, value in report.applied_filters.items():
-            summary_sheet.append([key.replace("_", " ").title(), value])
-        summary_sheet.append(["Member Code", info.member_code])
-        summary_sheet.append(["Full Name", info.full_name])
-        summary_sheet.append(["Plot No", info.plot_no or ""])
-        summary_sheet.append(["Category", info.category_name or ""])
-        summary_sheet.append(["Phone", info.cell_no or ""])
-        summary_sheet.append(["Email", info.email or ""])
-        summary_sheet.append(["Total Collection", info.total_collection_amount])
-        summary_sheet.append(["Total Due", info.total_due_amount])
-
-        payment_sheet = workbook.create_sheet("Payment History")
-        payment_sheet.append(["Receipt No", "Payment Date", "Paid Amount", "Discount Amount", "Notes"])
-        for row in report.payment_history:
-            payment_sheet.append([row.receipt_no, row.payment_date.isoformat(), row.amount, row.discount_amount, row.notes or ""])
-
-        due_sheet = workbook.create_sheet("Due History")
-        due_sheet.append(["Billing Head", "Period", "Bill Amount", "Paid Amount", "Due Amount"])
+        sheet.append(["Member Information Report"])
+        sheet.append(["Member Code", info.member_code])
+        sheet.append(["Full Name", info.full_name])
+        sheet.append(["Plot No", info.plot_no or ""])
+        sheet.append(["Category", info.category_name or ""])
+        sheet.append(["Phone", info.cell_no or ""])
+        sheet.append([])
+        sheet.append(["Dues (Billed)"])
+        sheet.append(["Period", "Charge Type", "Total Bill", "Paid", "Due"])
         for row in report.due_history:
-            due_sheet.append([row.head_name, row.period_display or "", row.total_bill, row.paid_amount, row.due_amount])
-
-        sms_sheet = workbook.create_sheet("SMS History")
-        sms_sheet.append(["Created At", "Recipient", "Template", "Message", "Status"])
+            period = row["period_display"] if isinstance(row, dict) else row.period_display
+            head = row["head_name"] if isinstance(row, dict) else row.head_name
+            bill = row["total_bill"] if isinstance(row, dict) else row.total_bill
+            paid = row["paid_amount"] if isinstance(row, dict) else row.paid_amount
+            due = row["due_amount"] if isinstance(row, dict) else row.due_amount
+            sheet.append([period or "N/A", head, bill, paid, due])
+        sheet.append([])
+        sheet.append(["Payments (Received)"])
+        sheet.append(["Date", "Receipt No", "Collected", "Discount", "Total Credited"])
+        for row in report.payment_history:
+            dt = row["payment_date"] if isinstance(row, dict) else row.payment_date
+            rn = row["receipt_no"] if isinstance(row, dict) else row.receipt_no
+            amt = row["amount"] if isinstance(row, dict) else row.amount
+            dsc = row["discount_amount"] if isinstance(row, dict) else row.discount_amount
+            sheet.append([dt.isoformat(), rn, amt, dsc, amt + dsc])
+        sheet.append([])
+        sheet.append(["SMS History"])
+        sheet.append(["Sent At", "Recipient", "Template", "Message"])
         for row in report.sms_history:
-            sms_sheet.append([row.created_at.isoformat(), row.recipient, row.template_name or "", row.message_body, row.status])
-
+            created_at = row["created_at"] if isinstance(row, dict) else row.created_at
+            recipient = row["recipient"] if isinstance(row, dict) else row.recipient
+            template = row["template_name"] if isinstance(row, dict) else row.template_name
+            msg = row["message_body"] if isinstance(row, dict) else row.message_body
+            sheet.append([created_at.strftime('%Y-%m-%d %H:%M'), recipient, template or "N/A", msg])
+        self._style_worksheet(sheet, "Member Information Report")
         buffer = BytesIO()
         workbook.save(buffer)
         return buffer.getvalue()
 
     def render_income_expense_xlsx(self, report: IncomeExpenseComparisonReport) -> bytes:
         workbook = Workbook()
-        summary_sheet = workbook.active
-        summary_sheet.title = "Summary"
-        summary_sheet.append(["Income vs Expense Report"])
-        summary_sheet.append(["From Date", report.from_date.isoformat() if report.from_date else ""])
-        summary_sheet.append(["To Date", report.to_date.isoformat() if report.to_date else ""])
-        summary_sheet.append(["Income Subtotal", report.income.subtotal])
-        summary_sheet.append(["Expense Subtotal", report.expense.subtotal])
-        summary_sheet.append(["Net Amount", report.net_amount])
-
-        income_sheet = workbook.create_sheet("Income")
-        income_rows = report.income.rows
-        income_headers = list(income_rows[0].keys()) if income_rows else ["coa_name", "amount"]
-        income_sheet.append(income_headers)
-        for row in income_rows:
-            income_sheet.append([row.get(header) for header in income_headers])
-        income_sheet.append([])
-        income_sheet.append(["Subtotal", report.income.subtotal])
-
-        expense_sheet = workbook.create_sheet("Expense")
-        expense_rows = report.expense.rows
-        expense_headers = list(expense_rows[0].keys()) if expense_rows else ["coa_name", "amount"]
-        expense_sheet.append(expense_headers)
-        for row in expense_rows:
-            expense_sheet.append([row.get(header) for header in expense_headers])
-        expense_sheet.append([])
-        expense_sheet.append(["Subtotal", report.expense.subtotal])
-
+        sheet = workbook.active
+        sheet.title = "Income vs Expense"
+        sheet.append(["Income vs Expense Report"])
+        if report.from_date:
+            sheet.append(["From Date", report.from_date.isoformat()])
+        if report.to_date:
+            sheet.append(["To Date", report.to_date.isoformat()])
+        sheet.append([])
+        sheet.append(["Income (Collections)"])
+        sheet.append(["Category / COA", "Amount"])
+        for row in report.income.rows:
+            coa_name = row["coa_name"] if isinstance(row, dict) else row.coa_name
+            amount = row["amount"] if isinstance(row, dict) else row.amount
+            sheet.append([coa_name, amount])
+        sheet.append(["Total Income", report.income.subtotal])
+        sheet.append([])
+        sheet.append(["Expenses (Payments)"])
+        sheet.append(["Category / COA", "Amount"])
+        for row in report.expense.rows:
+            coa_name = row["coa_name"] if isinstance(row, dict) else row.coa_name
+            amount = row["amount"] if isinstance(row, dict) else row.amount
+            sheet.append([coa_name, amount])
+        sheet.append(["Total Expense", report.expense.subtotal])
+        sheet.append([])
+        sheet.append(["Net Balance", report.net_amount])
+        self._style_worksheet(sheet, "Income vs Expense Report")
         buffer = BytesIO()
         workbook.save(buffer)
         return buffer.getvalue()

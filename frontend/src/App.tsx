@@ -3514,10 +3514,11 @@ export function App() {
     }
   }
 
-  function openReportExport(kind: "html" | "xlsx") {
+  function openReportExport(kind: "pdf" | "html" | "xlsx") {
     const exportableReports = new Set([
       "due-members",
       "collections",
+      "electricity-collection",
       "income-detail",
       "expense-detail",
       "charges",
@@ -3537,7 +3538,7 @@ export function App() {
     if (!accessToken) return;
     const params = new URLSearchParams(reportQueryString);
     params.set("report_type", reportType);
-    params.set("kind", kind === "html" ? "html" : "xlsx");
+    params.set("kind", kind);
     if (reportType === "receipt-detail") {
       if (!reportReceiptId) {
         setMessage("Select a receipt first.");
@@ -5344,6 +5345,7 @@ export function App() {
   }
 
   function renderReports() {
+    const isReportLoaded = !!(currentReport || currentPagedReport || incomeExpenseReport || receiptReport || memberStatementReport || memberInformationDetailReport);
     return (
       <>
         <div className="card">
@@ -5437,14 +5439,17 @@ export function App() {
                     onChange={(event) => setReportPlotNo(event.target.value)}
                   />
                 </div>
-                <div className="col-xl-3 col-md-6 mb-3 d-flex align-items-end gap-2">
+                <div className="col-xl-4 col-md-6 mb-3 d-flex align-items-end gap-2">
                   <button className="btn btn-primary" disabled={isSubmitting} type="submit">
                     Load Report
                   </button>
-                  <button className="btn btn-light" onClick={() => openReportExport("html")} type="button">
+                  <button className="btn btn-outline-danger" disabled={isSubmitting || !isReportLoaded} onClick={() => openReportExport("pdf")} type="button">
+                    PDF
+                  </button>
+                  <button className="btn btn-outline-info" disabled={isSubmitting || !isReportLoaded} onClick={() => openReportExport("html")} type="button">
                     HTML
                   </button>
-                  <button className="btn btn-light" onClick={() => openReportExport("xlsx")} type="button">
+                  <button className="btn btn-outline-success" disabled={isSubmitting || !isReportLoaded} onClick={() => openReportExport("xlsx")} type="button">
                     XLSX
                   </button>
                 </div>
@@ -5452,7 +5457,7 @@ export function App() {
             </form>
           </div>
         </div>
-        {(currentReport || currentPagedReport || incomeExpenseReport || receiptReport || memberStatementReport || memberInformationDetailReport) && !showReportViewer ? (
+        {isReportLoaded && !showReportViewer ? (
           <div className="alert alert-info border-0">
             Last loaded report is ready. Click <strong>Load Report</strong> again to reopen the preview and print it.
           </div>

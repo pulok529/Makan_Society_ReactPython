@@ -1,0 +1,86 @@
+{% extends "base_report.html" %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 1px solid #e5e7eb;">
+  <div>
+    <strong>Member:</strong> {{ report.member_name }}<br>
+    <strong>Code:</strong> {{ report.member_code }}<br>
+    <strong>Plot No:</strong> {{ report.plot_no or "N/A" }}
+  </div>
+</div>
+
+<h2 style="font-size: 16px; margin: 20px 0 8px;">Dues (Billed)</h2>
+{% if report.due_history %}
+<table>
+  <thead>
+    <tr>
+      <th>Period</th>
+      <th>Charge Type</th>
+      <th class="right">Total Bill</th>
+      <th class="right">Paid</th>
+      <th class="right">Due</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in report.due_history %}
+    <tr>
+      <td>{{ item.period_display or "N/A" }}</td>
+      <td>{{ item.head_name }}</td>
+      <td class="right">{{ "{:,.2f}".format(item.total_bill) }}</td>
+      <td class="right">{{ "{:,.2f}".format(item.paid_amount) }}</td>
+      <td class="right">{{ "{:,.2f}".format(item.due_amount) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No billing history.</p>
+{% endif %}
+
+<h2 style="font-size: 16px; margin: 20px 0 8px;">Payments (Received)</h2>
+{% if report.payment_history %}
+<table>
+  <thead>
+    <tr>
+      <th>Date</th>
+      <th>Receipt No</th>
+      <th class="right">Collected</th>
+      <th class="right">Discount</th>
+      <th class="right">Total Credited</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in report.payment_history %}
+    <tr>
+      <td>{{ item.payment_date.strftime('%Y-%m-%d') }}</td>
+      <td>{{ item.receipt_no }}</td>
+      <td class="right">{{ "{:,.2f}".format(item.amount) }}</td>
+      <td class="right">{{ "{:,.2f}".format(item.discount_amount) }}</td>
+      <td class="right">{{ "{:,.2f}".format(item.amount + item.discount_amount) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No payment history.</p>
+{% endif %}
+
+<div class="totals-container">
+  <table class="totals-table">
+    <tbody>
+      <tr>
+        <th>Total Billed</th>
+        <td>{{ "{:,.2f}".format(report.total_bill) }}</td>
+      </tr>
+      <tr>
+        <th>Total Paid</th>
+        <td>{{ "{:,.2f}".format(report.paid_amount) }}</td>
+      </tr>
+      <tr style="border-top: 2px solid #111827;">
+        <th>Total Due</th>
+        <td style="color: #be123c;">{{ "{:,.2f}".format(report.due_amount) }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}

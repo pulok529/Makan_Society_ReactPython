@@ -1,0 +1,71 @@
+{% extends "base_report.html" %}
+
+{% block content %}
+<style>
+  .inc-exp-table th { background: #eef2ff; }
+  .exp-table th { background: #fff1f2; }
+  .section-heading { font-size: 18px; font-weight: bold; margin: 24px 0 12px; }
+  .grand-total { font-size: 16px; font-weight: bold; background: #f9fafb; padding: 12px; border: 1px solid #e5e7eb; border-radius: 6px; text-align: right; }
+  .balance-positive { color: #047857; }
+  .balance-negative { color: #be123c; }
+</style>
+
+<div class="section-heading">Income (Collections)</div>
+{% if report.income and report.income.rows %}
+<table class="inc-exp-table">
+  <thead>
+    <tr>
+      <th>Category / COA</th>
+      <th class="right">Amount</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in report.income.rows %}
+    <tr>
+      <td>{{ item.coa_name }}</td>
+      <td class="right">{{ "{:,.2f}".format(item.amount) }}</td>
+    </tr>
+    {% endfor %}
+    <tr>
+      <td class="right" style="font-weight:bold;">Total Income</td>
+      <td class="right" style="font-weight:bold;">{{ "{:,.2f}".format(report.income.subtotal) }}</td>
+    </tr>
+  </tbody>
+</table>
+{% else %}
+<p>No income recorded.</p>
+{% endif %}
+
+<div class="section-heading">Expenses (Payments)</div>
+{% if report.expense and report.expense.rows %}
+<table class="exp-table">
+  <thead>
+    <tr>
+      <th>Category / COA</th>
+      <th class="right">Amount</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in report.expense.rows %}
+    <tr>
+      <td>{{ item.coa_name }}</td>
+      <td class="right">{{ "{:,.2f}".format(item.amount) }}</td>
+    </tr>
+    {% endfor %}
+    <tr>
+      <td class="right" style="font-weight:bold;">Total Expense</td>
+      <td class="right" style="font-weight:bold;">{{ "{:,.2f}".format(report.expense.subtotal) }}</td>
+    </tr>
+  </tbody>
+</table>
+{% else %}
+<p>No expenses recorded.</p>
+{% endif %}
+
+<div class="grand-total">
+  Net Balance: 
+  <span class="{% if report.net_amount >= 0 %}balance-positive{% else %}balance-negative{% endif %}">
+    {{ "{:,.2f}".format(report.net_amount) }}
+  </span>
+</div>
+{% endblock %}

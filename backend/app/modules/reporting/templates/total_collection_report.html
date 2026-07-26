@@ -1,0 +1,50 @@
+{% extends "base_report.html" %}
+
+{% block content %}
+    {% if report.rows %}
+    <style>
+      .total-row {
+        background-color: #f9fafb;
+        border-top: 2px solid #6b7280;
+      }
+      .total-row td {
+        font-weight: bold;
+      }
+      tfoot {
+        display: table-row-group;
+      }
+    </style>
+    <table>
+      <thead>
+        <tr>
+          <th>Member ID</th>
+          <th>Member Code</th>
+          <th>Member Name</th>
+          <th>Plot No</th>
+          <th class="right">Total Collection Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set total_amount = namespace(value=0) %}
+        {% for row in report.rows %}
+        {% set total_amount.value = total_amount.value + row.total_collection_amount %}
+        <tr>
+          <td>{{ row.member_id }}</td>
+          <td>{{ row.member_code }}</td>
+          <td>{{ row.member_name }}</td>
+          <td>{{ row.plot_no or "" }}</td>
+          <td class="right">{{ "{:,.2f}".format(row.total_collection_amount) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="total-row">
+          <td colspan="4" class="right">Total Collection</td>
+          <td class="right">{{ "{:,.2f}".format(total_amount.value) }}</td>
+        </tr>
+      </tfoot>
+    </table>
+    {% else %}
+    <p>No rows found for this report.</p>
+    {% endif %}
+{% endblock %}

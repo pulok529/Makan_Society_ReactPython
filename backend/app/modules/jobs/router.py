@@ -17,7 +17,7 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 @router.post("/report-export", response_model=BackgroundJobRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("reports:view"))])
 def create_report_export_job(
     report_type: str = Query(),
-    kind: str = Query(pattern="^(html|xlsx|json)$"),
+    kind: str = Query(pattern="^(html|xlsx|pdf|json)$"),
     receipt_id: int | None = Query(default=None),
     from_date: date | None = Query(default=None),
     to_date: date | None = Query(default=None),

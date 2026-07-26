@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl gnupg unixodbc-dev \
+    && apt-get install -y --no-install-recommends curl gnupg unixodbc-dev libpango-1.0-0 libpangoft2-1.0-0 libjpeg-dev libopenjp2-7-dev libffi-dev \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /etc/apt/keyrings/microsoft-prod.gpg \
     && chmod a+r /etc/apt/keyrings/microsoft-prod.gpg \

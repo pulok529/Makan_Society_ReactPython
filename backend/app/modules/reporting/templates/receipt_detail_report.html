@@ -1,0 +1,54 @@
+{% extends "base_report.html" %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 1px solid #e5e7eb;">
+  <div>
+    <strong>Member:</strong> {{ report.member_name or "N/A" }}<br>
+    <strong>Member Code:</strong> {{ report.member_code or "N/A" }}
+  </div>
+  <div style="text-align: right;">
+    <strong>Receipt No:</strong> {{ report.receipt_no }}<br>
+    <strong>Date:</strong> {{ report.payment_date.strftime('%Y-%m-%d') }}
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>SL</th>
+      <th>Line Type</th>
+      <th>Charge ID</th>
+      <th class="right">Amount</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for line in report.lines %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td>{{ line.line_type|replace('_', ' ')|title }}</td>
+      <td>{{ line.charge_id or "N/A" }}</td>
+      <td class="right">{{ "{:,.2f}".format(line.amount) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="totals-container">
+  <table class="totals-table">
+    <tbody>
+      <tr>
+        <th>Subtotal</th>
+        <td>{{ "{:,.2f}".format(report.subtotal_amount) }}</td>
+      </tr>
+      <tr>
+        <th>Discount</th>
+        <td>{{ "{:,.2f}".format(report.discount_amount) }}</td>
+      </tr>
+      <tr>
+        <th>Total Amount</th>
+        <td>{{ "{:,.2f}".format(report.total_amount) }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}
