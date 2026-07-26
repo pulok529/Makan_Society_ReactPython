@@ -220,7 +220,7 @@ class ReportingService:
                 "total_collected_amount": round(total_paid, 2),
             },
             applied_filters=self._applied_filters(filters),
-            rows=rows,
+            items=rows,
         )
 
     def collections(self, filters: ReportFilter) -> ReportEnvelope:
@@ -334,7 +334,7 @@ class ReportingService:
             },
             applied_filters=self._applied_filters(filters),
             empty_message="No members currently have outstanding dues.",
-            rows=rows,
+            items=rows,
         )
 
     def single_member_statement(self, filters: ReportFilter) -> SingleMemberStatementReport:
@@ -1013,7 +1013,7 @@ class ReportingService:
                     "total_due_amount": round(total_due, 2), 
                 },
                 applied_filters=applied_filters,
-                rows=rows,
+                items=rows,
                 empty_message="No members currently have outstanding dues.",
             )
         if report_key == "total-collection":
