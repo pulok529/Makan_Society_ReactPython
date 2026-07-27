@@ -43,6 +43,8 @@ services:
         condition: service_started
     ports:
       - "8000:8000"
+    volumes:
+      - society_modern_exports_data:/app/app/storage/exports
 
   worker:
     image: society-modern-worker:latest
@@ -62,6 +64,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    volumes:
+      - society_modern_exports_data:/app/app/storage/exports
 
   frontend:
     image: society-modern-frontend:latest
@@ -76,3 +80,4 @@ services:
 
 volumes:
   society_modern_mssql_data:
+  society_modern_exports_data:

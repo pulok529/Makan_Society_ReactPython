@@ -47,6 +47,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - society_modern_exports_data:/app/app/storage/exports
 
   worker:
     build:
@@ -70,6 +71,7 @@ services:
         condition: service_started
     volumes:
       - ./backend:/app
+      - society_modern_exports_data:/app/app/storage/exports
 
   frontend:
     build:
@@ -89,3 +91,4 @@ services:
 
 volumes:
   society_modern_mssql_data:
+  society_modern_exports_data:
