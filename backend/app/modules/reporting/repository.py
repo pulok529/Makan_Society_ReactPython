@@ -650,14 +650,22 @@ class ReportingRepository:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[int, dict[str, float | int], list[dict]]:
-        from app.modules.billing.models import BillingDueTracker
+        from app.modules.billing.models import BillingDueTracker, BillingInvoice
         due_tracker_totals = (
             select(
                 BillingDueTracker.member_id.label("member_id"),
-                func.coalesce(func.sum(BillingDueTracker.paid_amount), 0).label("total_collection_amount"),
                 func.coalesce(func.sum(BillingDueTracker.due_amount), 0).label("total_due_amount"),
             )
             .group_by(BillingDueTracker.member_id)
+        ).subquery()
+
+        collection_totals = (
+            select(
+                BillingInvoice.member_id.label("member_id"),
+                func.coalesce(func.sum(BillingInvoice.total_receive_amount), 0).label("total_collection_amount"),
+            )
+            .where(BillingInvoice.is_cancelled == False)  # noqa: E712
+            .group_by(BillingInvoice.member_id)
         ).subquery()
 
         conditions = []
@@ -675,11 +683,12 @@ class ReportingRepository:
                 Member.full_name.label("full_name"),
                 func.coalesce(Member.plot_no, Member.member_id_text).label("plot_no"),
                 Member.cell_no.label("cell_no"),
-                func.coalesce(due_tracker_totals.c.total_collection_amount, 0).label("total_collection_amount"),
+                func.coalesce(collection_totals.c.total_collection_amount, 0).label("total_collection_amount"),
                 func.coalesce(due_tracker_totals.c.total_due_amount, 0).label("total_due_amount"),
             )
             .select_from(Member)
             .outerjoin(due_tracker_totals, due_tracker_totals.c.member_id == Member.id)
+            .outerjoin(collection_totals, collection_totals.c.member_id == Member.id)
         )
         if conditions:
             base = base.where(and_(*conditions))
