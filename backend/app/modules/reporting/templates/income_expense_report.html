@@ -63,9 +63,9 @@
 {% endif %}
 
 <div class="grand-total">
-  Net Balance: 
+  {% if report.net_amount >= 0 %}Net Surplus{% else %}Net Deficit{% endif %}: 
   <span class="{% if report.net_amount >= 0 %}balance-positive{% else %}balance-negative{% endif %}">
-    {{ "{:,.2f}".format(report.net_amount) }}
+    {{ "{:,.2f}".format(report.net_amount|abs) }}
   </span>
 </div>
 {% endblock %}

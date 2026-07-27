@@ -839,7 +839,10 @@ class ReportingService:
             sheet.append([coa_name, amount])
         sheet.append(["Total Expense", report.expense.subtotal])
         sheet.append([])
-        sheet.append(["Net Balance", report.net_amount])
+        
+        net_label = "Net Surplus" if report.net_amount >= 0 else "Net Deficit"
+        sheet.append([net_label, abs(report.net_amount)])
+        
         self._style_worksheet(sheet, "Income vs Expense Report")
         buffer = BytesIO()
         workbook.save(buffer)

@@ -424,26 +424,107 @@ class AccountingService:
             )
 
     def income_expense_report(self, from_date: date | None = None, to_date: date | None = None) -> IncomeExpenseComparisonReport:
-        vouchers = self.repository.list_vouchers()
-        accounts = {account.id: account for account in self.repository.list_accounts()}
-        income_totals: dict[int, float] = {}
-        expense_totals: dict[int, float] = {}
-        for voucher in vouchers:
-            if from_date and voucher.voucher_date < from_date:
-                continue
-            if to_date and voucher.voucher_date > to_date:
-                continue
-            target = income_totals if voucher.voucher_type == "income" else expense_totals if voucher.voucher_type == "expense" else None
-            if target is None:
-                continue
-            for detail in self.repository.list_voucher_details(voucher.id):
-                target[detail.coa_id] = target.get(detail.coa_id, 0) + float(detail.amount)
-        def section(totals: dict[int, float]) -> IncomeExpenseReportSection:
-            rows = [{"coa_id": coa_id, "coa_name": accounts.get(coa_id).name if coa_id in accounts else "Unknown", "amount": amount} for coa_id, amount in sorted(totals.items(), key=lambda item: accounts.get(item[0]).name if item[0] in accounts else "")]
-            return IncomeExpenseReportSection(rows=rows, subtotal=sum(totals.values()))
+        from sqlalchemy import text
+        income_totals: dict[int, dict] = {}
+        expense_totals: dict[int, dict] = {}
+        
+        date_filter_i = ""
+        date_filter_e = ""
+        params = {}
+        if from_date:
+            date_filter_i += " AND i.InvoiceDate >= :from_date"
+            date_filter_e += " AND CAST(e.created_at AS DATE) >= :from_date"
+            params["from_date"] = from_date
+        if to_date:
+            date_filter_i += " AND i.InvoiceDate <= :to_date"
+            date_filter_e += " AND CAST(e.created_at AS DATE) <= :to_date"
+            params["to_date"] = to_date
+
+        # Billing Income (Realized receipts from Invoices)
+        billing_income = self.db.execute(text(f"""
+            SELECT a.id, a.name, SUM(d.ReceiveAmount) 
+            FROM billing.billing_invoice_details d
+            JOIN billing.billing_invoices i ON d.InvoiceID = i.InvoiceID
+            JOIN accounting.accounts a ON d.COAIDSnapshot = a.id
+            WHERE i.IsCancelled = 0 {date_filter_i}
+            GROUP BY a.id, a.name
+        """), params).fetchall()
+
+        # Manual Income (Non-billing, direct entries)
+        manual_income = self.db.execute(text(f"""
+            SELECT a.id, a.name, SUM(e.amount)
+            FROM accounting.income_expense_entries e
+            JOIN accounting.accounts a ON e.account_id = a.id
+            WHERE e.entry_type = 'income' 
+            AND a.name != 'Billing Collection Income'
+            AND e.remarks NOT LIKE '(void invoice)%%'
+            AND e.remarks NOT LIKE 'LegacyIncomeExpenseId=%%'
+            AND e.id NOT IN (SELECT id FROM accounting.income_expense_entries WHERE entry_type = 'income' AND amount < 0)
+            AND e.id NOT IN (
+                SELECT e2.id 
+                FROM accounting.income_expense_entries e2
+                JOIN accounting.accounting_voucher_details vd ON e2.account_id = vd.COAID AND e2.amount = vd.Amount
+                JOIN accounting.accounting_vouchers v ON vd.VoucherID = v.VoucherID
+                WHERE e2.entry_type = 'income' AND v.VoucherType = 'income' 
+                AND v.VoucherID IN (SELECT DISTINCT IncomeVoucherID FROM billing.billing_invoice_details WHERE IncomeVoucherID IS NOT NULL)
+            )
+            {date_filter_e}
+            GROUP BY a.id, a.name
+        """), params).fetchall()
+
+        for coa_id, name, amount in billing_income:
+            if amount:
+                if coa_id not in income_totals:
+                    income_totals[coa_id] = {"name": name, "amount": 0.0}
+                income_totals[coa_id]["amount"] += float(amount)
+                
+        for coa_id, name, amount in manual_income:
+            if amount:
+                if coa_id not in income_totals:
+                    income_totals[coa_id] = {"name": name, "amount": 0.0}
+                income_totals[coa_id]["amount"] += float(amount)
+
+        # Expense (Unified source)
+        expenses = self.db.execute(text(f"""
+            SELECT a.id, a.name, SUM(e.amount)
+            FROM accounting.income_expense_entries e
+            JOIN accounting.accounts a ON e.account_id = a.id
+            WHERE e.entry_type = 'expense'
+            {date_filter_e}
+            GROUP BY a.id, a.name
+        """), params).fetchall()
+
+        for coa_id, name, amount in expenses:
+            if amount:
+                if coa_id not in expense_totals:
+                    expense_totals[coa_id] = {"name": name, "amount": 0.0}
+                expense_totals[coa_id]["amount"] += float(amount)
+
+        def fix_spelling(name: str) -> str:
+            if name == "Miscellanies":
+                return "Miscellaneous"
+            if name == "Stuff Salary":
+                return "Staff Salary"
+            return name
+
+        def section(totals: dict[int, dict]) -> IncomeExpenseReportSection:
+            rows = [
+                {"coa_id": coa_id, "coa_name": fix_spelling(data["name"]), "amount": data["amount"]} 
+                for coa_id, data in sorted(totals.items(), key=lambda item: item[1]["name"])
+            ]
+            subtotal = sum(data["amount"] for data in totals.values())
+            return IncomeExpenseReportSection(rows=rows, subtotal=subtotal)
+
         income = section(income_totals)
         expense = section(expense_totals)
-        return IncomeExpenseComparisonReport(from_date=from_date, to_date=to_date, income=income, expense=expense, net_amount=income.subtotal - expense.subtotal)
+        
+        return IncomeExpenseComparisonReport(
+            from_date=from_date, 
+            to_date=to_date, 
+            income=income, 
+            expense=expense, 
+            net_amount=income.subtotal - expense.subtotal
+        )
 
     def _serialize_income(self, item: IncomeEntry) -> IncomeEntryRead:
         account = self.repository.get_account(item.coa_id)
