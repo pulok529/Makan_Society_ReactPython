@@ -1,0 +1,51 @@
+{% extends "base_report.html" %}
+
+{% block content %}
+    {% if report.rows or (report.items is defined and report.items) %}
+    {% set row_data = report.rows if report.rows else report.items %}
+    <table>
+      <thead>
+        <tr>
+          {% for key in row_data[0].keys() %}
+          <th>{{ key }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in row_data %}
+        <tr>
+          {% for value in row.values() %}
+          <td>
+            {% if value is none %}
+            {% elif value is number %}
+              {{ "{:,.2f}".format(value) if value is float else value }}
+            {% else %}
+              {{ value }}
+            {% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+      {% if report.totals %}
+      <tfoot>
+        {% for key, value in report.totals.items() %}
+        <tr style="background-color: #f9fafb; border-top: 2px solid #6b7280;">
+          <td colspan="{{ row_data[0].keys()|length - 1 }}" class="right" style="font-weight: bold;">{{ key }}</td>
+          <td class="right" style="font-weight: bold;">
+            {% if value is float %}
+              {{ "{:,.2f}".format(value) }}
+            {% else %}
+              {{ value }}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tfoot>
+      {% endif %}
+    </table>
+    {% else %}
+    <p>No income records found.</p>
+    {% endif %}
+
+{% endblock %}

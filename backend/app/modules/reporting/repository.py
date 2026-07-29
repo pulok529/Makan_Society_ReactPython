@@ -172,37 +172,90 @@ class ReportingRepository:
         statement = statement.order_by(BillingInvoiceDetail.period_date.asc(), BillingInvoiceDetail.id.asc())
         return list(self.db.scalars(statement))
 
-    def paged_income_detail(self, *, from_date=None, to_date=None, limit: int = 50, offset: int = 0) -> tuple[int, float, list[dict]]:
-        conditions = []
-        if from_date is not None:
-            conditions.append(IncomeEntry.income_date >= from_date)
-        if to_date is not None:
-            conditions.append(IncomeEntry.income_date <= to_date)
+    def _base_income_detail_query(self, from_date=None, to_date=None) -> tuple[dict, str]:
+        date_filter_i = ""
+        date_filter_e = ""
+        params = {}
 
-        count_stmt = select(func.count()).select_from(IncomeEntry)
-        total_stmt = select(func.coalesce(func.sum(IncomeEntry.amount), 0)).select_from(IncomeEntry)
-        if conditions:
-            count_stmt = count_stmt.where(and_(*conditions))
-            total_stmt = total_stmt.where(and_(*conditions))
+        if from_date:
+            date_filter_i += " AND i.InvoiceDate >= :from_date"
+            date_filter_e += " AND CAST(e.created_at AS DATE) >= :from_date"
+            params["from_date"] = from_date
+        if to_date:
+            date_filter_i += " AND i.InvoiceDate <= :to_date"
+            date_filter_e += " AND CAST(e.created_at AS DATE) <= :to_date"
+            params["to_date"] = to_date
 
-        rows = self.db.execute(
-            select(
-                IncomeEntry.id.label("income_id"),
-                IncomeEntry.income_date.label("income_date"),
-                Account.code.label("account_code"),
-                Account.name.label("account_name"),
-                IncomeEntry.amount.label("amount"),
-                IncomeEntry.remarks.label("remarks"),
-                IncomeEntry.created_at.label("created_at"),
+        sql = f"""
+            SELECT 
+                i.InvoiceDate AS income_date,
+                a.code AS account_code,
+                a.name AS account_name,
+                d.ReceiveAmount AS amount,
+                'Invoice: ' + i.InvoiceNo AS remarks
+            FROM billing.billing_invoice_details d
+            JOIN billing.billing_invoices i ON d.InvoiceID = i.InvoiceID
+            JOIN accounting.accounts a ON d.COAIDSnapshot = a.id
+            WHERE i.IsCancelled = 0 {date_filter_i}
+            AND d.ReceiveAmount > 0
+
+            UNION ALL
+
+            SELECT 
+                CAST(e.created_at AS DATE) AS income_date,
+                a.code AS account_code,
+                a.name AS account_name,
+                e.amount AS amount,
+                e.remarks AS remarks
+            FROM accounting.income_expense_entries e
+            JOIN accounting.accounts a ON e.account_id = a.id
+            WHERE e.entry_type = 'income' 
+            AND a.name != 'Billing Collection Income'
+            AND e.remarks NOT LIKE '(void invoice)%%'
+            AND e.remarks NOT LIKE 'LegacyIncomeExpenseId=%%'
+            AND e.amount > 0
+            AND e.id NOT IN (
+                SELECT e2.id 
+                FROM accounting.income_expense_entries e2
+                JOIN accounting.accounting_voucher_details vd ON e2.account_id = vd.COAID AND e2.amount = vd.Amount
+                JOIN accounting.accounting_vouchers v ON vd.VoucherID = v.VoucherID
+                WHERE e2.entry_type = 'income' AND v.VoucherType = 'income' 
+                AND v.VoucherID IN (SELECT DISTINCT IncomeVoucherID FROM billing.billing_invoice_details WHERE IncomeVoucherID IS NOT NULL)
             )
-            .select_from(IncomeEntry)
-            .outerjoin(Account, Account.id == IncomeEntry.coa_id)
-            .where(and_(*conditions) if conditions else True)
-            .order_by(IncomeEntry.income_date.desc(), IncomeEntry.id.desc())
-            .offset(offset)
-            .limit(limit)
-        ).mappings().all()
-        return int(self.db.scalar(count_stmt) or 0), float(self.db.scalar(total_stmt) or 0), self._serialize_rows(rows)
+            {date_filter_e}
+        """
+        return params, sql
+
+    def paged_income_detail(self, *, from_date=None, to_date=None, limit: int = 50, offset: int = 0) -> tuple[int, float, list[dict]]:
+        params, base_sql = self._base_income_detail_query(from_date, to_date)
+        from sqlalchemy import text
+        
+        count_sql = f"SELECT COUNT(*) FROM ({base_sql}) t"
+        total_sql = f"SELECT ISNULL(SUM(amount), 0) FROM ({base_sql}) t"
+        rows_sql = f"SELECT * FROM ({base_sql}) t ORDER BY income_date ASC, account_code ASC OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY"
+        
+        params["limit"] = limit
+        params["offset"] = offset
+
+        total_count = self.db.execute(text(count_sql), params).scalar() or 0
+        total_amount = self.db.execute(text(total_sql), params).scalar() or 0
+        rows = self.db.execute(text(rows_sql), params).mappings().all()
+
+        return int(total_count), float(total_amount), self._serialize_rows(rows)
+
+    def income_detail(self, *, from_date=None, to_date=None) -> tuple[int, float, list[dict]]:
+        params, base_sql = self._base_income_detail_query(from_date, to_date)
+        from sqlalchemy import text
+        
+        count_sql = f"SELECT COUNT(*) FROM ({base_sql}) t"
+        total_sql = f"SELECT ISNULL(SUM(amount), 0) FROM ({base_sql}) t"
+        rows_sql = f"SELECT * FROM ({base_sql}) t ORDER BY income_date ASC, account_code ASC"
+        
+        total_count = self.db.execute(text(count_sql), params).scalar() or 0
+        total_amount = self.db.execute(text(total_sql), params).scalar() or 0
+        rows = self.db.execute(text(rows_sql), params).mappings().all()
+
+        return int(total_count), float(total_amount), self._serialize_rows(rows)
 
     def paged_expense_detail(self, *, from_date=None, to_date=None, limit: int = 50, offset: int = 0) -> tuple[int, float, list[dict]]:
         conditions = []
@@ -312,7 +365,6 @@ class ReportingRepository:
                 Member.plot_no.label("plot_no"),
                 Member.member_code.label("member_id"),
                 Member.full_name.label("member_name"),
-                BillingInvoice.invoice_no.label("receipt_no"),
                 BillingInvoice.invoice_no.label("invoice_no"),
                 BillingInvoiceDetail.fee_amount.label("electricity_bill_amount"),
                 BillingInvoiceDetail.receive_amount.label("paid_amount"),
@@ -324,7 +376,7 @@ class ReportingRepository:
         if conditions:
             rows_stmt = rows_stmt.where(and_(*conditions))
             
-        rows_stmt = rows_stmt.order_by(BillingInvoice.invoice_date.desc(), BillingInvoiceDetail.id.desc()).limit(limit).offset(offset)
+        rows_stmt = rows_stmt.order_by(BillingInvoice.invoice_date.asc(), BillingInvoice.invoice_no.asc()).limit(limit).offset(offset)
 
         total_count = self.db.scalar(count_stmt) or 0
         total_bill, total_paid = self.db.execute(total_stmt).one_or_none() or (0, 0)
@@ -350,7 +402,6 @@ class ReportingRepository:
                 Member.plot_no.label("plot_no"),
                 Member.member_code.label("member_id"),
                 Member.full_name.label("member_name"),
-                BillingInvoice.invoice_no.label("receipt_no"),
                 BillingInvoice.invoice_no.label("invoice_no"),
                 BillingInvoiceDetail.fee_amount.label("electricity_bill_amount"),
                 BillingInvoiceDetail.receive_amount.label("paid_amount"),
@@ -362,7 +413,7 @@ class ReportingRepository:
         if conditions:
             rows_stmt = rows_stmt.where(and_(*conditions))
             
-        rows_stmt = rows_stmt.order_by(BillingInvoice.invoice_date.desc(), BillingInvoiceDetail.id.desc())
+        rows_stmt = rows_stmt.order_by(BillingInvoice.invoice_date.asc(), BillingInvoice.invoice_no.asc())
 
         total_count = self.db.scalar(select(func.count()).select_from(base.subquery())) or 0
         total_bill, total_paid = self.db.execute(total_stmt).one_or_none() or (0, 0)

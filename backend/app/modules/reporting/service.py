@@ -98,30 +98,29 @@ class ReportingService:
         return totals
 
     def income_detail(self, filters: ReportFilter) -> ReportEnvelope:
-        accounts = {item.id: item for item in self.repository.list_accounts()}
-        rows = [
-            IncomeDetailRow(
-                income_id=entry.id,
-                income_date=entry.income_date,
-                account_code=accounts[entry.coa_id].code if entry.coa_id in accounts else None,
-                account_name=accounts[entry.coa_id].name if entry.coa_id in accounts else None,
-                amount=float(entry.amount),
-                remarks=entry.remarks,
-                created_at=entry.created_at,
-            )
-            for entry in self.repository.list_income_entries(from_date=filters.from_date, to_date=filters.to_date)
-        ]
+        total, total_amount, rows = self.repository.income_detail(from_date=filters.from_date, to_date=filters.to_date)
+        
+        formatted_rows = []
+        for i, row in enumerate(rows):
+            formatted_rows.append({
+                "Sl.No.": i + 1,
+                "Income Date": row["income_date"],
+                "Account Code": row["account_code"],
+                "Account Name": row["account_name"],
+                "Remarks": row["remarks"],
+                "Amount": row["amount"],
+            })
+
         return ReportEnvelope(
             report_type="income_detail",
             title="Income Detail Report",
             generated_at=datetime.now(UTC),
-            row_count=len(rows),
+            row_count=total,
             totals={
-                "total_income_amount": round(sum(item.amount for item in rows), 2),
-                "income_entry_count": len(rows),
+                "Total Income Amount": round(total_amount, 2),
             },
             applied_filters=self._applied_filters(filters),
-            rows=[row.model_dump(mode="json") for row in rows],
+            items=formatted_rows,
         )
 
     def expense_detail(self, filters: ReportFilter) -> ReportEnvelope:
@@ -209,18 +208,31 @@ class ReportingService:
             from_date=filters.from_date,
             to_date=filters.to_date,
         )
+        
+        formatted_rows = []
+        for i, row in enumerate(rows):
+            formatted_rows.append({
+                "SL No": i + 1,
+                "Collection Date": row["collection_date"],
+                "Member ID": row["member_id"],
+                "Member Name": row["member_name"],
+                "Plot No": row["plot_no"],
+                "Invoice No": row["invoice_no"],
+                "Electricity Bill Amount": row["electricity_bill_amount"],
+                "Paid Amount": row["paid_amount"],
+            })
+
         return ReportEnvelope(
             report_type="electricity_collection",
             title="Electricity Collection Report",
             generated_at=datetime.now(UTC),
             row_count=total,
             totals={
-                "total_transactions": total,
-                "total_electricity_bill_amount": round(total_bill, 2),
-                "total_collected_amount": round(total_paid, 2),
+                "Grand Total Electricity Bill Amount": round(total_bill, 2),
+                "Grand Total Paid Amount": round(total_paid, 2),
             },
             applied_filters=self._applied_filters(filters),
-            items=rows,
+            items=formatted_rows,
         )
 
     def collections(self, filters: ReportFilter) -> ReportEnvelope:
@@ -606,6 +618,12 @@ class ReportingService:
             sheet.column_dimensions[col_letter].width = min(max_len + 2, 50)
 
     def render_html(self, report: ReportEnvelope) -> str:
+        if report.report_type == "electricity_collection":
+            template = self.template_env.get_template("electricity_collection_report.html")
+            return template.render(report=report)
+        if report.report_type == "income_detail":
+            template = self.template_env.get_template("income_detail_report.html")
+            return template.render(report=report)
         template = self.template_env.get_template("table_report.html")
         return template.render(report=report)
 
@@ -614,6 +632,12 @@ class ReportingService:
         return template.render(report=report)
 
     def render_paged_report_html(self, report: ReportPageEnvelope) -> str:
+        if report.report_type == "electricity_collection":
+            template = self.template_env.get_template("electricity_collection_report.html")
+            return template.render(report=report)
+        if report.report_type == "income_detail":
+            template = self.template_env.get_template("income_detail_report.html")
+            return template.render(report=report)
         template = self.template_env.get_template("table_report.html")
         return template.render(report=report)
 
@@ -634,6 +658,11 @@ class ReportingService:
         return template.render(report=report)
 
     def render_xlsx(self, report: ReportEnvelope) -> bytes:
+        if report.report_type == "electricity_collection":
+            return self.render_electricity_collection_xlsx(report)
+        if report.report_type == "income_detail":
+            return self.render_income_detail_xlsx(report)
+            
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "Report"
@@ -818,24 +847,29 @@ class ReportingService:
         sheet = workbook.active
         sheet.title = "Income vs Expense"
         sheet.append(["Income vs Expense Report"])
-        if report.from_date:
-            sheet.append(["From Date", report.from_date.isoformat()])
-        if report.to_date:
-            sheet.append(["To Date", report.to_date.isoformat()])
+        
+        if report.from_date and report.to_date:
+            sheet.append([f"Period: {report.from_date.isoformat()} to {report.to_date.isoformat()}"])
+        elif report.from_date:
+            sheet.append([f"From: {report.from_date.isoformat()}"])
+        elif report.to_date:
+            sheet.append([f"To: {report.to_date.isoformat()}"])
         sheet.append([])
-        sheet.append(["Income (Collections)"])
+        
+        sheet.append(["Income (Collections)", ""])
         sheet.append(["Category / COA", "Amount"])
         for row in report.income.rows:
-            coa_name = row["coa_name"] if isinstance(row, dict) else row.coa_name
-            amount = row["amount"] if isinstance(row, dict) else row.amount
+            coa_name = row.get("coa_name") if isinstance(row, dict) else row.coa_name
+            amount = row.get("amount") if isinstance(row, dict) else row.amount
             sheet.append([coa_name, amount])
         sheet.append(["Total Income", report.income.subtotal])
         sheet.append([])
-        sheet.append(["Expenses (Payments)"])
+        
+        sheet.append(["Expenses (Payments)", ""])
         sheet.append(["Category / COA", "Amount"])
         for row in report.expense.rows:
-            coa_name = row["coa_name"] if isinstance(row, dict) else row.coa_name
-            amount = row["amount"] if isinstance(row, dict) else row.amount
+            coa_name = row.get("coa_name") if isinstance(row, dict) else row.coa_name
+            amount = row.get("amount") if isinstance(row, dict) else row.amount
             sheet.append([coa_name, amount])
         sheet.append(["Total Expense", report.expense.subtotal])
         sheet.append([])
@@ -848,6 +882,57 @@ class ReportingService:
         workbook.save(buffer)
         return buffer.getvalue()
 
+    def render_electricity_collection_xlsx(self, report: ReportEnvelope | ReportPageEnvelope) -> bytes:
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Electricity Collection"
+        sheet.append(["Electricity Collection Report"])
+        sheet.append([f"Generated at: {report.generated_at.isoformat()}"])
+        for key, value in report.applied_filters.items():
+            sheet.append([key.replace('_', ' ').title(), value])
+        sheet.append([])
+        
+        if report.items:
+            # Output headers exactly as generated in the backend dictionary
+            headers = list(report.items[0].keys())
+            sheet.append(headers)
+            for row in report.items:
+                sheet.append(list(row.values()))
+        sheet.append([])
+        if report.totals:
+            for key, value in report.totals.items():
+                sheet.append([key, value])
+                
+        self._style_worksheet(sheet, "Electricity Collection Report")
+        buffer = BytesIO()
+        workbook.save(buffer)
+        return buffer.getvalue()
+
+    def render_income_detail_xlsx(self, report: ReportEnvelope | ReportPageEnvelope) -> bytes:
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Income Detail"
+        sheet.append(["Income Detail Report"])
+        sheet.append([f"Generated at: {report.generated_at.isoformat()}"])
+        for key, value in report.applied_filters.items():
+            sheet.append([key.replace('_', ' ').title(), value])
+        sheet.append([])
+        
+        if report.items:
+            headers = list(report.items[0].keys())
+            sheet.append(headers)
+            for row in report.items:
+                sheet.append(list(row.values()))
+        sheet.append([])
+        if report.totals:
+            for key, value in report.totals.items():
+                sheet.append([key, value])
+                
+        self._style_worksheet(sheet, "Income Detail Report")
+        buffer = BytesIO()
+        workbook.save(buffer)
+        return buffer.getvalue()
+
     def paged_report(self, report_key: str, filters: ReportFilter, *, limit: int = 50, offset: int = 0) -> ReportPageEnvelope:
         safe_limit = min(max(limit, 1), 200)
         safe_offset = max(offset, 0)
@@ -856,11 +941,20 @@ class ReportingService:
 
         if report_key == "income-detail":
             total, total_amount, rows = self.repository.paged_income_detail(
-                from_date=filters.from_date,
-                to_date=filters.to_date,
-                limit=safe_limit,
-                offset=safe_offset,
+                from_date=filters.from_date, to_date=filters.to_date, limit=safe_limit, offset=safe_offset
             )
+            
+            formatted_rows = []
+            for i, row in enumerate(rows):
+                formatted_rows.append({
+                    "Sl.No.": safe_offset + i + 1,
+                    "Income Date": row["income_date"],
+                    "Account Code": row["account_code"],
+                    "Account Name": row["account_name"],
+                    "Remarks": row["remarks"],
+                    "Amount": row["amount"],
+                })
+
             return ReportPageEnvelope(
                 report_type="income_detail",
                 title="Income Detail Report",
@@ -868,9 +962,11 @@ class ReportingService:
                 total=total,
                 limit=safe_limit,
                 offset=safe_offset,
-                totals={"total_income_amount": round(total_amount, 2), "income_entry_count": total},
+                totals={
+                    "Total Income Amount": round(total_amount, 2),
+                },
                 applied_filters=applied_filters,
-                items=rows,
+                items=formatted_rows,
             )
         if report_key == "expense-detail":
             total, total_amount, rows = self.repository.paged_expense_detail(
@@ -899,6 +995,20 @@ class ReportingService:
                 limit=safe_limit,
                 offset=safe_offset,
             )
+            
+            formatted_rows = []
+            for i, row in enumerate(rows):
+                formatted_rows.append({
+                    "SL No": safe_offset + i + 1,
+                    "Collection Date": row["collection_date"],
+                    "Member ID": row["member_id"],
+                    "Member Name": row["member_name"],
+                    "Plot No": row["plot_no"],
+                    "Invoice No": row["invoice_no"],
+                    "Electricity Bill Amount": row["electricity_bill_amount"],
+                    "Paid Amount": row["paid_amount"],
+                })
+
             return ReportPageEnvelope(
                 report_type="electricity_collection",
                 title="Electricity Collection Report",
@@ -907,12 +1017,11 @@ class ReportingService:
                 limit=safe_limit,
                 offset=safe_offset,
                 totals={
-                    "total_transactions": total,
-                    "total_electricity_bill_amount": round(total_bill, 2),
-                    "total_collected_amount": round(total_paid, 2),
+                    "Grand Total Electricity Bill Amount": round(total_bill, 2),
+                    "Grand Total Paid Amount": round(total_paid, 2),
                 },
                 applied_filters=applied_filters,
-                items=rows,
+                items=formatted_rows,
             )
         if report_key == "collections":
             total, total_amount, discount_amount, rows = self.repository.paged_collections(
