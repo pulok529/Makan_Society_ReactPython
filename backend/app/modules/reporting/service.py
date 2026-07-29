@@ -548,7 +548,7 @@ class ReportingService:
                 "Full Name": row["full_name"],
                 "Plot No.": row["plot_no"],
                 "Cell No.": row["cell_no"],
-                "Collected Tk.": row["total_collection_amount"],
+                "Collected Amount": row["total_collection_amount"],
                 "Due Amount": row["total_due_amount"]
             })
             
@@ -558,7 +558,7 @@ class ReportingService:
             generated_at=datetime.now(UTC),
             row_count=total_count,
             totals={
-                "Total Collected Tk.": round(totals_dict["total_collection_amount"], 2),
+                "Total Collected Amount": round(totals_dict["total_collection_amount"], 2),
                 "Total Due Amount": round(totals_dict["total_due_amount"], 2),
             },
             applied_filters=self._applied_filters(filters),
@@ -1197,7 +1197,7 @@ class ReportingService:
                     "Full Name": row["full_name"],
                     "Plot No.": row["plot_no"],
                     "Cell No.": row["cell_no"],
-                    "Collected Tk.": row["total_collection_amount"],
+                    "Collected Amount": row["total_collection_amount"],
                     "Due Amount": row["total_due_amount"]
                 })
                 
@@ -1209,7 +1209,7 @@ class ReportingService:
                 limit=safe_limit,
                 offset=safe_offset,
                 totals={
-                    "Total Collected Tk.": round(totals["total_collection_amount"], 2),
+                    "Total Collected Amount": round(totals["total_collection_amount"], 2),
                     "Total Due Amount": round(totals["total_due_amount"], 2),
                 },
                 applied_filters=applied_filters,

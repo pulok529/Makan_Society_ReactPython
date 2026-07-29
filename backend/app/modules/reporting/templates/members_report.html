@@ -15,10 +15,10 @@
         {% for row in row_data %}
         <tr>
           {% for value in row.values() %}
-          <td>
+          <td{% if value is number %} class="right"{% endif %}>
             {% if value is none %}
             {% elif value is number %}
-              {{ "{:,.2f}".format(value) if value is float else value }}
+              {{ "{:,.2f}".format(value) }}
             {% else %}
               {{ value }}
             {% endif %}
@@ -33,7 +33,7 @@
         <tr style="background-color: #f9fafb; border-top: 2px solid #6b7280;">
           <td colspan="{{ row_data[0].keys()|length - 1 }}" class="right" style="font-weight: bold;">{{ key }}</td>
           <td class="right" style="font-weight: bold;">
-            {% if value is float %}
+            {% if value is number %}
               {{ "{:,.2f}".format(value) }}
             {% else %}
               {{ value }}
