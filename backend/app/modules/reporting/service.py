@@ -540,18 +540,29 @@ class ReportingService:
             offset=0,
         )
         
+        formatted_rows = []
+        for i, row in enumerate(rows):
+            formatted_rows.append({
+                "Sl. No.": i + 1,
+                "Member Code": row["member_code"],
+                "Full Name": row["full_name"],
+                "Plot No.": row["plot_no"],
+                "Cell No.": row["cell_no"],
+                "Collected Tk.": row["total_collection_amount"],
+                "Due Amount": row["total_due_amount"]
+            })
+            
         return ReportEnvelope(
             report_type="member_summary",
             title="Total Member Summary",
             generated_at=datetime.now(UTC),
             row_count=total_count,
             totals={
-                "member_count": total_count,
-                "total_collection_amount": round(totals_dict["total_collection_amount"], 2),
-                "total_due_amount": round(totals_dict["total_due_amount"], 2),
+                "Total Collected Tk.": round(totals_dict["total_collection_amount"], 2),
+                "Total Due Amount": round(totals_dict["total_due_amount"], 2),
             },
             applied_filters=self._applied_filters(filters),
-            items=rows,
+            items=formatted_rows,
         )
 
     def receipt_detail(self, receipt_id: int) -> ReceiptDetailReport:
@@ -624,6 +635,9 @@ class ReportingService:
         if report.report_type == "income_detail":
             template = self.template_env.get_template("income_detail_report.html")
             return template.render(report=report)
+        if report.report_type == "member_summary":
+            template = self.template_env.get_template("members_report.html")
+            return template.render(report=report)
         template = self.template_env.get_template("table_report.html")
         return template.render(report=report)
 
@@ -637,6 +651,9 @@ class ReportingService:
             return template.render(report=report)
         if report.report_type == "income_detail":
             template = self.template_env.get_template("income_detail_report.html")
+            return template.render(report=report)
+        if report.report_type == "member_summary":
+            template = self.template_env.get_template("members_report.html")
             return template.render(report=report)
         template = self.template_env.get_template("table_report.html")
         return template.render(report=report)
@@ -662,6 +679,8 @@ class ReportingService:
             return self.render_electricity_collection_xlsx(report)
         if report.report_type == "income_detail":
             return self.render_income_detail_xlsx(report)
+        if report.report_type == "member_summary":
+            return self.render_members_xlsx(report)
             
         workbook = Workbook()
         sheet = workbook.active
@@ -933,6 +952,31 @@ class ReportingService:
         workbook.save(buffer)
         return buffer.getvalue()
 
+    def render_members_xlsx(self, report: ReportEnvelope | ReportPageEnvelope) -> bytes:
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Total Member Summary"
+        sheet.append(["Total Member Summary"])
+        sheet.append([f"Generated at: {report.generated_at.isoformat()}"])
+        for key, value in report.applied_filters.items():
+            sheet.append([key.replace('_', ' ').title(), value])
+        sheet.append([])
+        
+        if report.items:
+            headers = list(report.items[0].keys())
+            sheet.append(headers)
+            for row in report.items:
+                sheet.append(list(row.values()))
+        sheet.append([])
+        if report.totals:
+            for key, value in report.totals.items():
+                sheet.append([key, value])
+                
+        self._style_worksheet(sheet, "Total Member Summary")
+        buffer = BytesIO()
+        workbook.save(buffer)
+        return buffer.getvalue()
+
     def paged_report(self, report_key: str, filters: ReportFilter, *, limit: int = 50, offset: int = 0) -> ReportPageEnvelope:
         safe_limit = min(max(limit, 1), 200)
         safe_offset = max(offset, 0)
@@ -1144,6 +1188,19 @@ class ReportingService:
                 limit=safe_limit,
                 offset=safe_offset,
             )
+            
+            formatted_rows = []
+            for i, row in enumerate(rows):
+                formatted_rows.append({
+                    "Sl. No.": safe_offset + i + 1,
+                    "Member Code": row["member_code"],
+                    "Full Name": row["full_name"],
+                    "Plot No.": row["plot_no"],
+                    "Cell No.": row["cell_no"],
+                    "Collected Tk.": row["total_collection_amount"],
+                    "Due Amount": row["total_due_amount"]
+                })
+                
             return ReportPageEnvelope(
                 report_type="member_summary",
                 title="Total Member Summary",
@@ -1151,8 +1208,11 @@ class ReportingService:
                 total=total,
                 limit=safe_limit,
                 offset=safe_offset,
-                totals=totals,
+                totals={
+                    "Total Collected Tk.": round(totals["total_collection_amount"], 2),
+                    "Total Due Amount": round(totals["total_due_amount"], 2),
+                },
                 applied_filters=applied_filters,
-                items=rows,
+                items=formatted_rows,
             )
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported paged report type")
