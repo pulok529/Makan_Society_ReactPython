@@ -273,7 +273,7 @@ class ReportingService:
                 "discount_amount": round(sum(item.discount_amount for item in rows), 2),
             },
             applied_filters=self._applied_filters(filters),
-            rows=[row.model_dump() for row in rows],
+            items=[row.model_dump() for row in rows],
         )
 
     def total_collection(self, filters: ReportFilter) -> ReportEnvelope:

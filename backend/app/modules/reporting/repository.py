@@ -432,42 +432,42 @@ class ReportingRepository:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[int, float, float, list[dict]]:
-        conditions = []
+        conditions = [
+            BillingInvoice.is_cancelled == False,  # noqa: E712
+            BillingInvoice.total_receive_amount > 0,
+        ]
         if member_id is not None:
-            conditions.append(Receipt.member_id == member_id)
+            conditions.append(BillingInvoice.member_id == member_id)
         if category_id is not None:
             conditions.append(Member.category_id == category_id)
         if plot_no is not None and plot_no.strip():
             conditions.append((Member.plot_no.ilike(f"%{plot_no.strip()}%")) | (Member.member_id_text.ilike(f"%{plot_no.strip()}%")))
         if from_date is not None:
-            conditions.append(Receipt.payment_date >= from_date)
+            conditions.append(BillingInvoice.invoice_date >= from_date)
         if to_date is not None:
-            conditions.append(Receipt.payment_date <= to_date)
+            conditions.append(BillingInvoice.invoice_date <= to_date)
 
-        base = select(Receipt.id).select_from(Receipt).join(Member, Member.id == Receipt.member_id)
+        base = select(BillingInvoice.id).select_from(BillingInvoice).join(Member, Member.id == BillingInvoice.member_id).where(and_(*conditions))
         total_stmt = select(
-            func.coalesce(func.sum(Receipt.total_amount), 0),
-            func.coalesce(func.sum(Receipt.discount_amount), 0),
-        ).select_from(Receipt).join(Member, Member.id == Receipt.member_id)
-        if conditions:
-            base = base.where(and_(*conditions))
-            total_stmt = total_stmt.where(and_(*conditions))
+            func.coalesce(func.sum(BillingInvoice.total_receive_amount), 0),
+            func.coalesce(func.sum(BillingInvoice.discount_amount), 0),
+        ).select_from(BillingInvoice).join(Member, Member.id == BillingInvoice.member_id).where(and_(*conditions))
         count_stmt = select(func.count()).select_from(base.subquery())
 
         rows = self.db.execute(
             select(
-                Receipt.member_id.label("member_id"),
+                BillingInvoice.member_id.label("member_id"),
                 Member.member_code.label("member_code"),
                 Member.full_name.label("member_name"),
-                Receipt.receipt_no.label("receipt_no"),
-                Receipt.payment_date.label("payment_date"),
-                Receipt.total_amount.label("total_amount"),
-                Receipt.discount_amount.label("discount_amount"),
+                BillingInvoice.invoice_no.label("receipt_no"),
+                BillingInvoice.invoice_date.label("payment_date"),
+                BillingInvoice.total_receive_amount.label("total_amount"),
+                BillingInvoice.discount_amount.label("discount_amount"),
             )
-            .select_from(Receipt)
-            .join(Member, Member.id == Receipt.member_id)
-            .where(and_(*conditions) if conditions else True)
-            .order_by(Member.member_code.asc(), Receipt.payment_date.asc(), Receipt.receipt_no.asc())
+            .select_from(BillingInvoice)
+            .join(Member, Member.id == BillingInvoice.member_id)
+            .where(and_(*conditions))
+            .order_by(Member.member_code.asc(), BillingInvoice.invoice_date.asc(), BillingInvoice.invoice_no.asc())
             .offset(offset)
             .limit(limit)
         ).mappings().all()

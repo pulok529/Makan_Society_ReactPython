@@ -4,6 +4,8 @@ Last updated: 2026-05-20
 
 ## Completed Tasks
 
+- Fixed Collections report date range filtering. Aligned `paged_collections` repository query to target operational billing collections (`billing.billing_invoices` where `is_cancelled = False` and `total_receive_amount > 0` filtered by `invoice_date >= from_date` and `invoice_date <= to_date`), matching the export query engine. Fixed `ReportEnvelope` schema response in `service.collections` to use `items` instead of `rows`. Verified 1-day, 1-month, multi-month, and previous-year date ranges.
+
 - Fixed Billing Grid data eligibility and top Select All checkbox. Configured `/api/billing/members/{member_id}/dues` to default `due_only=true` so the Billing Grid only renders outstanding receivable lines (`due_amount > 0`) without paid rows, while preserving `due_only=false` for historical statement/history views (06-2022 to 12-2025 history intact). Fixed top Select All checkbox in `App.tsx` to cleanly toggle all eligible grid rows.
 
 - Fixed Billing & Receipt period gap issue (06-2022 to 12-2025). Resolved backend period builder filtering (`remaining > 0`), added batch payment lookups to repository (`get_all_period_payment_totals`), updated API router `/api/billing/members/{member_id}/dues` with optional `due_only` parameter, and updated frontend dues grid to display paid rows with locked inputs and paid badges. Verified Member 092 (`Md. Amjad Hoshain`) and 2026 continuation.
