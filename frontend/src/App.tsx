@@ -355,7 +355,8 @@ export function App() {
     [billingDueLines, invoiceReceipts],
   );
   const billingGridAbsoluteDueTotal = useMemo(() => billingDueLines.reduce((sum, line) => sum + Number(line.due_amount || 0), 0), [billingDueLines]);
-  const billingAllRowsChecked = billingDueLines.length > 0 && billingDueLines.every((line, index) => isLineSelected(line, index));
+  const billingUnpaidLines = useMemo(() => billingDueLines.filter((line) => line.due_amount > 0), [billingDueLines]);
+  const billingAllRowsChecked = billingUnpaidLines.length > 0 && billingDueLines.every((line, index) => line.due_amount <= 0 || isLineSelected(line, index));
   const billingSubtotal = useMemo(() => billingSelectedLines.reduce((sum, item) => sum + item.receive, 0), [billingSelectedLines]);
   const billingReceiveTotal = useMemo(
     () => billingSelectedLines.reduce((sum, item) => sum + item.receive, 0),
@@ -4755,7 +4756,7 @@ export function App() {
                           checked={billingAllRowsChecked}
                           onChange={(event) => {
                             if (event.target.checked) {
-                              setInvoiceReceipts(Object.fromEntries(billingDueLines.map((line, index) => [billingLineKey(line, index), String(line.due_amount)])));
+                              setInvoiceReceipts(Object.fromEntries(billingDueLines.filter((line) => line.due_amount > 0).map((line, index) => [billingLineKey(line, index), String(line.due_amount)])));
                             } else {
                               setInvoiceReceipts({});
                             }
@@ -4777,11 +4778,13 @@ export function App() {
                     {billingDueLines.map((line, index) => {
                       const key = billingLineKey(line, index);
                       const receive = Number(invoiceReceipts[key] ?? 0);
+                      const isPaid = line.due_amount <= 0;
                       return (
-                        <tr key={key}>
+                        <tr key={key} className={isPaid ? "table-light opacity-75" : undefined}>
                           <td className="text-center">
                             <input
                               className="form-check-input"
+                              disabled={isPaid}
                               checked={receive > 0}
                               onChange={(event) =>
                                 setInvoiceReceipts((current) => {
@@ -4795,14 +4798,18 @@ export function App() {
                             />
                           </td>
                           <td className="text-start text-wrap fw-semibold">{line.head_name}</td>
-                          <td className="text-center"><span className="badge bg-secondary-subtle text-secondary">{line.period_display ?? "One Time"}</span></td>
+                          <td className="text-center">
+                            <span className={`badge ${isPaid ? "bg-success-subtle text-success" : (line.paid_amount > 0 ? "bg-warning-subtle text-warning" : "bg-secondary-subtle text-secondary")}`}>
+                              {line.period_display ?? "One Time"}
+                            </span>
+                          </td>
                           <td className="text-center">{line.plot_count ?? 1}</td>
                           <td className="text-end">{money(line.base_fee_amount ?? line.fee_amount)}</td>
                           <td className="text-end">{money(line.fee_amount)}</td>
                           <td className="text-end">{money(line.paid_amount ?? 0)}</td>
                           <td className="text-end">{money(line.due_amount)}</td>
                           <td className="text-end">
-                            <input className="form-control form-control-sm billing-receive-input ms-auto" style={{ maxWidth: "120px" }} type="number" min="0" max={line.due_amount} onFocus={(e) => e.target.select()} value={invoiceReceipts[key] ?? "0"} onChange={(event) => {
+                            <input className="form-control form-control-sm billing-receive-input ms-auto" style={{ maxWidth: "120px" }} type="number" min="0" max={line.due_amount} disabled={isPaid} onFocus={(e) => e.target.select()} value={invoiceReceipts[key] ?? "0"} onChange={(event) => {
                               const val = Number(event.target.value);
                               if (val > line.due_amount) {
                                 setInvoiceReceipts((current) => ({ ...current, [key]: String(line.due_amount) }));

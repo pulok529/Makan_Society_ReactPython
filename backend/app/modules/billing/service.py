@@ -149,12 +149,12 @@ class BillingService:
         self.db.commit()
         return self.list_head_mappings()[0]
 
-    def preview_member_dues(self, member_id: int) -> list[BillingDueLineRead]:
+    def preview_member_dues(self, member_id: int, due_only: bool = False) -> list[BillingDueLineRead]:
         self._ensure_default_billing_setup()
         member = self.member_repository.get_by_id(member_id)
         if member is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
-        return self._build_member_due_lines(member)
+        return self._build_member_due_lines(member, due_only=due_only)
 
     def create_invoice(self, payload: BillingInvoiceCreate, user: User) -> BillingInvoiceRead:
         self._ensure_default_billing_setup()
@@ -389,14 +389,15 @@ class BillingService:
         if member is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
 
-        due_lines = self._build_member_due_lines(member)
-        due_map: dict[tuple[int, date | None], BillingDueLineRead] = {
-            (line.billing_head_id, line.period_date): line for line in due_lines
-        }
+        due_lines = self._build_member_due_lines(member, due_only=False)
         existing_rows = self.repository.list_due_trackers(member_id=member_id)
+        existing_map = {(t.billing_head_id, t.period_date): t for t in existing_rows}
 
         for line in due_lines:
-            tracker = self.repository.get_due_tracker(member_id, line.billing_head_id, line.period_date)
+            key = (line.billing_head_id, line.period_date)
+            tracker = existing_map.get(key)
+            status_val = "paid" if line.due_amount <= 0 else ("partial" if line.paid_amount > 0 else "open")
+            discount_val = max(line.fee_amount - line.paid_amount - line.due_amount, 0)
             if tracker is None:
                 tracker = BillingDueTracker(
                     member_id=member_id,
@@ -410,9 +411,9 @@ class BillingService:
                     base_fee_amount=line.base_fee_amount,
                     fee_amount=line.fee_amount,
                     paid_amount=line.paid_amount,
-                    discount_amount=max(line.fee_amount - line.paid_amount - line.due_amount, 0),
+                    discount_amount=discount_val,
                     due_amount=line.due_amount,
-                    status="partial" if line.paid_amount > 0 else "open",
+                    status=status_val,
                     last_invoice_id=None,
                 )
                 self.repository.add_due_tracker(tracker)
@@ -425,21 +426,9 @@ class BillingService:
                 tracker.base_fee_amount = line.base_fee_amount
                 tracker.fee_amount = line.fee_amount
                 tracker.paid_amount = line.paid_amount
-                tracker.discount_amount = max(line.fee_amount - line.paid_amount - line.due_amount, 0)
+                tracker.discount_amount = discount_val
                 tracker.due_amount = line.due_amount
-                tracker.status = "partial" if line.paid_amount > 0 else "open"
-
-        for tracker in existing_rows:
-            if (tracker.billing_head_id, tracker.period_date) in due_map:
-                continue
-            if tracker.period_date is not None:
-                paid = self.repository.get_period_payment_totals(member_id, tracker.billing_head_id, tracker.period_date)
-            else:
-                paid = self.repository.get_one_time_payment_totals(member_id, tracker.billing_head_id)
-            tracker.paid_amount = paid
-            tracker.due_amount = max(float(tracker.fee_amount) - paid, 0)
-            tracker.discount_amount = 0
-            tracker.status = "paid" if tracker.due_amount <= 0 else ("partial" if paid > 0 else "open")
+                tracker.status = status_val
 
         self.db.flush()
         return self.repository.list_due_trackers(member_id=member_id)
@@ -949,10 +938,13 @@ class BillingService:
             created_by=detail.created_by,
         )
 
-    def _build_member_due_lines(self, member) -> list[BillingDueLineRead]:
+    def _build_member_due_lines(self, member, due_only: bool = False) -> list[BillingDueLineRead]:
         today = date.today()
         rows: list[BillingDueLineRead] = []
         plot_count = self._member_plot_count(member)
+        period_payments = self.repository.get_all_period_payment_totals(member.id)
+        one_time_payments = self.repository.get_all_one_time_payment_totals(member.id)
+
         for head in self.repository.list_billing_heads(active_only=True):
             mapping = self.repository.get_active_head_mapping(head.id)
             if head.head_type == "Period":
@@ -968,13 +960,9 @@ class BillingService:
                         continue
                     base_fee = float(head.fee_amount)
                     fee = base_fee * plot_count
-                    paid = self.repository.get_period_payment_totals(member.id, head.id, current)
-                    
-                    # LOGGING AS REQUESTED
-                    print(f"DEBUG PERIOD DUE: Member={member.id} Head={head.id} Period={current} FeeAmount={fee} TotalReceived={paid} CalculatedDue={max(fee - paid, 0)}")
-                    
-                    remaining = max(fee - paid, 0)
-                    if remaining > 0:
+                    paid = period_payments.get((head.id, current), 0.0)
+                    remaining = max(fee - paid, 0.0)
+                    if not due_only or remaining > 0:
                         rows.append(
                             BillingDueLineRead(
                                 member_id=member.id,
@@ -1000,13 +988,9 @@ class BillingService:
 
             base_fee = float(head.fee_amount)
             fee = base_fee
-            paid = self.repository.get_one_time_payment_totals(member.id, head.id)
-            
-            # LOGGING AS REQUESTED
-            print(f"DEBUG ONE-TIME DUE: Member={member.id} Head={head.id} FeeAmount={fee} TotalReceived={paid} CalculatedDue={max(fee - paid, 0)}")
-            
-            remaining = max(fee - paid, 0)
-            if remaining > 0:
+            paid = one_time_payments.get(head.id, 0.0)
+            remaining = max(fee - paid, 0.0)
+            if not due_only or remaining > 0:
                 rows.append(
                     BillingDueLineRead(
                         member_id=member.id,

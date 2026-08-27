@@ -595,6 +595,24 @@ class BillingRepository:
         paid = self.db.scalar(statement)
         return float(paid or 0)
 
+    def get_all_period_payment_totals(self, member_id: int) -> dict[tuple[int, date], float]:
+        statement = (
+            select(
+                BillingInvoiceDetail.billing_head_id,
+                BillingInvoiceDetail.period_date,
+                func.coalesce(func.sum(BillingInvoiceDetail.receive_amount + BillingInvoiceDetail.discount_amount), 0),
+            )
+            .join(BillingInvoice, BillingInvoice.id == BillingInvoiceDetail.invoice_id)
+            .where(
+                BillingInvoice.is_cancelled == False,  # noqa: E712
+                BillingInvoiceDetail.member_id == member_id,
+                BillingInvoiceDetail.period_date.is_not(None),
+            )
+            .group_by(BillingInvoiceDetail.billing_head_id, BillingInvoiceDetail.period_date)
+        )
+        rows = self.db.execute(statement).all()
+        return {(head_id, period_date): float(paid or 0) for head_id, period_date, paid in rows}
+
     def get_one_time_payment_totals(self, member_id: int, head_id: int) -> float:
         statement = (
             select(
@@ -610,6 +628,23 @@ class BillingRepository:
         )
         paid = self.db.scalar(statement)
         return float(paid or 0)
+
+    def get_all_one_time_payment_totals(self, member_id: int) -> dict[int, float]:
+        statement = (
+            select(
+                BillingInvoiceDetail.billing_head_id,
+                func.coalesce(func.sum(BillingInvoiceDetail.receive_amount + BillingInvoiceDetail.discount_amount), 0),
+            )
+            .join(BillingInvoice, BillingInvoice.id == BillingInvoiceDetail.invoice_id)
+            .where(
+                BillingInvoice.is_cancelled == False,  # noqa: E712
+                BillingInvoiceDetail.member_id == member_id,
+                BillingInvoiceDetail.period_date.is_(None),
+            )
+            .group_by(BillingInvoiceDetail.billing_head_id)
+        )
+        rows = self.db.execute(statement).all()
+        return {head_id: float(paid or 0) for head_id, paid in rows}
 
     def list_accounts(self) -> list[Account]:
         return list(self.db.scalars(select(Account).order_by(Account.code.asc())))

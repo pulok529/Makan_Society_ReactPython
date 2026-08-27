@@ -192,10 +192,11 @@ def create_billing_head_mapping(
 @router.get("/members/{member_id}/dues", response_model=list[BillingDueLineRead])
 def preview_member_dues(
     member_id: int,
+    due_only: bool = Query(default=False),
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[BillingDueLineRead]:
-    return BillingService(db).preview_member_dues(member_id)
+    return BillingService(db).preview_member_dues(member_id, due_only=due_only)
 
 
 @router.get("/invoices", response_model=list[BillingInvoiceRead])

@@ -112,6 +112,7 @@ Detected from source and existing documentation:
   - `2018-01-01` through `2022-12-31`: `300 * plot_count`
   - `2023-01-01` onward: `500 * plot_count`
   - mandatory one-time registration fee: `1000`
+- Fixed Billing & Receipt period gap issue (06-2022 to 12-2025). The backend period builder now continuously generates and displays all subscription periods (both paid and open) so historical paid periods appear with paid badges and zero remaining due, preserving complete month sequence continuity.
 - Active database validation against the restored legacy snapshot reached `0` mismatches after the 2026-05-20 rebuild.
 
 ## What Is Partially Done

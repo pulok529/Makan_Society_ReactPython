@@ -4,6 +4,8 @@ Last updated: 2026-05-20
 
 ## Completed Tasks
 
+- Fixed Billing & Receipt period gap issue (06-2022 to 12-2025). Resolved backend period builder filtering (`remaining > 0`), added batch payment lookups to repository (`get_all_period_payment_totals`), updated API router `/api/billing/members/{member_id}/dues` with optional `due_only` parameter, and updated frontend dues grid to display paid rows with locked inputs and paid badges. Verified Member 092 (`Md. Amjad Hoshain`) and 2026 continuation.
+
 - Fixed historical invoice double-counting bug causing massively inflated Total Bill and Total Due summaries for legacy members. Replaced UI summary calculation to source directly from `BillingDueTracker` to perfectly respect billing head isolation without modifying any valid DB history.
 - Fixed Previous Bills grid defaulting to the current month, which wrongly hid historical invoices from the view (Member 146 issue).
 
