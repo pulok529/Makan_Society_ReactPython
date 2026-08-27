@@ -149,7 +149,7 @@ class BillingService:
         self.db.commit()
         return self.list_head_mappings()[0]
 
-    def preview_member_dues(self, member_id: int, due_only: bool = False) -> list[BillingDueLineRead]:
+    def preview_member_dues(self, member_id: int, due_only: bool = True) -> list[BillingDueLineRead]:
         self._ensure_default_billing_setup()
         member = self.member_repository.get_by_id(member_id)
         if member is None:
@@ -938,7 +938,7 @@ class BillingService:
             created_by=detail.created_by,
         )
 
-    def _build_member_due_lines(self, member, due_only: bool = False) -> list[BillingDueLineRead]:
+    def _build_member_due_lines(self, member, due_only: bool = True) -> list[BillingDueLineRead]:
         today = date.today()
         rows: list[BillingDueLineRead] = []
         plot_count = self._member_plot_count(member)

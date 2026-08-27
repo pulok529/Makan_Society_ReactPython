@@ -113,6 +113,7 @@ Detected from source and existing documentation:
   - `2023-01-01` onward: `500 * plot_count`
   - mandatory one-time registration fee: `1000`
 - Fixed Billing & Receipt period gap issue (06-2022 to 12-2025). The backend period builder now continuously generates and displays all subscription periods (both paid and open) so historical paid periods appear with paid badges and zero remaining due, preserving complete month sequence continuity.
+- Separated Billing Grid data eligibility from history statements. The Billing Grid (`due_only=True`) returns only outstanding receivable lines (`due_amount > 0`) so paid historical rows do not appear as selectable receive rows, while member statement/history views (`due_only=False`) preserve full historical visibility. Fixed top Select All checkbox in frontend to cleanly toggle all eligible grid rows.
 - Active database validation against the restored legacy snapshot reached `0` mismatches after the 2026-05-20 rebuild.
 
 ## What Is Partially Done
