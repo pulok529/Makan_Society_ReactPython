@@ -63,6 +63,16 @@ function escapePrintHtml(value: unknown) {
     .replace(/'/g, "&#39;");
 }
 
+function formatFilterDateDisplay(dateStr: string | null | undefined): string {
+  if (!dateStr) return "";
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.trim());
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch;
+    return `${month}/${day}/${year}`;
+  }
+  return dateStr;
+}
+
 function renderAppliedFilterCards(filters: Record<string, string>) {
   const entries = Object.entries(filters ?? {}).filter(([, value]) => String(value ?? "").trim() !== "");
   if (entries.length === 0) return null;
@@ -480,6 +490,12 @@ function renderTableReportContent(
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const startIndex = isPaged ? report.offset : (activePage - 1) * pageSize;
 
+  const fromDateVal = report.applied_filters?.from_date;
+  const toDateVal = report.applied_filters?.to_date;
+  const collectionPeriodDisplay = (fromDateVal || toDateVal)
+    ? `${formatFilterDateDisplay(fromDateVal) || "Start"} → ${formatFilterDateDisplay(toDateVal) || "Today"}`
+    : null;
+
   return (
     <div className="report-sheet">
       <div className="report-sheet-header">
@@ -488,6 +504,11 @@ function renderTableReportContent(
           <div>
             <div className="fw-semibold">Report Viewer</div>
             <div className="text-muted">Makan Society</div>
+            {collectionPeriodDisplay ? (
+              <div className="text-muted small mt-1">
+                <strong>Collection Period:</strong> {collectionPeriodDisplay}
+              </div>
+            ) : null}
           </div>
           <div className="text-end">
             <h3 className="invoice-report-title mb-1">{report.title}</h3>
@@ -502,7 +523,7 @@ function renderTableReportContent(
             <thead>
               <tr>
                 {columns.map((column) => (
-                  <th key={column}>{column.replace(/_/g, " ")}</th>
+                  <th key={column}>{column.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}</th>
                 ))}
               </tr>
             </thead>
@@ -625,6 +646,12 @@ function buildPaginatedTableReportMarkup(
   const startIndex = isPaged ? report.offset : (activePage - 1) * pageSize;
   const pageRows = isPaged ? rows : rows.slice(startIndex, startIndex + pageSize);
 
+  const fromDateVal = report.applied_filters?.from_date;
+  const toDateVal = report.applied_filters?.to_date;
+  const collectionPeriodDisplay = (fromDateVal || toDateVal)
+    ? `${formatFilterDateDisplay(fromDateVal) || "Start"} &rarr; ${formatFilterDateDisplay(toDateVal) || "Today"}`
+    : null;
+
   return `
     <main class="sheet report-sheet">
       <section class="report-sheet-header">
@@ -633,6 +660,7 @@ function buildPaginatedTableReportMarkup(
           <div>
             <div class="section-title">Report Viewer</div>
             <div class="text-muted">Makan Society</div>
+            ${collectionPeriodDisplay ? `<div class="text-muted small" style="margin-top: 4px; font-size: 13px;"><strong>Collection Period:</strong> ${collectionPeriodDisplay}</div>` : ""}
           </div>
           <div class="right">
             <h1 class="report-title">${escapePrintHtml(report.title)}</h1>
@@ -646,7 +674,7 @@ function buildPaginatedTableReportMarkup(
           ? `
           <table>
             <thead>
-              <tr>${columns.map((column) => `<th>${escapePrintHtml(column.replace(/_/g, " "))}</th>`).join("")}</tr>
+              <tr>${columns.map((column) => `<th>${escapePrintHtml(column.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase()))}</th>`).join("")}</tr>
             </thead>
             <tbody>
               ${pageRows

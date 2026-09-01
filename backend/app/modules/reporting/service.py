@@ -44,6 +44,18 @@ class ReportingService:
             loader=FileSystemLoader("app/modules/reporting/templates"),
             autoescape=select_autoescape(["html"]),
         )
+        self.template_env.filters["format_filter_date"] = self._format_filter_date
+
+    @staticmethod
+    def _format_filter_date(value: str | None) -> str:
+        if not value:
+            return ""
+        val_str = str(value).strip()
+        parts = val_str.split("-")
+        if len(parts) == 3 and len(parts[0]) == 4:
+            year, month, day = parts
+            return f"{month}/{day}/{year}"
+        return val_str
 
     def _applied_filters(self, filters: ReportFilter) -> dict[str, str]:
         applied: dict[str, str] = {}
@@ -236,84 +248,45 @@ class ReportingService:
         )
 
     def collections(self, filters: ReportFilter) -> ReportEnvelope:
-        members = {
-            member.id: member
-            for member in self.repository.list_members(
-                member_id=filters.member_id,
-                category_id=filters.category_id,
-                plot_no=filters.plot_no,
-            )
-        }
-        invoices = self.repository.list_invoices_for_collection(
+        total_count, total_amount, rows = self.repository.paged_total_collection(
             member_id=filters.member_id,
+            category_id=filters.category_id,
+            plot_no=filters.plot_no,
             from_date=filters.from_date,
             to_date=filters.to_date,
+            limit=1000000,
+            offset=0,
         )
-        rows = [
-            CollectionRow(
-                member_id=invoice.member_id,
-                member_code=members[invoice.member_id].member_code,
-                member_name=members[invoice.member_id].full_name,
-                receipt_no=invoice.invoice_no,
-                payment_date=invoice.invoice_date,
-                total_amount=float(invoice.total_receive_amount),
-                discount_amount=float(invoice.discount_amount),
-            )
-            for invoice in invoices
-            if invoice.member_id in members
-        ]
-        rows.sort(key=lambda item: (item.member_code or "", item.payment_date, item.receipt_no))
         return ReportEnvelope(
             report_type="collections",
-            title="Collection Report",
+            title="Total Collection Report",
             generated_at=datetime.now(UTC),
-            row_count=len(rows),
-            totals={
-                "total_collected": round(sum(item.total_amount for item in rows), 2),
-                "discount_amount": round(sum(item.discount_amount for item in rows), 2),
-            },
+            row_count=total_count,
+            totals={"amount": round(total_amount, 2)},
             applied_filters=self._applied_filters(filters),
-            items=[row.model_dump() for row in rows],
+            items=rows,
+            rows=rows,
         )
 
     def total_collection(self, filters: ReportFilter) -> ReportEnvelope:
-        members = {
-            member.id: member
-            for member in self.repository.list_members(
-                member_id=filters.member_id,
-                category_id=filters.category_id,
-                plot_no=filters.plot_no,
-            )
-        }
-        grouped: dict[int, TotalCollectionRow] = {}
-        for invoice in self.repository.list_invoices_for_collection(
+        total_count, total_amount, rows = self.repository.paged_total_collection(
             member_id=filters.member_id,
+            category_id=filters.category_id,
+            plot_no=filters.plot_no,
             from_date=filters.from_date,
             to_date=filters.to_date,
-        ):
-            if invoice.member_id is None or invoice.member_id not in members:
-                continue
-            member = members[invoice.member_id]
-            row = grouped.get(member.id)
-            if row is None:
-                grouped[member.id] = TotalCollectionRow(
-                    member_id=member.id,
-                    member_code=member.member_code,
-                    member_name=member.full_name,
-                    plot_no=member.plot_no or member.member_id_text,
-                    total_collection_amount=float(invoice.total_receive_amount),
-                )
-            else:
-                row.total_collection_amount += float(invoice.total_receive_amount)
-        rows = sorted(grouped.values(), key=lambda item: (item.member_code, item.member_name))
+            limit=1000000,
+            offset=0,
+        )
         return ReportEnvelope(
             report_type="total_collection",
             title="Total Collection Report",
             generated_at=datetime.now(UTC),
-            row_count=len(rows),
-            totals={"total_collection_amount": sum(r.total_collection_amount for r in rows)},
+            row_count=total_count,
+            totals={"amount": round(total_amount, 2)},
             applied_filters=self._applied_filters(filters),
-            rows=[row.model_dump() for row in rows],
+            items=rows,
+            rows=rows,
         )
 
     def total_due(self, filters: ReportFilter) -> ReportEnvelope:
@@ -655,6 +628,9 @@ class ReportingService:
         if report.report_type == "member_summary":
             template = self.template_env.get_template("members_report.html")
             return template.render(report=report)
+        if report.report_type == "total_collection":
+            template = self.template_env.get_template("total_collection_report.html")
+            return template.render(report=report)
         template = self.template_env.get_template("table_report.html")
         return template.render(report=report)
 
@@ -681,6 +657,8 @@ class ReportingService:
             return self.render_income_detail_xlsx(report)
         if report.report_type == "member_summary":
             return self.render_members_xlsx(report)
+        if report.report_type == "total_collection":
+            return self.render_total_collection_xlsx(report)
             
         workbook = Workbook()
         sheet = workbook.active
@@ -703,17 +681,18 @@ class ReportingService:
         sheet.title = "Total Collection"
         sheet.append(["Total Collection Report"])
         sheet.append([])
-        headers = ["Member ID", "Member Code", "Member Name", "Plot No", "Total Collection Amount"]
+        headers = ["Member Code", "Member Name", "Plot No", "Collected Head", "Amount"]
         sheet.append(headers)
-        for row in report.items:
+        rows_data = getattr(report, "items", None) or getattr(report, "rows", [])
+        for row in rows_data:
             sheet.append([
-                row.get("member_id"),
                 row.get("member_code"),
                 row.get("member_name"),
                 row.get("plot_no"),
-                row.get("total_collection_amount")
+                row.get("collected_head", "Collection"),
+                row.get("amount", row.get("total_collection_amount", 0))
             ])
-        row_count = len(report.items)
+        row_count = len(rows_data)
         start_row = 4 # Row 1=Title, Row 2=Empty, Row 3=Header, Row 4=First Data
         end_row = start_row + row_count - 1 if row_count > 0 else start_row
         sum_formula = f"=SUM(E{start_row}:E{end_row})" if row_count > 0 else 0
@@ -1157,7 +1136,7 @@ class ReportingService:
                 items=rows,
                 empty_message="No members currently have outstanding dues.",
             )
-        if report_key == "total-collection":
+        if report_key in ("collections", "total-collection", "total_collection"):
             total, total_collection, rows = self.repository.paged_total_collection(
                 member_id=filters.member_id,
                 category_id=filters.category_id,
@@ -1168,13 +1147,13 @@ class ReportingService:
                 offset=safe_offset,
             )
             return ReportPageEnvelope(
-                report_type="total_collection",
+                report_type=report_key,
                 title="Total Collection Report",
                 generated_at=generated_at,
                 total=total,
                 limit=safe_limit,
                 offset=safe_offset,
-                totals={"total_collection_amount": round(total_collection, 2), "member_count": total},
+                totals={"amount": round(total_collection, 2)},
                 applied_filters=applied_filters,
                 items=rows,
             )

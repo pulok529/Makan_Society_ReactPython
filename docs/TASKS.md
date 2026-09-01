@@ -4,6 +4,8 @@ Last updated: 2026-05-20
 
 ## Completed Tasks
 
+- Updated Total Collection Report header and head-wise layout. Added dynamic Collection Period header line below "Makan Society" in format Collection Period: MM/DD/YYYY → MM/DD/YYYY. Re-architected collection dataset to present collection amounts HEAD-WISE per member (Member Code, Member Name, Plot No, Collected Head, Amount) while strictly enforcing date range filtering, removing discount amounts completely, and maintaining 100% data consistency across screen preview, HTML export, and XLSX export.
+
 - Fixed Collections report date range filtering. Aligned `paged_collections` repository query to target operational billing collections (`billing.billing_invoices` where `is_cancelled = False` and `total_receive_amount > 0` filtered by `invoice_date >= from_date` and `invoice_date <= to_date`), matching the export query engine. Fixed `ReportEnvelope` schema response in `service.collections` to use `items` instead of `rows`. Verified 1-day, 1-month, multi-month, and previous-year date ranges.
 
 - Fixed Billing Grid data eligibility and top Select All checkbox. Configured `/api/billing/members/{member_id}/dues` to default `due_only=true` so the Billing Grid only renders outstanding receivable lines (`due_amount > 0`) without paid rows, while preserving `due_only=false` for historical statement/history views (06-2022 to 12-2025 history intact). Fixed top Select All checkbox in `App.tsx` to cleanly toggle all eligible grid rows.

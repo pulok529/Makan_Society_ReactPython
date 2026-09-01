@@ -106,14 +106,17 @@
   <body>
     <div class="report-header">
       <div class="org-name">Makan Society</div>
+      {% if report.applied_filters is defined and (report.applied_filters.from_date or report.applied_filters.to_date) %}
+      <div class="collection-period" style="font-size: 13px; color: #4b5563; margin-top: 2px; margin-bottom: 6px;">
+        <strong>Collection Period:</strong> {{ report.applied_filters.from_date | format_filter_date | default("Start") }} &rarr; {{ report.applied_filters.to_date | format_filter_date | default("Today") }}
+      </div>
+      {% endif %}
       <h1 class="report-title">{{ report.title if report.title is defined else "Makan Society Report" }}</h1>
       <div class="report-meta">
         {% if report.generated_at is defined and report.generated_at %}
         Generated on: {{ report.generated_at.strftime('%Y-%m-%d %H:%M:%S') }}
         {% endif %}
       </div>
-      
-
     </div>
 
     <div class="report-content">

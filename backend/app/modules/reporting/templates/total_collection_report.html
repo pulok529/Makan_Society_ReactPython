@@ -1,7 +1,8 @@
 {% extends "base_report.html" %}
 
 {% block content %}
-    {% if report.rows %}
+    {% set rows_list = report.items if report.items is defined and report.items else report.rows %}
+    {% if rows_list %}
     <style>
       .total-row {
         background-color: #f9fafb;
@@ -17,23 +18,24 @@
     <table>
       <thead>
         <tr>
-          <th>Member ID</th>
           <th>Member Code</th>
           <th>Member Name</th>
           <th>Plot No</th>
-          <th class="right">Total Collection Amount</th>
+          <th>Collected Head</th>
+          <th class="right">Amount</th>
         </tr>
       </thead>
       <tbody>
         {% set total_amount = namespace(value=0) %}
-        {% for row in report.rows %}
-        {% set total_amount.value = total_amount.value + row.total_collection_amount %}
+        {% for row in rows_list %}
+        {% set row_amt = row.amount if row.amount is defined else row.total_collection_amount %}
+        {% set total_amount.value = total_amount.value + row_amt %}
         <tr>
-          <td>{{ row.member_id }}</td>
           <td>{{ row.member_code }}</td>
           <td>{{ row.member_name }}</td>
           <td>{{ row.plot_no or "" }}</td>
-          <td class="right">{{ "{:,.2f}".format(row.total_collection_amount) }}</td>
+          <td>{{ row.collected_head if row.collected_head is defined else "Collection" }}</td>
+          <td class="right">{{ "{:,.2f}".format(row_amt) }}</td>
         </tr>
         {% endfor %}
       </tbody>

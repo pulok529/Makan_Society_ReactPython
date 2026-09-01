@@ -650,7 +650,10 @@ class ReportingRepository:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[int, float, list[dict]]:
-        conditions = []
+        conditions = [
+            BillingInvoice.is_cancelled == False,  # noqa: E712
+            BillingInvoiceDetail.receive_amount > 0,
+        ]
         if member_id is not None:
             conditions.append(BillingInvoice.member_id == member_id)
         if category_id is not None:
@@ -662,29 +665,34 @@ class ReportingRepository:
         if to_date is not None:
             conditions.append(BillingInvoice.invoice_date <= to_date)
 
+        head_name_expr = func.coalesce(BillingHead.head_name, BillingInvoiceDetail.head_name_snapshot)
+
         grouped = (
             select(
-                Member.id.label("member_id"),
                 Member.member_code.label("member_code"),
                 Member.full_name.label("member_name"),
                 func.coalesce(Member.plot_no, Member.member_id_text).label("plot_no"),
-                func.coalesce(func.sum(BillingInvoice.total_receive_amount), 0).label("total_collection_amount"),
+                head_name_expr.label("collected_head"),
+                func.coalesce(func.sum(BillingInvoiceDetail.receive_amount), 0).label("amount"),
             )
             .select_from(BillingInvoice)
+            .join(BillingInvoiceDetail, BillingInvoiceDetail.invoice_id == BillingInvoice.id)
+            .outerjoin(BillingHead, BillingHead.id == BillingInvoiceDetail.billing_head_id)
             .join(Member, Member.id == BillingInvoice.member_id)
-            .where(
-                BillingInvoice.is_cancelled == False,  # noqa: E712
-                BillingInvoice.total_receive_amount > 0,
-                *(conditions),
+            .where(*conditions)
+            .group_by(
+                Member.member_code,
+                Member.full_name,
+                func.coalesce(Member.plot_no, Member.member_id_text),
+                head_name_expr,
             )
-            .group_by(Member.id, Member.member_code, Member.full_name, Member.plot_no, Member.member_id_text)
         ).subquery()
 
         count_stmt = select(func.count()).select_from(grouped)
-        total_stmt = select(func.coalesce(func.sum(grouped.c.total_collection_amount), 0)).select_from(grouped)
+        total_stmt = select(func.coalesce(func.sum(grouped.c.amount), 0)).select_from(grouped)
         rows = self.db.execute(
             select(grouped)
-            .order_by(grouped.c.member_code.asc(), grouped.c.member_name.asc())
+            .order_by(grouped.c.member_code.asc(), grouped.c.collected_head.asc())
             .offset(offset)
             .limit(limit)
         ).mappings().all()
